@@ -1,0 +1,26 @@
+# RedmineDocker .gitignore
+
+# ── Environment file (contains sensitive credentials) ────────────────────────
+# NEVER commit the actual .env file.
+# Use .env.example as a reference, generate .env with scripts/generate-env.sh
+.env
+
+# ── Backup files ──────────────────────────────────────────────────────────────
+# Backup archives are stored under /opt/redmine/backup/ on the host, not in the repo
+*.dump
+*.tar.gz
+
+# ── Container layer cache ─────────────────────────────────────────────────────
+.containerignore
+
+# ── Editor and OS files ───────────────────────────────────────────────────────
+.DS_Store
+*.swp
+*.swo
+*~
+.idea/
+.vscode/
+*.iml
+
+# ── Temporary files ───────────────────────────────────────────────────────────
+/tmp/

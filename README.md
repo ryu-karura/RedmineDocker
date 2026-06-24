@@ -1,2 +1,94 @@
 # RedmineDocker
-Redmine Multi Docker Project
+
+**Redmine Multi-Container Project powered by Podman on RHEL9 / AlmaLinux9**
+
+This repository contains the complete infrastructure-as-code to build, deploy, and operate a multi-environment Redmine platform using Podman containers managed by systemd Quadlets.
+
+---
+
+## Overview
+
+| Container | Name          | Role                              | Redmine | DB             |
+|-----------|---------------|-----------------------------------|---------|----------------|
+| Docker0   | redmine-db    | PostgreSQL 18 + PostGIS 3.5       | —       | —              |
+| Docker1   | redmine-prod  | Production Redmine 6.1.1          | 6.1.1   | redmine_prod   |
+| Docker2   | redmine-test  | Plugin Verification Environment   | 6.1.1   | redmine_test   |
+| Docker3   | redmine-next  | Version Upgrade Testing (7.0-dev) | main    | redmine_next   |
+
+All containers run under Podman (not Docker) and are managed as systemd services using Quadlet unit files.
+
+---
+
+## Sub-URI Mapping
+
+| Environment       | Sub-URI          | Host Port |
+|-------------------|------------------|-----------|
+| Production        | `/redmine`       | 10080     |
+| Plugin Test       | `/redmine-test`  | 10081     |
+| Upgrade Test      | `/redmine-next`  | 10082     |
+
+External HTTPS traffic arrives at port 443 on the host Apache, which terminates TLS and proxies requests to the respective container's Apache instance on the mapped host port.
+
+---
+
+## Component Versions
+
+| Component   | Version   |
+|-------------|-----------|
+| RHEL/Alma   | 9.5       |
+| Podman      | 4.9.x     |
+| PostgreSQL  | 18.1      |
+| PostGIS     | 3.5.2     |
+| Redmine     | 6.1.1     |
+| Ruby        | 3.4.4     |
+| Bundler     | 2.6.8     |
+| Node.js     | 22.16.0   |
+| Yarn        | 1.22.22   |
+| Apache      | 2.4.62    |
+| Puma        | (bundled with Redmine 6.1.1) |
+
+---
+
+## Repository Structure
+
+```
+RedmineDocker/
+├── README.md                     # This file
+├── docs/
+│   ├── Design.md                 # Architecture and design decisions
+│   ├── Setup.md                  # Step-by-step installation guide
+│   └── Manual.md                 # Day-to-day operational procedures
+├── containers/
+│   ├── docker0/                  # PostgreSQL 18 + PostGIS 3.5 container
+│   ├── docker1/                  # Production Redmine 6.1.1 container
+│   ├── docker2/                  # Plugin verification container
+│   └── docker3/                  # Version upgrade testing container
+├── quadlets/                     # Systemd Quadlet unit files
+├── host-apache/                  # Host Apache reverse proxy configuration
+├── scripts/                      # Operational scripts
+├── logrotate/                    # Log rotation configuration
+├── .env.example                  # Environment variable template
+└── .gitignore
+```
+
+---
+
+## Quick Start
+
+1. Clone this repository to `/opt/redmine/containers` on the host.
+2. Run `scripts/generate-env.sh` to generate `.env` with random passwords.
+3. Follow `docs/Setup.md` for the complete setup procedure.
+
+---
+
+## Documentation
+
+- **[Design Document](docs/Design.md)** — Architecture, network design, user/permission model, directory layout.
+- **[Setup Guide](docs/Setup.md)** — Step-by-step installation and configuration.
+- **[Operations Manual](docs/Manual.md)** — Backup, restore, log management, environment sync.
+
+---
+
+## License
+
+See [LICENSE](LICENSE).

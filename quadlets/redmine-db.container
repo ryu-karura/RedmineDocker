@@ -1,0 +1,70 @@
+# quadlets/redmine-db.container
+#
+# Podman Quadlet container unit for Docker0: PostgreSQL 17.5 + PostGIS 3.5.2
+# Place in /etc/containers/systemd/redmine-db.container
+# Run: systemctl daemon-reload
+#
+# Generated systemd service: redmine-db.service
+# Start with: systemctl start redmine-db
+# Enable auto-start: systemctl enable redmine-db
+#
+# IMPORTANT: All Redmine containers (redmine-prod, redmine-test, redmine-next)
+# depend on this container. Start this first.
+
+[Unit]
+Description=Redmine Database (PostgreSQL 17.5 + PostGIS 3.5.2)
+Documentation=file:///opt/redmine/containers/docs/Design.md
+After=network-online.target
+Wants=network-online.target
+# Redmine containers depend on this — they declare After=redmine-db.service
+
+[Container]
+# Image built from containers/docker0/Containerfile
+Image=localhost/redmine-db:17.5-3.5.2
+
+# Container name (accessible as hostname 'redmine-db' within the network)
+ContainerName=redmine-db
+
+# Podman network (defined in redmine.network)
+Network=redmine_net
+# Assign fixed IP so Redmine containers can always reach the DB
+IP=10.89.1.10
+
+# Do NOT expose the database port to the host.
+# Redmine containers connect via the internal redmine_net bridge.
+# Port 5432 is deliberately omitted here.
+
+# Environment variables from the .env file
+# NEVER put raw passwords in this unit file
+EnvironmentFile=/opt/redmine/containers/.env
+
+# Bind-mount the PostgreSQL data directory for persistence
+Volume=/opt/redmine/data/postgres/17/data:/var/lib/pgsql/17/data:Z
+
+# Run as the postgres user (UID 26 per PGDG RPM convention)
+# The :Z flag on the volume relabels for SELinux
+User=postgres
+
+# Health check: verify PostgreSQL is accepting connections
+HealthCmd=pg_isready -U postgres -q
+HealthInterval=10s
+HealthTimeout=5s
+HealthRetries=5
+HealthStartPeriod=30s
+
+# Restart policy
+AutoUpdate=registry
+Timezone=UTC
+
+[Service]
+# Restart the container on failure
+Restart=on-failure
+RestartSec=10s
+# Maximum restart attempts before systemd gives up
+StartLimitBurst=5
+StartLimitIntervalSec=60s
+# Shutdown timeout: allow PostgreSQL to flush and checkpoint
+TimeoutStopSec=60
+
+[Install]
+WantedBy=multi-user.target

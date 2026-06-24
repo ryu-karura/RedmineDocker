@@ -1,0 +1,43 @@
+# containers/docker1/configuration.yml.tmpl
+#
+# Redmine application configuration template.
+# Processed by entrypoint.sh; variables substituted from .env.
+#
+# ${REDMINE_SECRET_TOKEN}  → unique secret key base for this environment
+# ${SMTP_HOST}             → SMTP server hostname
+# ${SMTP_PORT}             → SMTP server port
+# ${SMTP_USER}             → SMTP username
+# ${SMTP_PASSWORD}         → SMTP password
+
+default:
+  # ── Email delivery ───────────────────────────────────────────────────────
+  email_delivery:
+    delivery_method: :smtp
+    smtp_settings:
+      address: "${SMTP_HOST}"
+      port: ${SMTP_PORT}
+      authentication: :login
+      user_name: "${SMTP_USER}"
+      password: "${SMTP_PASSWORD}"
+      enable_starttls_auto: true
+
+  # ── Attachments ──────────────────────────────────────────────────────────
+  # Maximum attachment size in kilobytes (50 MB)
+  attachments_storage_path: files
+  max_attachment_size: 51200
+
+  # ── Session ──────────────────────────────────────────────────────────────
+  session_store: :active_record_store
+
+  # ── Logging ──────────────────────────────────────────────────────────────
+  log_level: info
+  log_rotating_size: 104857600
+  log_rotating_age: daily
+
+  # ── SCM (version control) ────────────────────────────────────────────────
+  scm_git_command: /usr/bin/git
+  scm_subversion_command: /usr/bin/svn
+
+production:
+  # Inherits all settings from default.
+  # Production-specific overrides can be added here if needed.

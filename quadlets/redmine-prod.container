@@ -1,0 +1,68 @@
+# quadlets/redmine-prod.container
+#
+# Podman Quadlet container unit for Docker1: Production Redmine 6.1.3
+# Place in /etc/containers/systemd/redmine-prod.container
+# Run: systemctl daemon-reload
+#
+# Generated systemd service: redmine-prod.service
+# Start: systemctl start redmine-prod
+# Enable: systemctl enable redmine-prod
+#
+# Access: https://hostname/redmine
+# Internal: http://127.0.0.1:10080/redmine
+
+[Unit]
+Description=Redmine Production Environment 6.1.3
+Documentation=file:///opt/redmine/containers/docs/Design.md
+After=network-online.target redmine-db.service
+Wants=network-online.target
+Requires=redmine-db.service
+
+[Container]
+Image=localhost/redmine-prod:6.1.3
+ContainerName=redmine-prod
+
+# Internal network — allows communication with redmine-db by hostname
+Network=redmine_net
+IP=10.89.1.11
+
+# Expose Apache port — bound to localhost only so host Apache can proxy
+# External access is exclusively via host Apache on port 443
+PublishPort=127.0.0.1:10080:80
+
+# Environment variables
+EnvironmentFile=/opt/redmine/containers/.env
+Environment=RAILS_ENV=production
+Environment=RAILS_RELATIVE_URL_ROOT=/redmine
+Environment=REDMINE_DB_HOST=redmine-db
+Environment=REDMINE_DB_NAME=redmine_prod
+Environment=REDMINE_DB_USER=redmine_adm
+
+# Volumes — bind-mount for persistent data
+# The :Z flag relabels the volume for SELinux container_file_t
+Volume=/opt/redmine/data/redmine1/files:/opt/redmine/app/files:Z
+Volume=/opt/redmine/data/redmine1/log:/opt/redmine/app/log:Z
+Volume=/opt/redmine/data/redmine1/public/assets:/opt/redmine/app/public/assets:Z
+Volume=/opt/redmine/data/redmine1/public/plugin_assets:/opt/redmine/app/public/plugin_assets:Z
+Volume=/opt/redmine/data/redmine1/tmp:/opt/redmine/app/tmp:Z
+
+# Timezone
+Timezone=UTC
+
+# Health check: query the Redmine login page
+HealthCmd=curl -f -s http://localhost/redmine/login > /dev/null
+HealthInterval=30s
+HealthTimeout=10s
+HealthRetries=3
+HealthStartPeriod=120s
+
+[Service]
+Restart=on-failure
+RestartSec=10s
+StartLimitBurst=5
+StartLimitIntervalSec=120s
+TimeoutStartSec=300
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target

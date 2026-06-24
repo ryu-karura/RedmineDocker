@@ -1,0 +1,36 @@
+# containers/docker1/database.yml.tmpl
+#
+# Redmine database configuration template for Docker1 (production environment).
+#
+# IMPORTANT: The adapter is set to 'postgis' (not 'postgresql').
+# This is REQUIRED by the redmine_gtt (Geo-Task-Tracker) plugin.
+# Using 'postgresql' adapter with redmine_gtt installed will cause
+# ActiveRecord::AdapterNotSpecified errors at startup.
+#
+# This template is processed by the container entrypoint script:
+#   - ${REDMINE_DB_HOST}     → hostname of the database container (redmine-db)
+#   - ${REDMINE_DB_NAME}     → database name (redmine_prod for production)
+#   - ${REDMINE_DB_USER}     → database username (redmine_adm)
+#   - ${REDMINE_DB_PASSWORD} → database password (from .env)
+#
+# The entrypoint substitutes these variables using envsubst and writes
+# the result to config/database.yml before starting Puma.
+
+production:
+  adapter: postgis
+  host: ${REDMINE_DB_HOST}
+  port: 5432
+  database: ${REDMINE_DB_NAME}
+  username: ${REDMINE_DB_USER}
+  password: ${REDMINE_DB_PASSWORD}
+  encoding: utf8
+  pool: 10
+  timeout: 5000
+  # PostGIS-specific options
+  schema_search_path: public,topology
+  # Connection pooling behaviour
+  checkout_timeout: 5
+  connect_timeout: 5
+  idle_timeout: 300
+  # Recommended for production
+  prepared_statements: false

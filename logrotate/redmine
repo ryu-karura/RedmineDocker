@@ -1,0 +1,92 @@
+# /etc/logrotate.d/redmine
+#
+# Log rotation configuration for RedmineDocker.
+# Retains logs for exactly 60 days using daily rotation.
+#
+# Install with: sudo cp /opt/redmine/containers/logrotate/redmine /etc/logrotate.d/redmine
+# Test with:    sudo logrotate --debug /etc/logrotate.d/redmine
+# Force run:    sudo logrotate --force /etc/logrotate.d/redmine
+
+# ── Production Redmine application log ───────────────────────────────────────
+/opt/redmine/data/redmine1/log/production.log {
+    daily
+    rotate 60
+    compress
+    delaycompress
+    missingok
+    notifempty
+    copytruncate
+    dateext
+    dateformat -%Y%m%d
+    create 0644 redmine_adm redmine
+    su redmine_adm redmine
+}
+
+# ── Production Puma logs ──────────────────────────────────────────────────────
+/opt/redmine/data/redmine1/log/puma.log
+/opt/redmine/data/redmine1/log/puma_error.log {
+    daily
+    rotate 60
+    compress
+    delaycompress
+    missingok
+    notifempty
+    copytruncate
+    dateext
+    dateformat -%Y%m%d
+    create 0644 redmine_adm redmine
+    su redmine_adm redmine
+}
+
+# ── Plugin test environment logs ──────────────────────────────────────────────
+/opt/redmine/data/redmine2/log/production.log
+/opt/redmine/data/redmine2/log/puma.log
+/opt/redmine/data/redmine2/log/puma_error.log {
+    daily
+    rotate 60
+    compress
+    delaycompress
+    missingok
+    notifempty
+    copytruncate
+    dateext
+    dateformat -%Y%m%d
+    create 0644 redmine_adm redmine
+    su redmine_adm redmine
+}
+
+# ── Version upgrade test environment logs ────────────────────────────────────
+/opt/redmine/data/redmine3/log/production.log
+/opt/redmine/data/redmine3/log/puma.log
+/opt/redmine/data/redmine3/log/puma_error.log {
+    daily
+    rotate 60
+    compress
+    delaycompress
+    missingok
+    notifempty
+    copytruncate
+    dateext
+    dateformat -%Y%m%d
+    create 0644 redmine_adm redmine
+    su redmine_adm redmine
+}
+
+# ── Host Apache logs ──────────────────────────────────────────────────────────
+/var/log/httpd/redmine_access.log
+/var/log/httpd/redmine_error.log {
+    daily
+    rotate 60
+    compress
+    delaycompress
+    missingok
+    notifempty
+    sharedscripts
+    dateext
+    dateformat -%Y%m%d
+    create 0640 root root
+    postrotate
+        # Signal Apache to reopen its log files
+        /usr/bin/systemctl reload httpd 2>/dev/null || true
+    endscript
+}

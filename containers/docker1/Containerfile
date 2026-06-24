@@ -1,0 +1,278 @@
+# Docker1: Production Redmine 6.1.3
+#
+# Stack:
+#   - AlmaLinux 9.5 (binary-compatible with RHEL9)
+#   - Ruby 3.4.4 (via rbenv, system-wide at /usr/local/rbenv)
+#   - Bundler 2.6.8
+#   - Node.js 22.23.1 LTS (via NodeSource repository)
+#   - Yarn 1.22.22 (classic Yarn, required for redmine_gtt webpack build)
+#   - Apache httpd 2.4 (mod_proxy to Puma unix socket)
+#   - Puma (bundled with Redmine 6.1.3)
+#   - Solid Queue (via redmine_solid_queue plugin, auto-started by Puma)
+#
+# Sub-URI: /redmine
+# Puma socket: /opt/redmine/app/tmp/puma.sock
+#
+# Plugins installed:
+#   1.  redmine_wiki_lists       (tkusukawa, v0.0.11)
+#   2.  redmine_banner           (agileware-jp, v0.3.4)
+#   3.  redmine_issues_panel     (redmica, v1.2.1)
+#   4.  redmica_ui_extension     (redmica, v0.6.0)
+#   5.  redmine_ip_filter        (redmica, v1.1.1)
+#   6.  redmine_message_customize (redmica/farend, v1.1.0)
+#   7.  redmine_issue_templates  (redmica, v1.2.2)
+#   8.  view_customize           (onozaty, MUST be named 'view_customize')
+#   9.  redmine_logs             (haru, v0.4.0)
+#  10.  redmine_login_audit2     (seraph3000, v1.0.0)
+#  11.  redmine_wiki_extensions  (haru, v1.2.0)
+#  12.  redmine_solid_queue      (nishidayuya, v1.0.0)
+#  13.  redmine_gtt              (gtt-project, v6.0.3) ← requires yarn+webpack
+#
+# Theme:
+#   farend_fancy (farend, main branch for Redmine 6.1)
+
+FROM docker.io/almalinux:9.5
+
+ARG RUBY_VERSION=3.4.4
+ARG BUNDLER_VERSION=2.6.8
+ARG NODE_MAJOR=22
+ARG REDMINE_VERSION=6.1.3
+ARG RAILS_ENV=production
+ARG REDMINE_SUBURI=/redmine
+
+ENV RUBY_VERSION=${RUBY_VERSION}
+ENV BUNDLER_VERSION=${BUNDLER_VERSION}
+ENV RAILS_ENV=${RAILS_ENV}
+ENV RAILS_RELATIVE_URL_ROOT=${REDMINE_SUBURI}
+ENV RBENV_ROOT=/usr/local/rbenv
+ENV PATH=${RBENV_ROOT}/bin:${RBENV_ROOT}/shims:${PATH}
+ENV REDMINE_HOME=/opt/redmine/app
+ENV REDMINE_SUBURI=${REDMINE_SUBURI}
+
+# ── System packages ──────────────────────────────────────────────────────────
+RUN dnf install -y epel-release \
+    && dnf install -y \
+        https://download.postgresql.org/pub/repos/yum/reporpms/EL-9-x86_64/pgdg-redhat-repo-latest.noarch.rpm \
+    && dnf -qy module disable postgresql \
+    && dnf install -y \
+        # Build essentials
+        gcc gcc-c++ make git curl wget tar bzip2 patch \
+        # Ruby build dependencies
+        openssl-devel readline-devel zlib-devel libffi-devel \
+        libyaml-devel gdbm-devel ncurses-devel \
+        # PostgreSQL client library (for pg gem)
+        libpq-devel postgresql17-devel \
+        # Image processing (Redmine thumbnails)
+        ImageMagick ImageMagick-devel \
+        # Apache httpd and required modules
+        httpd mod_ssl \
+        # Additional utilities
+        sudo tzdata findutils which \
+    && dnf clean all \
+    && rm -rf /var/cache/dnf
+
+# ── Install Node.js 22.x LTS via NodeSource ──────────────────────────────────
+# NodeSource setup_22.x installs Node.js 22 and configures the repo.
+# Node.js 18 is EOL (March 2025) — always use Node.js 22 LTS.
+RUN curl -fsSL https://rpm.nodesource.com/setup_${NODE_MAJOR}.x | bash - \
+    && dnf install -y nodejs \
+    && dnf clean all \
+    && node --version \
+    && npm --version
+
+# Install Yarn 1.22.22 (classic Yarn required by redmine_gtt)
+RUN npm install -g yarn@1.22.22 \
+    && yarn --version
+
+# ── Install Ruby 3.4.4 via rbenv ─────────────────────────────────────────────
+# rbenv is installed system-wide at /usr/local/rbenv so all users can use it.
+RUN git clone https://github.com/rbenv/rbenv.git ${RBENV_ROOT} \
+    && git clone https://github.com/rbenv/ruby-build.git ${RBENV_ROOT}/plugins/ruby-build
+
+RUN rbenv install ${RUBY_VERSION} \
+    && rbenv global ${RUBY_VERSION} \
+    && rbenv rehash \
+    && ruby --version
+
+# Install Bundler at the exact pinned version
+RUN gem install bundler:${BUNDLER_VERSION} --no-document \
+    && bundler --version
+
+# ── Create redmine_adm user and group ────────────────────────────────────────
+# UID/GID 1001 must match the host redmine_adm user (see docs/Design.md §6)
+# so that bind-mounted volume permissions are consistent.
+RUN groupadd --gid 1001 redmine \
+    && useradd --uid 1001 --gid 1001 \
+        --home /opt/redmine \
+        --no-create-home \
+        --shell /sbin/nologin \
+        redmine_adm
+
+# ── Download and extract Redmine 6.1.3 ───────────────────────────────────────
+RUN mkdir -p /opt/redmine \
+    && curl -fsSL \
+        "https://www.redmine.org/releases/redmine-${REDMINE_VERSION}.tar.gz" \
+        | tar -xz -C /opt/redmine \
+    && mv /opt/redmine/redmine-${REDMINE_VERSION} /opt/redmine/app
+
+# ── Create required directories ───────────────────────────────────────────────
+RUN mkdir -p \
+        /opt/redmine/app/tmp/pids \
+        /opt/redmine/app/tmp/cache \
+        /opt/redmine/app/log \
+        /opt/redmine/app/public/plugin_assets \
+        /opt/redmine/app/public/assets \
+    && chown -R redmine_adm:redmine /opt/redmine/app \
+    && chmod -R 755 /opt/redmine/app
+
+# ── Copy configuration files ──────────────────────────────────────────────────
+COPY --chown=redmine_adm:redmine database.yml.tmpl \
+    /opt/redmine/app/config/database.yml.tmpl
+COPY --chown=redmine_adm:redmine configuration.yml.tmpl \
+    /opt/redmine/app/config/configuration.yml.tmpl
+COPY --chown=redmine_adm:redmine puma.rb \
+    /opt/redmine/app/config/puma.rb
+
+# ── Install plugins and theme ─────────────────────────────────────────────────
+# NOTE: All plugins are cloned at build time. This bakes the plugin code into
+# the image for reproducibility. If you need to update a plugin, rebuild the image.
+
+WORKDIR /opt/redmine/app/plugins
+
+# Theme: farend_fancy — use 'main' branch for Redmine 6.1 compatibility
+# (NOT 'redmine6.0' branch — that targets Redmine 6.0)
+RUN git clone --depth 1 \
+        https://github.com/farend/redmine_theme_farend_fancy.git \
+        /opt/redmine/app/themes/farend_fancy
+
+# 1. redmine_wiki_lists (0.0.11) — wiki macro plugin
+#    ⚠️ Compatibility with Redmine 6.x is unverified (last commit 2022).
+#    Test before production use.
+RUN git clone --depth 1 --branch 0.0.11 \
+        https://github.com/tkusukawa/redmine_wiki_lists.git \
+        redmine_wiki_lists \
+    || git clone --depth 1 \
+        https://github.com/tkusukawa/redmine_wiki_lists.git \
+        redmine_wiki_lists
+
+# 2. redmine_banner (0.3.4) — site-wide banner messages
+RUN git clone --depth 1 --branch 0.3.4 \
+        https://github.com/agileware-jp/redmine_banner.git \
+        redmine_banner \
+    || git clone --depth 1 \
+        https://github.com/agileware-jp/redmine_banner.git \
+        redmine_banner
+
+# 3. redmine_issues_panel (1.2.1) — Kanban-style issues panel
+RUN git clone --depth 1 --branch 1.2.1 \
+        https://github.com/redmica/redmine_issues_panel.git \
+        redmine_issues_panel
+
+# 4. redmica_ui_extension (0.6.0) — UI improvements (Select2, mermaid, burndown)
+#    JavaScript assets are pre-bundled; no Node.js needed at runtime.
+RUN git clone --depth 1 --branch 0.6.0 \
+        https://github.com/redmica/redmica_ui_extension.git \
+        redmica_ui_extension
+
+# 5. redmine_ip_filter (1.1.1) — IP-based access filtering
+RUN git clone --depth 1 --branch 1.1.1 \
+        https://github.com/redmica/redmine_ip_filter.git \
+        redmine_ip_filter
+
+# 6. redmine_message_customize (1.1.0) — customise UI text strings
+RUN git clone --depth 1 --branch 1.1.0 \
+        https://github.com/redmica/redmine_message_customize.git \
+        redmine_message_customize
+
+# 7. redmine_issue_templates (1.2.2) — issue creation templates
+RUN git clone --depth 1 --branch 1.2.2 \
+        https://github.com/redmica/redmine_issue_templates.git \
+        redmine_issue_templates
+
+# 8. view_customize — DIRECTORY NAME MUST BE 'view_customize' (required by plugin init.rb)
+RUN git clone --depth 1 \
+        https://github.com/onozaty/redmine-view-customize.git \
+        view_customize
+
+# 9. redmine_logs (0.4.0) — log browser in admin UI
+RUN git clone --depth 1 --branch 0.4.0 \
+        https://github.com/haru/redmine_logs.git \
+        redmine_logs
+
+# 10. redmine_login_audit2 (1.0.0) — login/API access audit log
+#     ⚠️ Brand-new plugin (initial release April 2026). No CI. Validate before production use.
+RUN git clone --depth 1 --branch 1.0.0 \
+        https://github.com/seraph3000/redmine_login_audit2.git \
+        redmine_login_audit2 \
+    || git clone --depth 1 \
+        https://github.com/seraph3000/redmine_login_audit2.git \
+        redmine_login_audit2
+
+# 11. redmine_wiki_extensions (1.2.0) — wiki macros, comments, tags, voting
+RUN git clone --depth 1 --branch 1.2.0 \
+        https://github.com/haru/redmine_wiki_extensions.git \
+        redmine_wiki_extensions
+
+# 12. redmine_solid_queue (1.0.0) — Solid Queue as Redmine background job processor
+#     Automatically starts as a Puma plugin when Puma is running.
+RUN git clone --depth 1 --branch 1.0.0 \
+        https://github.com/nishidayuya/redmine_solid_queue.git \
+        redmine_solid_queue \
+    || git clone --depth 1 \
+        https://github.com/nishidayuya/redmine_solid_queue.git \
+        redmine_solid_queue
+
+# 13. redmine_gtt (6.0.3) — Geo-Task-Tracker (CRITICALLY IMPORTANT)
+#     ⚠️ Requires PostgreSQL 17 + PostGIS 3.5. PG18 is NOT supported.
+#     ⚠️ Requires yarn + npx webpack build step (done below after bundle install).
+#     ⚠️ Requires 'postgis' adapter in database.yml (not 'postgresql').
+RUN git clone --depth 1 --branch 6.0.3 \
+        https://github.com/gtt-project/redmine_gtt.git \
+        redmine_gtt
+
+# ── Bundle install (all gems including plugin dependencies) ──────────────────
+WORKDIR /opt/redmine/app
+
+USER redmine_adm
+
+RUN bundle config set --local without 'development test' \
+    && bundle config set --local deployment 'false' \
+    && bundle install --jobs 4 --retry 3
+
+# ── Build redmine_gtt frontend assets (yarn + webpack) ───────────────────────
+# This step must run AFTER bundle install because the webpack config
+# may reference Ruby gem paths.
+RUN cd /opt/redmine/app/plugins/redmine_gtt \
+    && yarn install --frozen-lockfile \
+    && npx webpack --mode production
+
+USER root
+
+# ── Fix permissions after bundle install ─────────────────────────────────────
+RUN chown -R redmine_adm:redmine /opt/redmine/app
+
+# ── Configure Apache httpd ────────────────────────────────────────────────────
+# Disable the default welcome page and the default SSL config
+RUN rm -f /etc/httpd/conf.d/welcome.conf \
+       /etc/httpd/conf.d/ssl.conf \
+       /etc/httpd/conf.d/autoindex.conf
+
+COPY apache/httpd.conf /etc/httpd/conf/httpd.conf
+COPY apache/redmine.conf /etc/httpd/conf.d/redmine.conf
+
+# httpd must be able to read the Redmine static files served directly
+RUN chown -R root:redmine /opt/redmine/app/public \
+    && chmod -R 755 /opt/redmine/app/public
+
+# ── Copy entrypoint ───────────────────────────────────────────────────────────
+COPY entrypoint.sh /entrypoint.sh
+RUN chmod 0755 /entrypoint.sh
+
+# ── Expose Apache port ────────────────────────────────────────────────────────
+EXPOSE 80
+
+VOLUME ["/opt/redmine/app/files", "/opt/redmine/app/log", \
+        "/opt/redmine/app/public/assets", "/opt/redmine/app/public/plugin_assets", \
+        "/opt/redmine/app/tmp"]
+
+ENTRYPOINT ["/entrypoint.sh"]
