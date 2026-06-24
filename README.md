@@ -10,9 +10,9 @@ This repository contains the complete infrastructure-as-code to build, deploy, a
 
 | Container | Name          | Role                              | Redmine | DB             |
 |-----------|---------------|-----------------------------------|---------|----------------|
-| Docker0   | redmine-db    | PostgreSQL 18 + PostGIS 3.5       | —       | —              |
-| Docker1   | redmine-prod  | Production Redmine 6.1.1          | 6.1.1   | redmine_prod   |
-| Docker2   | redmine-test  | Plugin Verification Environment   | 6.1.1   | redmine_test   |
+| Docker0   | redmine-db    | PostgreSQL 17.5 + PostGIS 3.5.2   | —       | —              |
+| Docker1   | redmine-prod  | Production Redmine 6.1.3          | 6.1.3   | redmine_prod   |
+| Docker2   | redmine-test  | Plugin Verification Environment   | 6.1.3   | redmine_test   |
 | Docker3   | redmine-next  | Version Upgrade Testing (7.0-dev) | main    | redmine_next   |
 
 All containers run under Podman (not Docker) and are managed as systemd services using Quadlet unit files.
@@ -37,15 +37,15 @@ External HTTPS traffic arrives at port 443 on the host Apache, which terminates 
 |-------------|-----------|
 | RHEL/Alma   | 9.5       |
 | Podman      | 4.9.x     |
-| PostgreSQL  | 18.1      |
-| PostGIS     | 3.5.2     |
-| Redmine     | 6.1.1     |
+| PostgreSQL  | **17.5**  |
+| PostGIS     | **3.5.2** |
+| Redmine     | **6.1.3** |
 | Ruby        | 3.4.4     |
 | Bundler     | 2.6.8     |
-| Node.js     | 22.16.0   |
+| Node.js     | 22.23.1   |
 | Yarn        | 1.22.22   |
 | Apache      | 2.4.62    |
-| Puma        | (bundled with Redmine 6.1.1) |
+| Puma        | (bundled with Redmine 6.1.3) |
 
 ---
 
@@ -59,8 +59,8 @@ RedmineDocker/
 │   ├── Setup.md                  # Step-by-step installation guide
 │   └── Manual.md                 # Day-to-day operational procedures
 ├── containers/
-│   ├── docker0/                  # PostgreSQL 18 + PostGIS 3.5 container
-│   ├── docker1/                  # Production Redmine 6.1.1 container
+│   ├── docker0/                  # PostgreSQL 17.5 + PostGIS 3.5.2 container
+│   ├── docker1/                  # Production Redmine 6.1.3 container
 │   ├── docker2/                  # Plugin verification container
 │   └── docker3/                  # Version upgrade testing container
 ├── quadlets/                     # Systemd Quadlet unit files
