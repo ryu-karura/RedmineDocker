@@ -1,0 +1,70 @@
+# Docker0: PostgreSQL 17.5 + PostGIS 3.5.2
+#
+# NOTE: PostgreSQL 18 is NOT used because PostGIS 3.5 (the current stable release)
+# does not support PostgreSQL 18. PostgreSQL 18 support requires PostGIS 3.6,
+# which has not been released as of the design date of this project.
+# Always use PostgreSQL 17 + PostGIS 3.5 until PostGIS officially announces PG18 support.
+#
+# Base image: AlmaLinux 9 (binary-compatible with RHEL9)
+# PostgreSQL packages: PostgreSQL Global Development Group (PGDG) RPM repository
+
+FROM docker.io/almalinux:9.5
+
+ARG POSTGRES_VERSION=17
+ARG POSTGIS_MAJOR=35
+ARG PGDATA=/var/lib/pgsql/17/data
+
+ENV POSTGRES_VERSION=${POSTGRES_VERSION}
+ENV PGDATA=${PGDATA}
+ENV PATH=/usr/pgsql-17/bin:${PATH}
+
+# Install PGDG repository and PostgreSQL 17 + PostGIS 3.5
+RUN dnf install -y epel-release \
+    && dnf install -y \
+        https://download.postgresql.org/pub/repos/yum/reporpms/EL-9-x86_64/pgdg-redhat-repo-latest.noarch.rpm \
+    && dnf -qy module disable postgresql \
+    && dnf install -y \
+        postgresql${POSTGRES_VERSION}-server \
+        postgresql${POSTGRES_VERSION}-contrib \
+        postgis${POSTGIS_MAJOR}_${POSTGRES_VERSION} \
+        postgis${POSTGIS_MAJOR}_${POSTGRES_VERSION}-utils \
+        postgresql${POSTGRES_VERSION}-libs \
+        # Runtime utilities
+        sudo \
+        findutils \
+        gzip \
+        tar \
+    && dnf clean all \
+    && rm -rf /var/cache/dnf
+
+# The postgres user (UID 26, GID 26) is created by the PGDG RPM package.
+# Verify the UID matches the host postgres user (see docs/Design.md §6).
+RUN id postgres || (echo "postgres user not created by RPM" && exit 1)
+
+# Create the data directory with correct ownership
+RUN mkdir -p ${PGDATA} \
+    && chown -R postgres:postgres /var/lib/pgsql \
+    && chmod 700 ${PGDATA}
+
+# Copy initialization script
+# This script is executed by the entrypoint after initdb, before PostgreSQL
+# starts accepting connections on port 5432. It creates databases and users.
+COPY init-postgis.sh /docker-entrypoint-initdb.d/10-init-postgis.sh
+RUN chmod 0755 /docker-entrypoint-initdb.d/10-init-postgis.sh \
+    && chown postgres:postgres /docker-entrypoint-initdb.d/10-init-postgis.sh
+
+# Copy entrypoint
+COPY entrypoint.sh /entrypoint.sh
+RUN chmod 0755 /entrypoint.sh
+
+# Configure PostgreSQL to listen on all interfaces and allow md5 auth from the
+# Podman bridge network (10.89.1.0/24). pg_hba.conf is configured inside the
+# entrypoint after initdb.
+EXPOSE 5432
+
+USER postgres
+
+VOLUME ["${PGDATA}"]
+
+ENTRYPOINT ["/entrypoint.sh"]
+CMD ["postgres"]

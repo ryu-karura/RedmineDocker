@@ -1,0 +1,60 @@
+# quadlets/redmine-test.container
+#
+# Podman Quadlet container unit for Docker2: Plugin Verification Environment
+# Place in /etc/containers/systemd/redmine-test.container
+# Run: systemctl daemon-reload
+#
+# Generated systemd service: redmine-test.service
+# Start: systemctl start redmine-test
+# Enable: systemctl enable redmine-test
+#
+# Access: https://hostname/redmine-test
+# Internal: http://127.0.0.1:10081/redmine-test
+
+[Unit]
+Description=Redmine Plugin Verification Environment 6.1.3
+Documentation=file:///opt/redmine/containers/docs/Design.md
+After=network-online.target redmine-db.service
+Wants=network-online.target
+Requires=redmine-db.service
+
+[Container]
+Image=localhost/redmine-test:6.1.3
+ContainerName=redmine-test
+
+Network=redmine_net
+IP=10.89.1.12
+
+PublishPort=127.0.0.1:10081:80
+
+EnvironmentFile=/opt/redmine/containers/.env
+Environment=RAILS_ENV=production
+Environment=RAILS_RELATIVE_URL_ROOT=/redmine-test
+Environment=REDMINE_DB_HOST=redmine-db
+Environment=REDMINE_DB_NAME=redmine_test
+Environment=REDMINE_DB_USER=redmine_adm
+
+Volume=/opt/redmine/data/redmine2/files:/opt/redmine/app/files:Z
+Volume=/opt/redmine/data/redmine2/log:/opt/redmine/app/log:Z
+Volume=/opt/redmine/data/redmine2/public/assets:/opt/redmine/app/public/assets:Z
+Volume=/opt/redmine/data/redmine2/public/plugin_assets:/opt/redmine/app/public/plugin_assets:Z
+Volume=/opt/redmine/data/redmine2/tmp:/opt/redmine/app/tmp:Z
+
+Timezone=UTC
+
+HealthCmd=curl -f -s http://localhost/redmine-test/login > /dev/null
+HealthInterval=60s
+HealthTimeout=10s
+HealthRetries=3
+HealthStartPeriod=180s
+
+[Service]
+Restart=on-failure
+RestartSec=10s
+StartLimitBurst=5
+StartLimitIntervalSec=120s
+TimeoutStartSec=300
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target
