@@ -305,7 +305,7 @@ sudo journalctl -u redmine-prod -f
 ```bash
 # Rebuild all images (e.g., after base OS security updates)
 source /opt/redmine/containers/.env
-podman build --no-cache -t localhost/redmine-db:17.5-3.5.2 containers/docker0/
+podman build --no-cache -f containers/docker0/Containerfile -t localhost/redmine-db:18-master containers/docker0/
 podman build --no-cache -t localhost/redmine-prod:6.1.3 containers/docker1/
 
 # Update quadlet to use new image

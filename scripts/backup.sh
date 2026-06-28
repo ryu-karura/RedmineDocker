@@ -38,7 +38,8 @@ warn() { echo "${LOG_PREFIX} WARNING: $*" >&2; }
 source "${ENV_FILE}"
 
 [ -z "${REDMINE_DB_PASSWORD:-}" ] && die "REDMINE_DB_PASSWORD is not set in ${ENV_FILE}"
-[ -z "${POSTGRES_SUPERUSER_PASSWORD:-}" ] && die "POSTGRES_SUPERUSER_PASSWORD is not set in ${ENV_FILE}"
+POSTGRES_RUNTIME_PASSWORD="${POSTGRES_PASSWORD:-${POSTGRES_SUPERUSER_PASSWORD:-}}"
+[ -z "${POSTGRES_RUNTIME_PASSWORD}" ] && die "POSTGRES_PASSWORD or POSTGRES_SUPERUSER_PASSWORD is not set in ${ENV_FILE}"
 
 # ── Verify containers are running ─────────────────────────────────────────────
 if ! podman container inspect redmine-db --format '{{.State.Status}}' 2>/dev/null | grep -q 'running'; then
@@ -58,7 +59,7 @@ backup_database() {
 
     log "Backing up database: ${DBNAME} → $(basename "${OUTFILE}")"
 
-    PGPASSWORD="${POSTGRES_SUPERUSER_PASSWORD}" \
+    PGPASSWORD="${POSTGRES_RUNTIME_PASSWORD}" \
     podman exec redmine-db \
         pg_dump \
             -U postgres \
