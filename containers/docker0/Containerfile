@@ -12,6 +12,7 @@ FROM docker.io/almalinux:9.5
 
 ARG POSTGRES_VERSION=17
 ARG POSTGIS_MAJOR=35
+ARG POSTGIS_VERSION=3.5.2
 ARG PGDATA=/var/lib/pgsql/17/data
 
 ENV POSTGRES_VERSION=${POSTGRES_VERSION}
@@ -26,8 +27,8 @@ RUN dnf install -y epel-release \
     && dnf install -y \
         postgresql${POSTGRES_VERSION}-server \
         postgresql${POSTGRES_VERSION}-contrib \
-        postgis${POSTGIS_MAJOR}_${POSTGRES_VERSION} \
-        postgis${POSTGIS_MAJOR}_${POSTGRES_VERSION}-utils \
+        postgis${POSTGIS_MAJOR}_${POSTGRES_VERSION}-${POSTGIS_VERSION} \
+        postgis${POSTGIS_MAJOR}_${POSTGRES_VERSION}-utils-${POSTGIS_VERSION} \
         postgresql${POSTGRES_VERSION}-libs \
         # Runtime utilities
         sudo \
