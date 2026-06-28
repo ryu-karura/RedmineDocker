@@ -8,8 +8,8 @@
 # Start with: systemctl start redmine-db
 # Enable auto-start: systemctl enable redmine-db
 #
-# IMPORTANT: All Redmine containers (redmine-prod, redmine-test, redmine-next)
-# depend on this container. Start this first.
+# IMPORTANT: The Redmine production container (redmine-prod) depends on this
+# container. Start this first.
 
 [Unit]
 Description=Redmine Database (PostgreSQL 17.5 + PostGIS 3.5.2)

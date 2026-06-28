@@ -38,40 +38,6 @@
     su redmine_adm redmine
 }
 
-# ── Plugin test environment logs ──────────────────────────────────────────────
-/opt/redmine/data/redmine2/log/production.log
-/opt/redmine/data/redmine2/log/puma.log
-/opt/redmine/data/redmine2/log/puma_error.log {
-    daily
-    rotate 60
-    compress
-    delaycompress
-    missingok
-    notifempty
-    copytruncate
-    dateext
-    dateformat -%Y%m%d
-    create 0644 redmine_adm redmine
-    su redmine_adm redmine
-}
-
-# ── Version upgrade test environment logs ────────────────────────────────────
-/opt/redmine/data/redmine3/log/production.log
-/opt/redmine/data/redmine3/log/puma.log
-/opt/redmine/data/redmine3/log/puma_error.log {
-    daily
-    rotate 60
-    compress
-    delaycompress
-    missingok
-    notifempty
-    copytruncate
-    dateext
-    dateformat -%Y%m%d
-    create 0644 redmine_adm redmine
-    su redmine_adm redmine
-}
-
 # ── Host Apache logs ──────────────────────────────────────────────────────────
 /var/log/httpd/redmine_access.log
 /var/log/httpd/redmine_error.log {

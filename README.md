@@ -1,8 +1,8 @@
 # RedmineDocker
 
-**Redmine Multi-Container Project powered by Podman on RHEL9 / AlmaLinux9**
+**Redmine Container Project powered by Podman on RHEL9 / AlmaLinux9**
 
-This repository contains the complete infrastructure-as-code to build, deploy, and operate a multi-environment Redmine platform using Podman containers managed by systemd Quadlets.
+This repository contains the complete infrastructure-as-code to build, deploy, and operate a Redmine platform using Podman containers managed by systemd Quadlets.
 
 ---
 
@@ -12,8 +12,6 @@ This repository contains the complete infrastructure-as-code to build, deploy, a
 |-----------|---------------|-----------------------------------|---------|----------------|
 | Docker0   | redmine-db    | PostgreSQL 17.5 + PostGIS 3.5.2   | —       | —              |
 | Docker1   | redmine-prod  | Production Redmine 6.1.3          | 6.1.3   | redmine_prod   |
-| Docker2   | redmine-test  | Plugin Verification Environment   | 6.1.3   | redmine_test   |
-| Docker3   | redmine-next  | Version Upgrade Testing (7.0-dev) | main    | redmine_next   |
 
 All containers run under Podman (not Docker) and are managed as systemd services using Quadlet unit files.
 
@@ -24,10 +22,8 @@ All containers run under Podman (not Docker) and are managed as systemd services
 | Environment       | Sub-URI          | Host Port |
 |-------------------|------------------|-----------|
 | Production        | `/redmine`       | 10080     |
-| Plugin Test       | `/redmine-test`  | 10081     |
-| Upgrade Test      | `/redmine-next`  | 10082     |
 
-External HTTPS traffic arrives at port 443 on the host Apache, which terminates TLS and proxies requests to the respective container's Apache instance on the mapped host port.
+External HTTPS traffic arrives at port 443 on the host Apache, which terminates TLS and proxies requests to the container's Apache instance on the mapped host port.
 
 ---
 
@@ -60,9 +56,7 @@ RedmineDocker/
 │   └── Manual.md                 # Day-to-day operational procedures
 ├── containers/
 │   ├── docker0/                  # PostgreSQL 17.5 + PostGIS 3.5.2 container
-│   ├── docker1/                  # Production Redmine 6.1.3 container
-│   ├── docker2/                  # Plugin verification container
-│   └── docker3/                  # Version upgrade testing container
+│   └── docker1/                  # Production Redmine 6.1.3 container
 ├── quadlets/                     # Systemd Quadlet unit files
 ├── host-apache/                  # Host Apache reverse proxy configuration
 ├── scripts/                      # Operational scripts
@@ -85,7 +79,7 @@ RedmineDocker/
 
 - **[Design Document](docs/Design.md)** — Architecture, network design, user/permission model, directory layout.
 - **[Setup Guide](docs/Setup.md)** — Step-by-step installation and configuration.
-- **[Operations Manual](docs/Manual.md)** — Backup, restore, log management, environment sync.
+- **[Operations Manual](docs/Manual.md)** — Backup, restore, log management.
 
 ---
 

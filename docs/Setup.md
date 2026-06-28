@@ -30,10 +30,8 @@ sudo bash scripts/generate-env.sh
 
 This creates `/opt/redmine/containers/.env` with:
 - `POSTGRES_SUPERUSER_PASSWORD` — PostgreSQL `postgres` superuser password
-- `REDMINE_DB_PASSWORD` — shared Redmine database user password
-- `REDMINE1_SECRET_TOKEN` — Redmine production secret key base
-- `REDMINE2_SECRET_TOKEN` — Redmine test secret key base
-- `REDMINE3_SECRET_TOKEN` — Redmine next secret key base
+- `REDMINE_DB_PASSWORD` — Redmine database user password
+- `REDMINE_SECRET_TOKEN` — Redmine production secret key base
 
 > `.env` is excluded from git via `.gitignore`. Keep it secure. Back it up separately.
 
@@ -90,8 +88,6 @@ sudo useradd --uid 1001 --gid 1001 --home /opt/redmine --no-create-home \
 ```bash
 sudo mkdir -p /opt/redmine/data/postgres/17/data
 sudo mkdir -p /opt/redmine/data/redmine1/{files,log,public/{assets,plugin_assets},tmp}
-sudo mkdir -p /opt/redmine/data/redmine2/{files,log,public/{assets,plugin_assets},tmp}
-sudo mkdir -p /opt/redmine/data/redmine3/{files,log,public/{assets,plugin_assets},tmp}
 sudo mkdir -p /opt/redmine/backup/{db,files}
 
 # Set ownership
@@ -99,11 +95,7 @@ sudo chown -R postgres:postgres /opt/redmine/data/postgres
 sudo chmod -R 700 /opt/redmine/data/postgres
 
 sudo chown -R redmine_adm:redmine /opt/redmine/data/redmine1
-sudo chown -R redmine_adm:redmine /opt/redmine/data/redmine2
-sudo chown -R redmine_adm:redmine /opt/redmine/data/redmine3
 sudo chmod -R 755 /opt/redmine/data/redmine1
-sudo chmod -R 755 /opt/redmine/data/redmine2
-sudo chmod -R 755 /opt/redmine/data/redmine3
 
 sudo chown -R root:root /opt/redmine/backup
 sudo chmod -R 750 /opt/redmine/backup
@@ -130,16 +122,6 @@ podman build \
 podman build \
     -t localhost/redmine-prod:6.1.3 \
     containers/docker1/
-
-# Build Plugin Test container (Docker2) — same Redmine version as Docker1
-podman build \
-    -t localhost/redmine-test:6.1.3 \
-    containers/docker2/
-
-# Build Version Upgrade Test container (Docker3) — Redmine main branch
-podman build \
-    -t localhost/redmine-next:dev \
-    containers/docker3/
 ```
 
 > Build times are significant (15–40 minutes per Redmine image) due to Ruby compilation, gem installation, and plugin asset compilation. Ensure adequate disk space (≥10 GB free per image).
@@ -154,8 +136,6 @@ Quadlet files are placed in `/etc/containers/systemd/` for system-wide managemen
 sudo cp /opt/redmine/containers/quadlets/redmine.network /etc/containers/systemd/
 sudo cp /opt/redmine/containers/quadlets/redmine-db.container /etc/containers/systemd/
 sudo cp /opt/redmine/containers/quadlets/redmine-prod.container /etc/containers/systemd/
-sudo cp /opt/redmine/containers/quadlets/redmine-test.container /etc/containers/systemd/
-sudo cp /opt/redmine/containers/quadlets/redmine-next.container /etc/containers/systemd/
 
 # Reload systemd to process the Quadlet files
 sudo systemctl daemon-reload
@@ -168,8 +148,6 @@ systemctl list-unit-files | grep redmine
 # Expected output:
 # redmine-db.service       generated
 # redmine-prod.service     generated
-# redmine-test.service     generated
-# redmine-next.service     generated
 ```
 
 ---
@@ -193,7 +171,7 @@ sudo systemctl status redmine-db
 
 # Verify PostgreSQL is accepting connections
 podman exec redmine-db psql -U postgres -c "\l"
-# Should list: redmine_prod, redmine_test, redmine_next
+# Should list: redmine_prod
 ```
 
 ---
@@ -203,18 +181,10 @@ podman exec redmine-db psql -U postgres -c "\l"
 Database migrations are run automatically on first start via the container entrypoint. However, you must start the containers once to perform the initial setup:
 
 ```bash
-# Start production environment first
+# Start production environment
 sudo systemctl start redmine-prod
 sudo journalctl -u redmine-prod -f
 # Wait for: "Puma 6.x.x ... Listening on unix:///opt/redmine/app/tmp/puma.sock"
-
-# Start test environment
-sudo systemctl start redmine-test
-sudo journalctl -u redmine-test -f
-
-# Start version upgrade test environment
-sudo systemctl start redmine-next
-sudo journalctl -u redmine-next -f
 ```
 
 ---
@@ -224,8 +194,6 @@ sudo journalctl -u redmine-next -f
 ```bash
 sudo systemctl enable redmine-db
 sudo systemctl enable redmine-prod
-sudo systemctl enable redmine-test
-sudo systemctl enable redmine-next
 ```
 
 ---
@@ -309,7 +277,7 @@ sudo chmod 644 /etc/cron.d/redmine-backup
 
 ## Step 14: Post-Installation Redmine Configuration
 
-Access each Redmine instance through the browser and complete initial setup:
+Access the Redmine instance through the browser and complete initial setup:
 
 ### Production (Docker1)
 
@@ -321,20 +289,6 @@ Access each Redmine instance through the browser and complete initial setup:
 6. Go to **Administration → IP Filter** → configure allowed IP ranges
 7. Go to **Administration → Message Customize** → review default messages
 8. Go to **Administration → Information** → verify Solid Queue is enabled
-
-### Plugin Test (Docker2)
-
-1. Browse to `https://your-host/redmine-test`
-2. Log in with default credentials: `admin` / `admin`
-3. **Immediately change the admin password**
-4. Use this environment exclusively for testing new plugins before deploying to production.
-
-### Version Upgrade Test (Docker3)
-
-1. Browse to `https://your-host/redmine-next`
-2. Log in with default credentials: `admin` / `admin`
-3. **Immediately change the admin password**
-4. This environment tracks Redmine `main` branch. Update by rebuilding the Docker3 image.
 
 ---
 
@@ -351,14 +305,6 @@ sudo semanage fcontext -a -t httpd_sys_content_t \
     "/opt/redmine/data/redmine1/public(/.*)?"
 sudo semanage fcontext -a -t httpd_sys_content_t \
     "/opt/redmine/data/redmine1/files(/.*)?"
-sudo semanage fcontext -a -t httpd_sys_content_t \
-    "/opt/redmine/data/redmine2/public(/.*)?"
-sudo semanage fcontext -a -t httpd_sys_content_t \
-    "/opt/redmine/data/redmine2/files(/.*)?"
-sudo semanage fcontext -a -t httpd_sys_content_t \
-    "/opt/redmine/data/redmine3/public(/.*)?"
-sudo semanage fcontext -a -t httpd_sys_content_t \
-    "/opt/redmine/data/redmine3/files(/.*)?"
 
 sudo restorecon -Rv /opt/redmine/data/
 
@@ -375,14 +321,10 @@ sudo restorecon -Rv /opt/redmine/data/
 
 After completing all steps, verify the following:
 
-- [ ] `podman ps` shows all 4 containers as `Up`
+- [ ] `podman ps` shows both containers as `Up`
 - [ ] `systemctl status redmine-db` shows `active (running)`
 - [ ] `systemctl status redmine-prod` shows `active (running)`
-- [ ] `systemctl status redmine-test` shows `active (running)`
-- [ ] `systemctl status redmine-next` shows `active (running)`
 - [ ] `https://your-host/redmine` loads the Redmine login page
-- [ ] `https://your-host/redmine-test` loads the Redmine login page
-- [ ] `https://your-host/redmine-next` loads the Redmine login page
 - [ ] All 13 plugins appear in Administration → Plugins in production
 - [ ] Farend fancy theme is active in production
 - [ ] Solid Queue is shown as enabled in Administration → Information
@@ -400,7 +342,6 @@ To upgrade to a new Redmine patch release (e.g., 6.1.3 → 6.1.4):
 2. Rebuild the image: `podman build -t localhost/redmine-prod:6.1.4 containers/docker1/`
 3. Update the image reference in `quadlets/redmine-prod.container`
 4. `sudo systemctl daemon-reload && sudo systemctl restart redmine-prod`
-5. Repeat for Docker2 (`redmine-test`) if keeping environments in sync.
 
 ---
 
@@ -411,8 +352,8 @@ To upgrade to a new Redmine patch release (e.g., 6.1.3 → 6.1.4):
 sudo firewall-cmd --permanent --add-service=https
 sudo firewall-cmd --reload
 
-# Container ports (10080–10082) are bound to 127.0.0.1 — no firewall rule needed
-# as they are only accessed by the local host Apache
+# Container port (10080) is bound to 127.0.0.1 — no firewall rule needed
+# as it is only accessed by the local host Apache
 
 # Verify
 sudo firewall-cmd --list-all

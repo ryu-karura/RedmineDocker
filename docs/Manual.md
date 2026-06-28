@@ -9,7 +9,7 @@
 podman ps --filter label=app=redmine
 
 # View systemd service status
-sudo systemctl status redmine-db redmine-prod redmine-test redmine-next
+sudo systemctl status redmine-db redmine-prod
 
 # View recent logs for production
 sudo journalctl -u redmine-prod --since "1 hour ago"
@@ -22,13 +22,7 @@ sudo journalctl -u redmine-prod --since "1 hour ago"
 sudo systemctl restart redmine-prod
 
 # Restart all Redmine services
-sudo systemctl restart redmine-db redmine-prod redmine-test redmine-next
-
-# Stop a specific environment (e.g., upgrade test)
-sudo systemctl stop redmine-next
-
-# Start it again
-sudo systemctl start redmine-next
+sudo systemctl restart redmine-db redmine-prod
 ```
 
 ### View Application Logs
@@ -36,9 +30,6 @@ sudo systemctl start redmine-next
 ```bash
 # Redmine production application log (Rails)
 tail -f /opt/redmine/data/redmine1/log/production.log
-
-# Redmine test environment log
-tail -f /opt/redmine/data/redmine2/log/production.log
 
 # Apache access log inside production container
 podman exec redmine-prod tail -f /var/log/httpd/access_log
@@ -71,11 +62,7 @@ sudo /opt/redmine/containers/scripts/backup.sh
 | Item                    | Backup Location                              | Method         |
 |-------------------------|----------------------------------------------|----------------|
 | Production DB           | `/opt/redmine/backup/db/redmine_prod_YYYYMMDD_HHMMSS.dump` | pg_dump (custom format) |
-| Plugin Test DB          | `/opt/redmine/backup/db/redmine_test_YYYYMMDD_HHMMSS.dump` | pg_dump        |
-| Upgrade Test DB         | `/opt/redmine/backup/db/redmine_next_YYYYMMDD_HHMMSS.dump` | pg_dump        |
 | Production files        | `/opt/redmine/backup/files/redmine1_YYYYMMDD_HHMMSS.tar.gz` | tar+gzip       |
-| Plugin Test files       | `/opt/redmine/backup/files/redmine2_YYYYMMDD_HHMMSS.tar.gz` | tar+gzip       |
-| Upgrade Test files      | `/opt/redmine/backup/files/redmine3_YYYYMMDD_HHMMSS.tar.gz` | tar+gzip       |
 
 ### List Existing Backups
 
@@ -248,189 +235,70 @@ sudo journalctl -u redmine-prod --since "7 days ago" > /tmp/redmine-prod-journal
 
 ---
 
-## 5. Environment Synchronization
+## 5. Plugin Deployment Workflow
 
-### Purpose
+### Installing a New Plugin in Production
 
-- **Prod → Test (Docker2)**: Refresh the plugin verification environment with current production data to test new plugins against real data.
-- **Prod → Next (Docker3)**: Refresh the upgrade test environment with current production data to test a new Redmine version.
-
-### Sync Procedure (Automated)
-
-```bash
-# Sync production to plugin test environment (Docker2)
-sudo /opt/redmine/containers/scripts/sync-env.sh prod test
-
-# Sync production to upgrade test environment (Docker3)
-sudo /opt/redmine/containers/scripts/sync-env.sh prod next
-```
-
-### Manual Sync Step-by-Step
-
-#### Step 1: Stop Target Environment
-
-```bash
-sudo systemctl stop redmine-test   # or redmine-next
-```
-
-#### Step 2: Dump Production Database
-
-```bash
-source /opt/redmine/containers/.env
-
-podman exec redmine-db pg_dump \
-    -U postgres \
-    -F c \
-    -f /tmp/prod_snapshot.dump \
-    redmine_prod
-
-podman cp redmine-db:/tmp/prod_snapshot.dump /tmp/prod_snapshot.dump
-podman exec redmine-db rm /tmp/prod_snapshot.dump
-```
-
-#### Step 3: Restore into Target Database
-
-```bash
-# For plugin test environment (target: redmine_test)
-podman exec redmine-db psql -U postgres -c "DROP DATABASE IF EXISTS redmine_test;"
-podman exec redmine-db psql -U postgres \
-    -c "CREATE DATABASE redmine_test OWNER redmine_adm ENCODING 'UTF8';"
-podman exec redmine-db psql -U postgres -d redmine_test \
-    -c "CREATE EXTENSION IF NOT EXISTS postgis;"
-podman exec redmine-db psql -U postgres -d redmine_test \
-    -c "CREATE EXTENSION IF NOT EXISTS postgis_topology;"
-
-podman cp /tmp/prod_snapshot.dump redmine-db:/tmp/restore.dump
-podman exec redmine-db pg_restore \
-    -U postgres \
-    -d redmine_test \
-    --no-owner \
-    --role=redmine_adm \
-    /tmp/restore.dump
-podman exec redmine-db rm /tmp/restore.dump
-rm /tmp/prod_snapshot.dump
-```
-
-#### Step 4: Sync Uploaded Files
-
-```bash
-rsync -a --delete \
-    /opt/redmine/data/redmine1/files/ \
-    /opt/redmine/data/redmine2/files/
-
-chown -R redmine_adm:redmine /opt/redmine/data/redmine2/files/
-```
-
-#### Step 5: Run Any Pending Migrations (for Docker3 upgrade testing)
-
-For the upgrade test environment, after syncing data, new Redmine migrations may need to run:
-
-```bash
-sudo systemctl start redmine-next
-# The entrypoint will run `bundle exec rake db:migrate` if needed
-sudo journalctl -u redmine-next -f
-```
-
-#### Step 6: Restart Target Environment
-
-```bash
-sudo systemctl start redmine-test   # or redmine-next
-sudo systemctl status redmine-test
-```
+1. **Add the plugin** to `containers/docker1/Containerfile`.
+2. **Rebuild the Docker1 image**:
+   ```bash
+   podman build -t localhost/redmine-prod:6.1.3-with-newplugin containers/docker1/
+   ```
+3. **Update `quadlets/redmine-prod.container`** to reference the new image tag.
+4. **Run a manual backup** before deploying:
+   ```bash
+   sudo /opt/redmine/containers/scripts/backup.sh
+   ```
+5. **Reload and restart**:
+   ```bash
+   sudo systemctl daemon-reload && sudo systemctl restart redmine-prod
+   ```
+6. **Verify** the plugin appears in Administration → Plugins.
 
 ---
 
-## 6. Plugin Deployment Workflow
-
-### Testing a New Plugin (Docker2 → Docker1)
-
-1. **Add the plugin to Docker2's Containerfile** in `containers/docker2/Containerfile`.
-2. **Rebuild Docker2 image**:
-   ```bash
-   podman build -t localhost/redmine-test:6.1.3-with-newplugin containers/docker2/
-   ```
-3. **Update `quadlets/redmine-test.container`** to reference the new image tag.
-4. **Reload and restart**:
-   ```bash
-   sudo systemctl daemon-reload && sudo systemctl restart redmine-test
-   ```
-5. **Test the plugin thoroughly** in the Docker2 environment.
-6. **If approved**, add the plugin to Docker1's Containerfile and repeat for production.
-
-### Installing a Plugin Without Rebuilding (Quick Test)
-
-For rapid iteration, install a plugin directly into the running Docker2 container:
-
-```bash
-# Open a shell in the test container
-podman exec -it --user redmine_adm redmine-test /bin/bash
-
-# Inside the container:
-cd /opt/redmine/app/plugins
-git clone https://github.com/some-author/some-plugin.git
-cd /opt/redmine/app
-bundle install
-RAILS_ENV=production bundle exec rake redmine:plugins:migrate
-
-# Restart the container (triggers entrypoint)
-exit
-sudo systemctl restart redmine-test
-```
-
-> Note: Changes made this way are **not persistent** across image rebuilds. Add the plugin to the Containerfile for a permanent installation.
-
----
-
-## 7. Redmine Version Upgrade Testing (Docker3)
+## 6. Redmine Version Upgrade
 
 ### Workflow
 
-Docker3 (`redmine-next`) tracks the Redmine development branch (`main`). Use it to validate the upgrade path before applying it to production.
+To upgrade Redmine to a new version:
 
-#### Step 1: Sync Data from Production
+#### Step 1: Run a Manual Backup
 
 ```bash
-sudo /opt/redmine/containers/scripts/sync-env.sh prod next
+sudo /opt/redmine/containers/scripts/backup.sh
 ```
 
-#### Step 2: Rebuild Docker3 Image
+#### Step 2: Rebuild Docker1 Image
 
 ```bash
-# Edit containers/docker3/Containerfile to update REDMINE_VERSION or branch
-vi /opt/redmine/containers/containers/docker3/Containerfile
+# Edit containers/docker1/Containerfile to update REDMINE_VERSION
+vi /opt/redmine/containers/containers/docker1/Containerfile
 
 # Rebuild
-podman build -t localhost/redmine-next:dev /opt/redmine/containers/containers/docker3/
+podman build -t localhost/redmine-prod:X.Y.Z /opt/redmine/containers/containers/docker1/
 ```
 
 #### Step 3: Update Quadlet and Restart
 
 ```bash
+# Update the image tag in the quadlet if changed
+vi /opt/redmine/containers/quadlets/redmine-prod.container
+
 sudo systemctl daemon-reload
-sudo systemctl restart redmine-next
-sudo journalctl -u redmine-next -f
+sudo systemctl restart redmine-prod
+sudo journalctl -u redmine-prod -f
 ```
 
 #### Step 4: Validate
 
-- Browse to `https://your-host/redmine-next`
+- Browse to `https://your-host/redmine`
 - Test all critical workflows: issue creation, wiki, file upload, GTT maps
 - Verify all plugins load without errors in Administration → Plugins
-- Run plugin-specific tests where applicable
-
-#### Step 5: Promote to Production
-
-When satisfied with the upgrade:
-
-1. Update `REDMINE_VERSION` in `containers/docker1/Containerfile`
-2. Run a manual backup: `sudo /opt/redmine/containers/scripts/backup.sh`
-3. Rebuild Docker1: `podman build -t localhost/redmine-prod:X.Y.Z containers/docker1/`
-4. Update `quadlets/redmine-prod.container` with new image tag
-5. `sudo systemctl daemon-reload && sudo systemctl restart redmine-prod`
 
 ---
 
-## 8. Container Maintenance
+## 7. Container Maintenance
 
 ### Update Container Images
 
@@ -464,8 +332,6 @@ podman system df
 
 # Data directories
 du -sh /opt/redmine/data/redmine1/
-du -sh /opt/redmine/data/redmine2/
-du -sh /opt/redmine/data/redmine3/
 du -sh /opt/redmine/backup/
 
 # PostgreSQL data
@@ -474,12 +340,12 @@ du -sh /opt/redmine/data/postgres/
 
 ---
 
-## 9. Database Maintenance
+## 8. Database Maintenance
 
 ### PostgreSQL Vacuum and Analyze
 
 ```bash
-# Run vacuum on all Redmine databases (recommended weekly)
+# Run vacuum on the Redmine database (recommended weekly)
 podman exec redmine-db vacuumdb -U postgres --all --analyze --verbose
 ```
 
@@ -496,9 +362,6 @@ podman exec redmine-db psql -U postgres -c \
 ```bash
 # Production database
 podman exec -it redmine-db psql -U postgres -d redmine_prod
-
-# Plugin test database
-podman exec -it redmine-db psql -U postgres -d redmine_test
 ```
 
 ### PostgreSQL Configuration Reload (without restart)
@@ -509,7 +372,7 @@ podman exec redmine-db psql -U postgres -c "SELECT pg_reload_conf();"
 
 ---
 
-## 10. Troubleshooting
+## 9. Troubleshooting
 
 ### Container Fails to Start
 

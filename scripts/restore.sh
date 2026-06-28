@@ -2,13 +2,13 @@
 # scripts/restore.sh
 #
 # Disaster recovery restore script for RedmineDocker.
-# Restores a specific Redmine environment from backup files.
+# Restores the production Redmine environment from backup files.
 #
 # Usage:
-#   sudo bash /opt/redmine/containers/scripts/restore.sh <env> <db_dump> <files_archive>
+#   sudo bash /opt/redmine/containers/scripts/restore.sh prod <db_dump> <files_archive>
 #
 # Arguments:
-#   env          — target environment: prod, test, or next
+#   env          — target environment: prod
 #   db_dump      — path to a .dump file created by backup.sh
 #   files_archive — path to a .tar.gz file created by backup.sh
 #
@@ -28,7 +28,7 @@ die()  { echo "${LOG_PREFIX} ERROR: $*" >&2; exit 1; }
 # ── Argument validation ────────────────────────────────────────────────────────
 usage() {
     echo "Usage: $0 <env> <db_dump_file> <files_archive>"
-    echo "  env: prod | test | next"
+    echo "  env: prod"
     exit 1
 }
 
@@ -45,18 +45,8 @@ case "${TARGET_ENV}" in
         ENV_NUM=1
         SERVICE="redmine-prod"
         ;;
-    test)
-        DB_NAME="redmine_test"
-        ENV_NUM=2
-        SERVICE="redmine-test"
-        ;;
-    next)
-        DB_NAME="redmine_next"
-        ENV_NUM=3
-        SERVICE="redmine-next"
-        ;;
     *)
-        die "Unknown environment '${TARGET_ENV}'. Must be: prod, test, or next."
+        die "Unknown environment '${TARGET_ENV}'. Must be: prod."
         ;;
 esac
 

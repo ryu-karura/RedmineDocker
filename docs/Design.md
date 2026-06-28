@@ -2,7 +2,7 @@
 
 ## 1. Overview
 
-This document describes the complete architecture for a multi-environment Redmine platform running on Podman containers, managed by systemd Quadlets, on Red Hat Enterprise Linux 9 (RHEL9) in production and AlmaLinux9 on WSL2 for development.
+This document describes the complete architecture for a Redmine platform running on Podman containers, managed by systemd Quadlets, on Red Hat Enterprise Linux 9 (RHEL9) in production and AlmaLinux9 on WSL2 for development.
 
 ---
 
@@ -35,8 +35,6 @@ This document describes the complete architecture for a multi-environment Redmin
 │  Host Apache 2.4 (Port 443 HTTPS)                       │
 │  ┌──────────────────────────────────────────────────┐   │
 │  │  ProxyPass /redmine       → 127.0.0.1:10080      │   │
-│  │  ProxyPass /redmine-test  → 127.0.0.1:10081      │   │
-│  │  ProxyPass /redmine-next  → 127.0.0.1:10082      │   │
 │  │  Alias /redmine/files, /assets → host filesystem  │   │
 │  └──────────────────────────────────────────────────┘   │
 │                                                         │
@@ -48,20 +46,6 @@ This document describes the complete architecture for a multi-environment Redmin
 │  │ PostgreSQL 17.5  │  │ Sub-URI: /redmine             │ │
 │  │ PostGIS 3.5.2    │  │ DB: redmine_prod              │ │
 │  └──────────────────┘  └──────────────────────────────┘ │
-│                        ┌──────────────────────────────┐ │
-│                        │ Docker2 (redmine-test)        │ │
-│                        │ Port: 10081 → 80              │ │
-│                        │ Plugin Verification           │ │
-│                        │ Sub-URI: /redmine-test        │ │
-│                        │ DB: redmine_test              │ │
-│                        └──────────────────────────────┘ │
-│                        ┌──────────────────────────────┐ │
-│                        │ Docker3 (redmine-next)        │ │
-│                        │ Port: 10082 → 80              │ │
-│                        │ Version Upgrade Test (7.0-dev)│ │
-│                        │ Sub-URI: /redmine-next        │ │
-│                        │ DB: redmine_next              │ │
-│                        └──────────────────────────────┘ │
 └─────────────────────────────────────────────────────────┘
 ```
 
@@ -80,10 +64,8 @@ This document describes the complete architecture for a multi-environment Redmin
 |---------------|---------------|---------------|-------------------------------|
 | Docker0       | `redmine-db`  | `10.89.1.10`  | None (internal only)          |
 | Docker1       | `redmine-prod`| `10.89.1.11`  | `127.0.0.1:10080 → 80`        |
-| Docker2       | `redmine-test`| `10.89.1.12`  | `127.0.0.1:10081 → 80`        |
-| Docker3       | `redmine-next`| `10.89.1.13`  | `127.0.0.1:10082 → 80`        |
 
-The database port (5432) is **not** exposed to the host. Redmine containers connect to the database exclusively via the internal `redmine_net` bridge network using hostname `redmine-db`.
+The database port (5432) is **not** exposed to the host. The Redmine container connects to the database exclusively via the internal `redmine_net` bridge network using hostname `redmine-db`.
 
 ---
 
@@ -94,8 +76,6 @@ The database port (5432) is **not** exposed to the host. Redmine containers conn
 ├── containers/             # This repository (git clone target)
 │   ├── docker0/
 │   ├── docker1/
-│   ├── docker2/
-│   ├── docker3/
 │   ├── quadlets/
 │   ├── host-apache/
 │   ├── scripts/
@@ -104,15 +84,13 @@ The database port (5432) is **not** exposed to the host. Redmine containers conn
 │   ├── postgres/           # PostgreSQL 17 data directory (PGDATA)
 │   │   └── 17/
 │   │       └── data/
-│   ├── redmine1/           # Production Redmine persistent data
-│   │   ├── files/          # Uploaded attachments
-│   │   ├── log/            # Application logs
-│   │   ├── public/
-│   │   │   ├── assets/     # Compiled CSS/JS assets
-│   │   │   └── plugin_assets/
-│   │   └── tmp/
-│   ├── redmine2/           # Plugin test Redmine persistent data (same structure)
-│   └── redmine3/           # Upgrade test Redmine persistent data (same structure)
+│   └── redmine1/           # Production Redmine persistent data
+│       ├── files/          # Uploaded attachments
+│       ├── log/            # Application logs
+│       ├── public/
+│       │   ├── assets/     # Compiled CSS/JS assets
+│       │   └── plugin_assets/
+│       └── tmp/
 └── backup/
     ├── db/                 # Database dump archives (7 generations)
     └── files/              # Uploaded files archives (7 generations)
@@ -128,16 +106,6 @@ The database port (5432) is **not** exposed to the host. Redmine containers conn
 | `/opt/redmine/data/redmine1/public/assets` | `/opt/redmine/app/public/assets` | Docker1         |
 | `/opt/redmine/data/redmine1/public/plugin_assets` | `/opt/redmine/app/public/plugin_assets` | Docker1 |
 | `/opt/redmine/data/redmine1/tmp`       | `/opt/redmine/app/tmp`              | Docker1         |
-| `/opt/redmine/data/redmine2/files`     | `/opt/redmine/app/files`            | Docker2         |
-| `/opt/redmine/data/redmine2/log`       | `/opt/redmine/app/log`              | Docker2         |
-| `/opt/redmine/data/redmine2/public/assets` | `/opt/redmine/app/public/assets` | Docker2        |
-| `/opt/redmine/data/redmine2/public/plugin_assets` | `/opt/redmine/app/public/plugin_assets` | Docker2 |
-| `/opt/redmine/data/redmine2/tmp`       | `/opt/redmine/app/tmp`              | Docker2         |
-| `/opt/redmine/data/redmine3/files`     | `/opt/redmine/app/files`            | Docker3         |
-| `/opt/redmine/data/redmine3/log`       | `/opt/redmine/app/log`              | Docker3         |
-| `/opt/redmine/data/redmine3/public/assets` | `/opt/redmine/app/public/assets` | Docker3        |
-| `/opt/redmine/data/redmine3/public/plugin_assets` | `/opt/redmine/app/public/plugin_assets` | Docker3 |
-| `/opt/redmine/data/redmine3/tmp`       | `/opt/redmine/app/tmp`              | Docker3         |
 
 ---
 
@@ -189,8 +157,6 @@ The database port (5432) is **not** exposed to the host. Redmine containers conn
 | Database Name   | Owner        | Encoding | Extensions        | Used By     |
 |-----------------|--------------|----------|-------------------|-------------|
 | `redmine_prod`  | `redmine_adm`| UTF8     | postgis, postgis_topology | Docker1 |
-| `redmine_test`  | `redmine_adm`| UTF8     | postgis, postgis_topology | Docker2 |
-| `redmine_next`  | `redmine_adm`| UTF8     | postgis, postgis_topology | Docker3 |
 
 ### Shared Database Account
 
@@ -200,8 +166,6 @@ The database port (5432) is **not** exposed to the host. Redmine containers conn
 | Password  | 16-char random (see `.env`) |
 | Grants    | ALL on respective database |
 | Roles     | NOSUPERUSER NOCREATEDB NOCREATEROLE |
-
-The same username `redmine_adm` is shared across all three Redmine containers. Each container connects only to its own database (`redmine_prod`, `redmine_test`, `redmine_next`).
 
 The `database.yml` adapter is set to `postgis` (not `postgresql`) to enable spatial features required by the `redmine_gtt` plugin.
 
@@ -220,9 +184,7 @@ Host Apache (TLS termination)
     │  ├── Alias /redmine/assets       → /opt/redmine/data/redmine1/public/assets/
     │  ├── Alias /redmine/plugin_assets → /opt/redmine/data/redmine1/public/plugin_assets/
     │  │
-    │  ├── ProxyPass /redmine          → http://127.0.0.1:10080/redmine (Container1 Apache)
-    │  ├── ProxyPass /redmine-test     → http://127.0.0.1:10081/redmine-test
-    │  └── ProxyPass /redmine-next     → http://127.0.0.1:10082/redmine-next
+    │  └── ProxyPass /redmine          → http://127.0.0.1:10080/redmine (Container1 Apache)
     │
     ▼ HTTP :80 (container-internal)
 Container Apache (mod_proxy_http)
@@ -240,8 +202,6 @@ Puma (RAILS_RELATIVE_URL_ROOT=/redmine)
 | Container | Sub-URI         | RAILS_RELATIVE_URL_ROOT | Host Port |
 |-----------|-----------------|-------------------------|-----------|
 | Docker1   | `/redmine`      | `/redmine`              | `10080`   |
-| Docker2   | `/redmine-test` | `/redmine-test`         | `10081`   |
-| Docker3   | `/redmine-next` | `/redmine-next`         | `10082`   |
 
 ---
 
@@ -256,8 +216,6 @@ All containers are managed via Podman Quadlet unit files placed in `/etc/contain
 | `redmine.network`                 | `redmine-network.service`      | —                  |
 | `redmine-db.container`            | `redmine-db.service`           | `on-failure`       |
 | `redmine-prod.container`          | `redmine-prod.service`         | `on-failure`       |
-| `redmine-test.container`          | `redmine-test.service`         | `on-failure`       |
-| `redmine-next.container`          | `redmine-next.service`         | `on-failure`       |
 
 ### Puma Application Server
 
@@ -326,7 +284,7 @@ Plugins that require database migrations must be installed before running `rake 
 
 ## 11. Log Management
 
-- **Application logs** (`production.log`, `puma_access.log`): stored in bind-mounted `/opt/redmine/data/redmineN/log/`
+- **Application logs** (`production.log`, `puma_access.log`): stored in bind-mounted `/opt/redmine/data/redmine1/log/`
 - **Log rotation**: configured via `/etc/logrotate.d/redmine` on the host
 - **Retention**: exactly **60 days** (`rotate 60` with `daily`)
 - **Container stdout/stderr**: captured by systemd journal (accessible via `journalctl -u redmine-prod`)
@@ -338,28 +296,18 @@ Plugins that require database migrations must be installed before running `rake 
 - **Frequency**: Daily (cron at 02:00)
 - **Retention**: exactly **7 generations** (weekly full + daily, pruned to 7)
 - **Scope**:
-  - PostgreSQL: `pg_dump` of each database to compressed `.dump` files
-  - Files: tar+gzip of each `/opt/redmine/data/redmineN/files/` directory
+  - PostgreSQL: `pg_dump` of `redmine_prod` to a compressed `.dump` file
+  - Files: tar+gzip of `/opt/redmine/data/redmine1/files/`
 - **Storage**: `/opt/redmine/backup/db/` and `/opt/redmine/backup/files/`
 - **Rotation**: after each backup, files older than 7 backups are deleted
 
 ---
 
-## 13. Environment Synchronization
-
-To deploy or refresh plugin test (Docker2) or upgrade test (Docker3) environments from production:
-
-- **Clone prod→test**: pg_dump from `redmine_prod` + pg_restore into `redmine_test`, then rsync files
-- **Clone prod→next**: same procedure targeting `redmine_next` database and Docker3 files
-- Automation provided by `scripts/sync-env.sh`
-
----
-
-## 14. Security Considerations
+## 13. Security Considerations
 
 - The database port 5432 is not exposed outside the Podman network.
 - Host Apache adds `X-Forwarded-For` headers; `redmine_ip_filter` must be configured accordingly.
 - TLS is terminated at the host Apache (certificate managed on host).
 - Container filesystems are read-only except for bind-mounted data volumes.
-- `REDMINE_SECRET_TOKEN` is generated once per environment (`bundle exec rake secret`) and stored in `.env`.
+- `REDMINE_SECRET_TOKEN` is generated once (`bundle exec rake secret`) and stored in `.env`.
 - All passwords are 16-character random alphanumeric strings generated by `scripts/generate-env.sh`.

@@ -5,8 +5,8 @@
 # Retains exactly 7 generations of backups.
 #
 # Backup scope:
-#   - PostgreSQL databases: redmine_prod, redmine_test, redmine_next (pg_dump custom format)
-#   - Uploaded files:       /opt/redmine/data/redmineN/files/ (tar+gzip)
+#   - PostgreSQL database: redmine_prod (pg_dump custom format)
+#   - Uploaded files:      /opt/redmine/data/redmine1/files/ (tar+gzip)
 #
 # Backup destinations:
 #   - DB dumps:   /opt/redmine/backup/db/
@@ -120,12 +120,8 @@ backup_files() {
 
 # ── Perform backups ────────────────────────────────────────────────────────────
 backup_database "redmine_prod"
-backup_database "redmine_test"
-backup_database "redmine_next"
 
 backup_files 1
-backup_files 2
-backup_files 3
 
 # ── Summary ───────────────────────────────────────────────────────────────────
 log "Backup complete."
