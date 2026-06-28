@@ -6,8 +6,8 @@
 # in single-user (no-listen) mode.
 #
 # Creates:
-#   - Shared database user 'redmine_adm' (used by all three Redmine containers)
-#   - Three PostGIS-enabled databases: redmine_prod, redmine_test, redmine_next
+#   - Database user 'redmine_adm' (used by the production Redmine container)
+#   - PostGIS-enabled database: redmine_prod
 #
 # The REDMINE_DB_PASSWORD environment variable must be set before this script runs.
 
@@ -24,7 +24,7 @@ if [ -z "${REDMINE_DB_PASSWORD:-}" ]; then
     exit 1
 fi
 
-log "Creating shared Redmine database user 'redmine_adm' ..."
+log "Creating Redmine database user 'redmine_adm' ..."
 "${PGBIN}/psql" -U postgres <<-SQL
 CREATE USER redmine_adm
     WITH PASSWORD '${REDMINE_DB_PASSWORD}'
@@ -35,7 +35,7 @@ CREATE USER redmine_adm
     LOGIN;
 SQL
 
-for DBNAME in redmine_prod redmine_test redmine_next; do
+for DBNAME in redmine_prod; do
     log "Creating database: ${DBNAME} ..."
     "${PGBIN}/psql" -U postgres <<-SQL
     CREATE DATABASE ${DBNAME}
@@ -66,4 +66,4 @@ SQL
     log "Database ${DBNAME} created and PostGIS enabled."
 done
 
-log "All databases and extensions initialized successfully."
+log "Database and extensions initialized successfully."

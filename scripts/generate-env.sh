@@ -39,9 +39,7 @@ echo "Generating passwords and secret tokens ..."
 
 POSTGRES_SUPERUSER_PASSWORD=$(gen_password)
 REDMINE_DB_PASSWORD=$(gen_password)
-REDMINE1_SECRET_TOKEN=$(gen_secret)
-REDMINE2_SECRET_TOKEN=$(gen_secret)
-REDMINE3_SECRET_TOKEN=$(gen_secret)
+REDMINE_SECRET_TOKEN=$(gen_secret)
 
 # Write the .env file
 cat > "${ENV_FILE}" <<EOF
@@ -56,15 +54,13 @@ cat > "${ENV_FILE}" <<EOF
 POSTGRES_SUPERUSER_PASSWORD=${POSTGRES_SUPERUSER_PASSWORD}
 
 # ── Shared Redmine Database User Password ─────────────────────────────────────
-# Used by the 'redmine_adm' DB user across all three Redmine databases.
+# Used by the 'redmine_adm' DB user for the production Redmine database.
 REDMINE_DB_PASSWORD=${REDMINE_DB_PASSWORD}
 
 # ── Redmine Secret Key Base ───────────────────────────────────────────────────
-# Used to sign and encrypt session cookies. Each environment has its own key.
-# DO NOT reuse across environments.
-REDMINE_SECRET_TOKEN=${REDMINE1_SECRET_TOKEN}
-REDMINE2_SECRET_TOKEN=${REDMINE2_SECRET_TOKEN}
-REDMINE3_SECRET_TOKEN=${REDMINE3_SECRET_TOKEN}
+# Used to sign and encrypt session cookies.
+# DO NOT reuse or change after initial setup without re-logging all users.
+REDMINE_SECRET_TOKEN=${REDMINE_SECRET_TOKEN}
 
 # ── SMTP Configuration ────────────────────────────────────────────────────────
 # Configure these for outbound email notifications.
@@ -83,9 +79,7 @@ echo "  Permissions: 600 (readable by root only)"
 echo ""
 echo "  POSTGRES_SUPERUSER_PASSWORD: $(echo "${POSTGRES_SUPERUSER_PASSWORD}" | sed 's/./*/g') (16 chars)"
 echo "  REDMINE_DB_PASSWORD:         $(echo "${REDMINE_DB_PASSWORD}" | sed 's/./*/g') (16 chars)"
-echo "  REDMINE1_SECRET_TOKEN:       [128 hex chars]"
-echo "  REDMINE2_SECRET_TOKEN:       [128 hex chars]"
-echo "  REDMINE3_SECRET_TOKEN:       [128 hex chars]"
+echo "  REDMINE_SECRET_TOKEN:        [128 hex chars]"
 echo ""
 echo "Next steps:"
 echo "  1. Edit ${ENV_FILE} to configure SMTP settings if email is needed."
