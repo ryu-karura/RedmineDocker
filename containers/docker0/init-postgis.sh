@@ -73,12 +73,6 @@ GRANT USAGE ON SCHEMA topology TO redmine_adm;
 GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO redmine_adm;
 GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO redmine_adm;
 GRANT ALL PRIVILEGES ON ALL FUNCTIONS IN SCHEMA public TO redmine_adm;
-ALTER DEFAULT PRIVILEGES FOR ROLE redmine_adm IN SCHEMA public
-    GRANT ALL ON TABLES TO redmine_adm;
-ALTER DEFAULT PRIVILEGES FOR ROLE redmine_adm IN SCHEMA public
-    GRANT ALL ON SEQUENCES TO redmine_adm;
-ALTER DEFAULT PRIVILEGES FOR ROLE redmine_adm IN SCHEMA public
-    GRANT ALL ON FUNCTIONS TO redmine_adm;
 SQL
 
 log "Database and extensions initialized successfully."

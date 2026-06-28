@@ -86,6 +86,8 @@ sudo useradd --uid 1001 --gid 1001 --home /opt/redmine --no-create-home \
 ## Step 4: Create Data Directory Structure
 
 ```bash
+# Docker0 mounts /opt/redmine/data/postgres/18 at /var/lib/postgresql.
+# The upstream PostgreSQL 18 image stores PGDATA in the 18/docker subdirectory.
 sudo mkdir -p /opt/redmine/data/postgres/18/docker
 sudo mkdir -p /opt/redmine/data/redmine1/{files,log,public/{assets,plugin_assets},tmp}
 sudo mkdir -p /opt/redmine/backup/{db,files}
