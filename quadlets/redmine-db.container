@@ -1,6 +1,6 @@
 # quadlets/redmine-db.container
 #
-# Podman Quadlet container unit for Docker0: PostgreSQL 17.5 + PostGIS 3.5.2
+# Podman Quadlet container unit for Docker0: PostgreSQL 18 + PostGIS master
 # Place in /etc/containers/systemd/redmine-db.container
 # Run: systemctl daemon-reload
 #
@@ -12,7 +12,7 @@
 # container. Start this first.
 
 [Unit]
-Description=Redmine Database (PostgreSQL 17.5 + PostGIS 3.5.2)
+Description=Redmine Database (PostgreSQL 18 + PostGIS master)
 Documentation=file:///opt/redmine/containers/docs/Design.md
 After=network-online.target
 Wants=network-online.target
@@ -20,7 +20,7 @@ Wants=network-online.target
 
 [Container]
 # Image built from containers/docker0/Containerfile
-Image=localhost/redmine-db:17.5-3.5.2
+Image=localhost/redmine-db:18-master
 
 # Container name (accessible as hostname 'redmine-db' within the network)
 ContainerName=redmine-db
@@ -39,9 +39,9 @@ IP=10.89.1.10
 EnvironmentFile=/opt/redmine/containers/.env
 
 # Bind-mount the PostgreSQL data directory for persistence
-Volume=/opt/redmine/data/postgres/17/data:/var/lib/pgsql/17/data:Z
+Volume=/opt/redmine/data/postgres/18:/var/lib/postgresql:Z
 
-# Run as the postgres user (UID 26 per PGDG RPM convention)
+# Run as the postgres user (UID 26 inside the derived image for bind-mount compatibility)
 # The :Z flag on the volume relabels for SELinux
 User=postgres
 

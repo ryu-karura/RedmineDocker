@@ -51,7 +51,9 @@ cat > "${ENV_FILE}" <<EOF
 
 # ── PostgreSQL Superuser Password ─────────────────────────────────────────────
 # Used by the 'postgres' superuser for administration.
+# POSTGRES_PASSWORD is the upstream image variable; keep the compatibility alias too.
 POSTGRES_SUPERUSER_PASSWORD=${POSTGRES_SUPERUSER_PASSWORD}
+POSTGRES_PASSWORD=${POSTGRES_SUPERUSER_PASSWORD}
 
 # ── Shared Redmine Database User Password ─────────────────────────────────────
 # Used by the 'redmine_adm' DB user for the production Redmine database.

@@ -29,7 +29,7 @@ sudo bash scripts/generate-env.sh
 ```
 
 This creates `/opt/redmine/containers/.env` with:
-- `POSTGRES_SUPERUSER_PASSWORD` — PostgreSQL `postgres` superuser password
+- `POSTGRES_SUPERUSER_PASSWORD` / `POSTGRES_PASSWORD` — PostgreSQL `postgres` superuser password
 - `REDMINE_DB_PASSWORD` — Redmine database user password
 - `REDMINE_SECRET_TOKEN` — Redmine production secret key base
 
@@ -74,8 +74,8 @@ sudo groupadd --gid 1001 redmine
 sudo useradd --uid 1001 --gid 1001 --home /opt/redmine --no-create-home \
     --shell /sbin/nologin redmine_adm
 
-# The postgres user (UID 26) is created automatically by the postgresql17 RPM
-# on the host. Ensure it exists or create it if building DB container from scratch:
+# The postgres user (UID 26) is used for host-side bind-mount ownership
+# compatibility with Docker0. Ensure it exists or create it if needed:
 # sudo groupadd --gid 26 postgres
 # sudo useradd --uid 26 --gid 26 --home /var/lib/pgsql --no-create-home \
 #     --shell /bin/bash postgres
@@ -86,7 +86,7 @@ sudo useradd --uid 1001 --gid 1001 --home /opt/redmine --no-create-home \
 ## Step 4: Create Data Directory Structure
 
 ```bash
-sudo mkdir -p /opt/redmine/data/postgres/17/data
+sudo mkdir -p /opt/redmine/data/postgres/18/docker
 sudo mkdir -p /opt/redmine/data/redmine1/{files,log,public/{assets,plugin_assets},tmp}
 sudo mkdir -p /opt/redmine/backup/{db,files}
 
@@ -113,9 +113,8 @@ source .env
 
 # Build Database container (Docker0)
 podman build \
-    --build-arg POSTGRES_SUPERUSER_PASSWORD="${POSTGRES_SUPERUSER_PASSWORD}" \
-    --build-arg REDMINE_DB_PASSWORD="${REDMINE_DB_PASSWORD}" \
-    -t localhost/redmine-db:17.5-3.5.2 \
+    -f containers/docker0/Containerfile \
+    -t localhost/redmine-db:18-master \
     containers/docker0/
 
 # Build Production Redmine container (Docker1)

@@ -223,7 +223,7 @@ RUN git clone --depth 1 --branch 1.0.0 \
         redmine_solid_queue
 
 # 13. redmine_gtt (6.0.3) — Geo-Task-Tracker (CRITICALLY IMPORTANT)
-#     ⚠️ Requires PostgreSQL 17 + PostGIS 3.5. PG18 is NOT supported.
+#     ⚠️ Requires a PostGIS-enabled PostgreSQL database.
 #     ⚠️ Requires yarn + npx webpack build step (done below after bundle install).
 #     ⚠️ Requires 'postgis' adapter in database.yml (not 'postgresql').
 RUN git clone --depth 1 --branch 6.0.3 \

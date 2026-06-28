@@ -60,10 +60,10 @@ FILES_DIR="${DATA_DIR}/files"
 
 # shellcheck source=/dev/null
 source "${ENV_FILE}"
-[ -z "${POSTGRES_SUPERUSER_PASSWORD:-}" ] && die "POSTGRES_SUPERUSER_PASSWORD not set."
 [ -z "${REDMINE_DB_PASSWORD:-}" ]         && die "REDMINE_DB_PASSWORD not set."
-
-export PGPASSWORD="${POSTGRES_SUPERUSER_PASSWORD}"
+POSTGRES_ADMIN_PASSWORD="${POSTGRES_PASSWORD:-${POSTGRES_SUPERUSER_PASSWORD:-}}"
+[ -z "${POSTGRES_ADMIN_PASSWORD}" ] && die "POSTGRES_PASSWORD or POSTGRES_SUPERUSER_PASSWORD not set."
+export PGPASSWORD="${POSTGRES_ADMIN_PASSWORD}"
 
 # ── Safety confirmation ───────────────────────────────────────────────────────
 echo ""

@@ -10,7 +10,7 @@ This repository contains the complete infrastructure-as-code to build, deploy, a
 
 | Container | Name          | Role                              | Redmine | DB             |
 |-----------|---------------|-----------------------------------|---------|----------------|
-| Docker0   | redmine-db    | PostgreSQL 17.5 + PostGIS 3.5.2   | —       | —              |
+| Docker0   | redmine-db    | PostgreSQL 18 + PostGIS master    | —       | —              |
 | Docker1   | redmine-prod  | Production Redmine 6.1.3          | 6.1.3   | redmine_prod   |
 
 All containers run under Podman (not Docker) and are managed as systemd services using Quadlet unit files.
@@ -33,8 +33,8 @@ External HTTPS traffic arrives at port 443 on the host Apache, which terminates 
 |-------------|-----------|
 | RHEL/Alma   | 9.5       |
 | Podman      | 4.9.x     |
-| PostgreSQL  | **17.5**  |
-| PostGIS     | **3.5.2** |
+| PostgreSQL  | **18**    |
+| PostGIS     | **master** |
 | Redmine     | **6.1.3** |
 | Ruby        | 3.4.4     |
 | Bundler     | 2.6.8     |
@@ -55,7 +55,7 @@ RedmineDocker/
 │   ├── Setup.md                  # Step-by-step installation guide
 │   └── Manual.md                 # Day-to-day operational procedures
 ├── containers/
-│   ├── docker0/                  # PostgreSQL 17.5 + PostGIS 3.5.2 container
+│   ├── docker0/                  # PostgreSQL 18 + PostGIS master container
 │   └── docker1/                  # Production Redmine 6.1.3 container
 ├── quadlets/                     # Systemd Quadlet unit files
 ├── host-apache/                  # Host Apache reverse proxy configuration

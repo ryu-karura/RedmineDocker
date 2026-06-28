@@ -13,8 +13,8 @@ This document describes the complete architecture for a Redmine platform running
 | Host OS (Prod)     | RHEL 9.5   | Red Hat Enterprise Linux                                     |
 | Host OS (Dev)      | AlmaLinux 9.5 | Running inside WSL2                                       |
 | Podman             | 4.9.x      | As shipped with RHEL9 / AlmaLinux9                          |
-| PostgreSQL         | **17.5**   | ⚠️ PG18 is NOT used — PostGIS 3.5 does not support PG18     |
-| PostGIS            | **3.5.2**  | Requires PostgreSQL 17; PostGIS 3.6 (PG18 support) not yet released |
+| PostgreSQL         | **18**     | Provided by the upstream `postgis/postgis:18-master` base image |
+| PostGIS            | **master** | Provided by the upstream `postgis/postgis:18-master` base image |
 | Redmine            | **6.1.3**  | Latest stable (2026-06-15)                                  |
 | Ruby               | **3.4.4**  | Installed via rbenv                                          |
 | Bundler            | **2.6.8**  | System gem                                                   |
@@ -43,8 +43,8 @@ This document describes the complete architecture for a Redmine platform running
 │  │ Docker0          │  │ Docker1 (redmine-prod)        │ │
 │  │ redmine-db       │  │ Port: 10080 → 80              │ │
 │  │ 10.89.1.10:5432  │  │ Apache + Puma + Redmine 6.1.3 │ │
-│  │ PostgreSQL 17.5  │  │ Sub-URI: /redmine             │ │
-│  │ PostGIS 3.5.2    │  │ DB: redmine_prod              │ │
+│  │ PostgreSQL 18    │  │ Sub-URI: /redmine             │ │
+│  │ PostGIS master   │  │ DB: redmine_prod              │ │
 │  └──────────────────┘  └──────────────────────────────┘ │
 └─────────────────────────────────────────────────────────┘
 ```
@@ -81,9 +81,9 @@ The database port (5432) is **not** exposed to the host. The Redmine container c
 │   ├── scripts/
 │   └── logrotate/
 ├── data/
-│   ├── postgres/           # PostgreSQL 17 data directory (PGDATA)
-│   │   └── 17/
-│   │       └── data/
+│   ├── postgres/           # PostgreSQL 18 data directory (PGDATA root)
+│   │   └── 18/
+│   │       └── docker/
 │   └── redmine1/           # Production Redmine persistent data
 │       ├── files/          # Uploaded attachments
 │       ├── log/            # Application logs
@@ -100,7 +100,7 @@ The database port (5432) is **not** exposed to the host. The Redmine container c
 
 | Host Path                              | Container Path                      | Container       |
 |----------------------------------------|-------------------------------------|-----------------|
-| `/opt/redmine/data/postgres/17/data`   | `/var/lib/pgsql/17/data`            | Docker0         |
+| `/opt/redmine/data/postgres/18`        | `/var/lib/postgresql`               | Docker0         |
 | `/opt/redmine/data/redmine1/files`     | `/opt/redmine/app/files`            | Docker1         |
 | `/opt/redmine/data/redmine1/log`       | `/opt/redmine/app/log`              | Docker1         |
 | `/opt/redmine/data/redmine1/public/assets` | `/opt/redmine/app/public/assets` | Docker1         |
@@ -115,10 +115,10 @@ The database port (5432) is **not** exposed to the host. The Redmine container c
 
 | User           | UID  | GID  | Group    | Home             | Purpose                          |
 |----------------|------|------|----------|------------------|----------------------------------|
-| `postgres`     | 26   | 26   | postgres | `/var/lib/pgsql` | PostgreSQL process owner (PGDG RPM default) |
+| `postgres`     | 26   | 26   | postgres | `/var/lib/pgsql` | Host bind-mount owner for the PostgreSQL container |
 | `redmine_adm`  | 1001 | 1001 | redmine  | `/opt/redmine`   | Redmine app process owner        |
 
-> **Note:** The `postgres` UID/GID 26 matches the PGDG RPM package default on RHEL/AlmaLinux 9. The `redmine_adm` UID/GID 1001 must be created identically on the host and inside each Redmine container to ensure bind-mount permissions are consistent.
+> **Note:** Docker0 remaps the upstream image's `postgres` user to UID 26 so existing host-side bind-mount ownership remains compatible. The `redmine_adm` UID/GID 1001 must still be created identically on the host and inside each Redmine container to ensure bind-mount permissions are consistent.
 
 ### Directory Permissions
 
@@ -127,7 +127,7 @@ The database port (5432) is **not** exposed to the host. The Redmine container c
 | `/opt/redmine/`                        | `root:root`        | `755` | Base directory                         |
 | `/opt/redmine/containers/`             | `root:root`        | `755` | Repository checkout                    |
 | `/opt/redmine/data/`                   | `root:root`        | `755` | Data root                              |
-| `/opt/redmine/data/postgres/`          | `postgres:postgres`| `700` | PostgreSQL data (must be 700)          |
+| `/opt/redmine/data/postgres/`          | `postgres:postgres`| `700` | PostgreSQL data root (must be 700)     |
 | `/opt/redmine/data/redmine1/`          | `redmine_adm:redmine` | `755` | Redmine1 data root                  |
 | `/opt/redmine/data/redmine1/files/`    | `redmine_adm:redmine` | `755` | Uploads (writable by app)            |
 | `/opt/redmine/data/redmine1/log/`      | `redmine_adm:redmine` | `755` | Logs (writable by app)               |
@@ -266,7 +266,7 @@ Puma is configured with:
 
 > *`redmine_issue_templates` JS assets are pre-built in the repo; Node.js is only needed for rebuilding.  
 > †`redmine_login_audit2` is a brand-new plugin (initial release April 2026, 3 commits, no CI). Validate thoroughly before production use.  
-> ‡`redmine_gtt` is critically important but requires **PostgreSQL 17 + PostGIS 3.5** specifically. PG18 is not supported by PostGIS 3.5.
+> ‡`redmine_gtt` is critically important and requires the `postgis` adapter plus a PostGIS-enabled PostgreSQL server.
 
 **Note on `redmine-view-customize-scripts`:** This is a **code example library**, not an installable plugin. The actual plugin to install is `view_customize` (from `https://github.com/onozaty/redmine-view-customize`). After installing the plugin, administrators can paste scripts from the `redmine-view-customize-scripts` repository via Administration → View Customize.
 
