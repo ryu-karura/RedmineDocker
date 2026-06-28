@@ -1,5 +1,8 @@
 # RedmineDocker
 
+[![Docker0 Build](https://github.com/ryu-karura/RedmineDocker/actions/workflows/docker0-build.yml/badge.svg)](https://github.com/ryu-karura/RedmineDocker/actions/workflows/docker0-build.yml)
+[![Docker1 Build](https://github.com/ryu-karura/RedmineDocker/actions/workflows/docker1-build.yml/badge.svg)](https://github.com/ryu-karura/RedmineDocker/actions/workflows/docker1-build.yml)
+
 **Redmine Container Project powered by Podman on RHEL9 / AlmaLinux9**
 
 This repository contains the complete infrastructure-as-code to build, deploy, and operate a Redmine platform using Podman containers managed by systemd Quadlets.
@@ -50,6 +53,10 @@ External HTTPS traffic arrives at port 443 on the host Apache, which terminates 
 ```
 RedmineDocker/
 ├── README.md                     # This file
+├── .github/
+│   └── workflows/
+│       ├── docker0-build.yml     # CI: Docker0 build test
+│       └── docker1-build.yml     # CI: Docker1 build test
 ├── docs/
 │   ├── Design.md                 # Architecture and design decisions
 │   ├── Setup.md                  # Step-by-step installation guide

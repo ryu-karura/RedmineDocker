@@ -1,0 +1,39 @@
+name: Docker0 Build
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'containers/docker0/**'
+      - '.github/workflows/docker0-build.yml'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'containers/docker0/**'
+      - '.github/workflows/docker0-build.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build Docker0 (PostgreSQL 17.5 + PostGIS 3.5.2)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker0 image
+        uses: docker/build-push-action@v6
+        with:
+          context: containers/docker0
+          file: containers/docker0/Containerfile
+          push: false
+          tags: redmine-db:test
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
