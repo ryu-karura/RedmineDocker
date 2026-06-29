@@ -15,7 +15,7 @@ This document describes the complete architecture for a Redmine platform running
 | Podman             | 4.9.x      | As shipped with RHEL9 / AlmaLinux9                          |
 | PostgreSQL         | **18**     | Provided by the upstream `postgis/postgis:18-master` base image |
 | PostGIS            | **master** | Provided by the upstream `postgis/postgis:18-master` base image |
-| Redmine            | **6.1.3**  | Latest stable (2026-06-15)                                  |
+| Redmine            | **6.1.3**  | Provided by upstream `docker.io/library/redmine:6.1.3-trixie` |
 | Ruby               | **3.4.4**  | Installed via rbenv                                          |
 | Bundler            | **2.6.8**  | System gem                                                   |
 | Node.js            | **22.23.1** | Active LTS "Jod"; Node.js 18 is EOL as of March 2025       |
