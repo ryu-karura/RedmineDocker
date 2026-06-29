@@ -50,33 +50,27 @@ ENV REDMINE_HOME=/opt/redmine/app
 ENV REDMINE_SUBURI=${REDMINE_SUBURI}
 
 # ── System packages ──────────────────────────────────────────────────────────
-RUN dnf install -y epel-release \
-    && dnf install -y \
-        https://download.postgresql.org/pub/repos/yum/reporpms/EL-9-x86_64/pgdg-redhat-repo-latest.noarch.rpm \
-    && dnf -qy module disable postgresql \
-    && dnf install -y \
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
         # Build essentials
-        gcc gcc-c++ make git curl wget tar bzip2 patch \
+        gcc g++ make git curl wget tar bzip2 patch \
         # Ruby build dependencies
-        openssl-devel readline-devel zlib-devel libffi-devel \
-        libyaml-devel gdbm-devel ncurses-devel \
+        libssl-dev libreadline-dev zlib1g-dev libffi-dev \
+        libyaml-dev libgdbm-dev libncurses-dev \
         # PostgreSQL client library (for pg gem)
-        libpq-devel postgresql17-devel \
+        libpq-dev postgresql-client \
         # Image processing (Redmine thumbnails)
-        ImageMagick ImageMagick-devel \
-        # Apache httpd and required modules
-        httpd mod_ssl \
+        imagemagick libmagickwand-dev \
+        # Apache and required runtime tools
+        apache2 apache2-utils \
         # Additional utilities
-        sudo tzdata findutils which \
-    && dnf clean all \
-    && rm -rf /var/cache/dnf
+        sudo tzdata findutils which ca-certificates gnupg \
+    && rm -rf /var/lib/apt/lists/*
 
-# ── Install Node.js 22.x LTS via NodeSource ──────────────────────────────────
-# NodeSource setup_22.x installs Node.js 22 and configures the repo.
-# Node.js 18 is EOL (March 2025) — always use Node.js 22 LTS.
-RUN curl -fsSL https://rpm.nodesource.com/setup_${NODE_MAJOR}.x | bash - \
-    && dnf install -y nodejs \
-    && dnf clean all \
+# ── Install Node.js and npm ───────────────────────────────────────────────────
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends nodejs npm \
+    && rm -rf /var/lib/apt/lists/* \
     && node --version \
     && npm --version
 
@@ -253,9 +247,10 @@ RUN chown -R redmine_adm:redmine /opt/redmine/app
 
 # ── Configure Apache httpd ────────────────────────────────────────────────────
 # Disable the default welcome page and the default SSL config
-RUN rm -f /etc/httpd/conf.d/welcome.conf \
-       /etc/httpd/conf.d/ssl.conf \
-       /etc/httpd/conf.d/autoindex.conf
+RUN mkdir -p /etc/httpd/conf /etc/httpd/conf.d \
+    && ln -sf /usr/lib/apache2/modules /etc/httpd/modules \
+    && ln -sf /usr/sbin/apache2 /usr/sbin/httpd \
+    && rm -f /etc/apache2/sites-enabled/*
 
 COPY apache/httpd.conf /etc/httpd/conf/httpd.conf
 COPY apache/redmine.conf /etc/httpd/conf.d/redmine.conf
