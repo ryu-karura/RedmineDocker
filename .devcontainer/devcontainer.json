@@ -1,6 +1,12 @@
 {
-  "name": "RedmineDocker",
-  "image": "mcr.microsoft.com/devcontainers/base:ubuntu",
+  "name": "RHEL UBI 9 Environment",
+  "image": "registry.access.redhat.com/ubi9/ubi",
+  "features": {
+    "ghcr.io/devcontainers/features/common-utils:1": {
+      "username": "vscode",
+      "upgradePackages": true
+    }
+  },
   "remoteUser": "vscode",
-  "postCreateCommand": "bash -lc 'set -euo pipefail; sudo apt-get update; sudo apt-get install -y podman podman-compose shellcheck'"
+  "postCreateCommand": "bash -lc 'set -euo pipefail; sudo dnf install -y podman python3-pip tar xz curl && python3 -m pip install --user podman-compose==1.6.0 && SC_VERSION=v0.10.0 && SC_SHA256=d57ee1106f90ceb8f461b72e2e93a53d0c820d1c1a9ddae45d5b2c41d255948a && curl -fsSL -o /tmp/shellcheck.tar.xz https://github.com/koalaman/shellcheck/releases/download/${SC_VERSION}/shellcheck-${SC_VERSION}.linux.x86_64.tar.xz && echo \"${SC_SHA256}  /tmp/shellcheck.tar.xz\" | sha256sum -c - && tar -xJf /tmp/shellcheck.tar.xz -C /tmp && sudo install -m 0755 /tmp/shellcheck-${SC_VERSION}/shellcheck /usr/local/bin/shellcheck && rm -rf /tmp/shellcheck-${SC_VERSION} /tmp/shellcheck.tar.xz'"
 }
