@@ -1,14 +1,14 @@
 # quadlets/hwins-static.container
 #
-# Podman Quadlet unit for hwins-static: Apache httpd 2.4 reverse proxy.
-# Place at /etc/containers/systemd/hwins-static.container, then run:
+# hwins-static 用の Podman Quadlet ユニットです: Apache httpd 2.4 reverse proxy。
+# /etc/containers/systemd/hwins-static.container に配置し、次を実行します:
 #   systemctl daemon-reload && systemctl start hwins-static
 #
-# This is the only published container. It is bound to loopback (18080); the
-# host Apache terminates TLS on 443 and proxies /redmine to it.
+# これは唯一のホスト公開コンテナです。ループバックにバインドされ、18080 で公開されます。
+# ホスト Apache が 443 で TLS を終端し、/redmine をこのコンテナに転送します。
 
 [Unit]
-Description=hwins Redmine Static/Proxy Tier (Apache httpd 2.4)
+Description=hwins Redmine 静的/プロキシ層 (Apache httpd 2.4)
 Documentation=file:///opt/hwins/containers/docs/Design.md
 After=network-online.target hwins-redmine.service
 Wants=network-online.target
@@ -19,7 +19,7 @@ Image=localhost/hwins-static:2.4
 ContainerName=hwins-static
 Network=hwins-net
 
-# Publish on loopback only — external access is via the host Apache on 443.
+# ループバックのみ公開します。外部アクセスは 443 のホスト Apache 経由です。
 PublishPort=127.0.0.1:18080:80
 
 Timezone=Asia/Tokyo
