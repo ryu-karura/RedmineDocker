@@ -12,21 +12,21 @@ layer around it: Containerfiles, rendered config templates, an entrypoint,
 systemd Quadlet units, host Apache config, and operational shell scripts.
 
 The design follows the [redmine.jp 6.1 Docker guide](https://blog.redmine.jp/articles/6_1/redmine-6_1-docker/),
-extended into a **three-tier** stack with file-based secrets.
+extended into a **two-tier** stack with file-based secrets.
 
-Two orchestration paths share the **same three images** and only differ in
+Two orchestration paths share the **same two images** and only differ in
 orchestration + data placement:
 - **Development** — Docker Compose (`compose.dev.yaml`), named volumes.
 - **Production** — rootless Podman + systemd Quadlets (`quadlets/`), host bind
   mounts under `/opt/hwins`.
 
-## Architecture (three tiers)
+## Architecture (two tiers)
 
 ```
-client ──443──► Host Apache ──/redmine──► hwins-static (httpd 2.4)
+client ──443──► Host Apache ──/redmine──► hwins-redmine (Apache 2.4 + Redmine 6.1.3)
                 (TLS, HSTS)   127.0.0.1:18080  │  ProxyPass /redmine
                                                ▼
-                                        hwins-redmine (Redmine 6.1.3, Puma :3000, sub-URI /redmine)
+                                        Puma :3000 (sub-URI /redmine)
                                                │  postgis adapter
                                                ▼
                                         hwins-db (PostgreSQL 18 + PostGIS 3.6, :5432)
@@ -35,10 +35,9 @@ client ──443──► Host Apache ──/redmine──► hwins-static (http
 | Container | Build context | Base image | Role | Exposed |
 |-----------|---------------|------------|------|---------|
 | `hwins-db` | `containers/hwins-db/` | `postgis/postgis:18-3.6` | PostgreSQL 18 + PostGIS 3.6 | internal `:5432` only |
-| `hwins-redmine` | `containers/hwins-redmine/` | `redmine:6.1.3` | Redmine app + 13 plugins + theme, Puma | internal `:3000` only |
-| `hwins-static` | `containers/hwins-static/` | `httpd:2.4` (digest-pinned) | reverse proxy / published web tier | `127.0.0.1:18080` |
+| `hwins-redmine` | `containers/hwins-redmine/` | `redmine:6.1.3` | Redmine app + 13 plugins + theme, Apache 2.4 frontend, Puma | `127.0.0.1:18080` |
 
-**Only `hwins-static` is published**, and only to loopback. In production the
+**Only `hwins-redmine` is published**, and only to loopback. In production the
 host Apache terminates TLS on 443 and forwards `/redmine` there. PostgreSQL
 (5432) and Puma (3000) are never reachable from the host. Containers resolve
 each other by name on the `hwins-net` bridge network. Public URL:
@@ -52,11 +51,10 @@ RedmineDocker/
 ├── docs/                        # Design.md / Setup.md / Manual.md (Japanese)
 ├── containers/
 │   ├── hwins-db/                # Containerfile + init-redmine.sh (PostGIS ext)
-│   ├── hwins-redmine/           # Containerfile, entrypoint.sh, *.yml.tmpl
-│   └── hwins-static/            # Containerfile + httpd-redmine.conf
+│   └── hwins-redmine/           # Containerfile, entrypoint.sh, httpd-redmine.conf, *.yml.tmpl
 ├── quadlets/                    # production Podman Quadlet units (*.container, *.network)
 ├── host-apache/                 # host-side TLS reverse proxy vhost
-├── scripts/                     # generate-secrets, pin-static-image, backup, restore
+├── scripts/                     # generate-secrets, backup, restore
 ├── logrotate/                   # /etc/logrotate.d config
 ├── compose.dev.yaml             # development orchestration
 ├── .devcontainer/               # Codespaces / VS Code dev container
@@ -103,11 +101,11 @@ system service. Full steps are in `docs/Setup.md`; the shape:
 1. `sudo` once: create `/opt/hwins` owned by `hwins`, `loginctl enable-linger hwins`.
 2. Clone repo to `/opt/hwins/containers`; create `/opt/hwins/data/{postgres/18,redmine/{files,log}}` and `/opt/hwins/backup/{db,files}`.
 3. `bash scripts/generate-secrets.sh` then `podman secret create db_password …` / `secret_key_base …`.
-4. `bash scripts/pin-static-image.sh`, then `podman build` each of the three images.
+4. `podman build` the two images (`hwins-db` and `hwins-redmine`).
 5. Copy `quadlets/*` to `~/.config/containers/systemd/`, `systemctl --user daemon-reload`, start.
 
 Start/stop order is enforced by `Requires=`/`After=` in the units:
-`hwins-db → hwins-redmine → hwins-static` up, reverse down.
+`hwins-db → hwins-redmine` up, reverse down.
 
 ## Key conventions — follow these
 
@@ -136,10 +134,8 @@ Start/stop order is enforced by `Requires=`/`After=` in the units:
 - **Config is rendered from `*.tmpl` at container start** via `envsubst` in
   `entrypoint.sh` — edit the `.tmpl` files (`database.yml.tmpl`,
   `configuration.yml.tmpl`), not any generated `.yml`.
-- **The httpd base image must be pinned by digest** after pulling. The repo
-  ships the moving `2.4` tag so it builds anywhere; run
-  `scripts/pin-static-image.sh` on a networked host to rewrite the `FROM` line
-  to `httpd:2.4@sha256:…` (issue #18).
+- **The Apache frontend is built into `hwins-redmine`**. The separate
+  `hwins-static` image is no longer part of the stack.
 - **Keep dev and prod in lockstep.** `compose.dev.yaml` and the `quadlets/`
   units deliberately use the same images, env vars, secrets, and healthchecks.
   A change to one tier's runtime contract should be mirrored in the other.
@@ -196,7 +192,7 @@ docker compose -f compose.dev.yaml up --build -d           # full build + boot
 curl -sf http://localhost:18080/redmine/login && echo OK   # app reachable
 ```
 
-Healthchecks are defined for all three services; `docker compose ps` /
+Healthchecks are defined for both services; `docker compose ps` /
 `podman healthcheck run hwins-redmine` report status. A Rails console for
 diagnostics: `podman exec -it hwins-redmine bundle exec rails console -e production`.
 

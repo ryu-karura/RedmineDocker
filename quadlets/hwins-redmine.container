@@ -5,7 +5,7 @@
 #   systemctl daemon-reload && systemctl start hwins-redmine
 #
 # DB パスワードと secret_key_base は Podman シークレットです（docs/Setup.md 参照）。
-# Puma のポート 3000 は公開せず、hwins-net 上で hwins-static だけが到達します。
+# Apache フロントエンドが :80 で公開され、Puma はコンテナ内部の :3000 で動作します。
 # SMTP 設定（あれば）には下の EnvironmentFile を使います。
 
 [Unit]
@@ -19,6 +19,7 @@ Requires=hwins-db.service
 Image=localhost/hwins-redmine:6.1.3
 ContainerName=hwins-redmine
 Network=hwins-net
+PublishPort=127.0.0.1:18080:80
 
 Environment=RAILS_ENV=production
 Environment=RAILS_RELATIVE_URL_ROOT=/redmine
@@ -41,7 +42,7 @@ Volume=/opt/hwins/data/redmine/log:/usr/src/redmine/log:Z
 
 Timezone=Asia/Tokyo
 
-HealthCmd=curl -f -s http://localhost:3000/redmine/login > /dev/null
+HealthCmd=apache_ok=0; puma_ok=0; curl -f -s http://localhost/redmine/login > /dev/null && apache_ok=1 || echo 'Apache healthcheck failed'; curl -f -s http://127.0.0.1:3000/redmine/login > /dev/null && puma_ok=1 || echo 'Puma healthcheck failed'; [ "$apache_ok" -eq 1 ] && [ "$puma_ok" -eq 1 ]
 HealthInterval=30s
 HealthTimeout=10s
 HealthRetries=5

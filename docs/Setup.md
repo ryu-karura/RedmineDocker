@@ -5,7 +5,7 @@
 - **開発環境** — Docker Compose（GitHub Codespaces または任意の Docker ホスト）。
 - **本番環境** — AlmaLinux9 / RHEL9 上の rootless Podman + systemd Quadlets。
 
-どちらも `containers/` から同じ 3 つのイメージをビルドし、オーケストレーションとデータ配置の違いだけで構成されています。
+どちらも `containers/` から同じ 2 つのイメージをビルドし、オーケストレーションとデータ配置の違いだけで構成されています。
 
 ---
 
@@ -17,7 +17,7 @@
 # 1. シークレットファイルを生成 (db_password.txt, secret_key_base.txt)
 bash scripts/generate-secrets.sh
 
-# 2. 3 コンテナをビルドして起動
+# 2. 2 コンテナをビルドして起動
 docker compose -f compose.dev.yaml up --build -d
 #    初回ビルドは遅めです: プラグイン gem を構築し、
 #    redmine_gtt の webpack ビルドを実行します。
@@ -31,12 +31,7 @@ docker compose -f compose.dev.yaml logs -f hwins-redmine
 
 `docker compose -f compose.dev.yaml down` で停止できます（名前付きボリュームは保持されます）。`down -v` を指定するとデータも破棄されます。
 
-オプション — ネットワーク接続のあるホストで httpd のベースイメージを digest 固定します：
-
-```bash
-bash scripts/pin-static-image.sh
-```
-
+オプション — 追加の静的プロキシコンテナは不要です。`hwins-redmine` イメージに組み込まれた Apache フロントエンドをそのまま使います。
 ---
 
 ## 本番環境 (rootless Podman + Quadlets)
@@ -80,11 +75,8 @@ podman secret create secret_key_base secrets/secret_key_base.txt
 
 ```bash
 cd /opt/hwins/containers
-# まず httpd の digest を pin します (推奨):
-bash scripts/pin-static-image.sh
 podman build -t localhost/hwins-db:18-3.6      containers/hwins-db
 podman build -t localhost/hwins-redmine:6.1.3  containers/hwins-redmine
-podman build -t localhost/hwins-static:2.4     containers/hwins-static
 ```
 
 ### 5. Quadlet ユニットを導入する (hwins ユーザーとして)
@@ -94,13 +86,12 @@ mkdir -p ~/.config/containers/systemd
 cp quadlets/hwins.network           ~/.config/containers/systemd/
 cp quadlets/hwins-db.container      ~/.config/containers/systemd/
 cp quadlets/hwins-redmine.container ~/.config/containers/systemd/
-cp quadlets/hwins-static.container  ~/.config/containers/systemd/
 systemctl --user daemon-reload
-systemctl --user start hwins-db hwins-redmine hwins-static
+systemctl --user start hwins-db hwins-redmine
 ```
 
 起動順序はユニットの `Requires=` / `After=` 依存関係で制御されます。
-起動順: `hwins-db` → `hwins-redmine` → `hwins-static`、停止順は逆です。
+起動順: `hwins-db` → `hwins-redmine`、停止順は逆です。
 `systemctl --user status hwins-redmine` と `podman healthcheck run hwins-redmine` で状態を確認できます。
 
 ### 6. ホスト Apache を設定する (TLS)
@@ -134,6 +125,6 @@ sudo systemctl reload httpd
 | hwins-redmine が再起動する / マイグレーションに失敗する | `podman logs hwins-redmine` を確認し、`db_password` シークレットが hwins-db と一致しているか確認する |
 | `/redmine` から 503 が返る | hwins-redmine のヘルスチェックがまだ通っていない（初回起動時にビルド / マイグレーションを実行中）ため、しばらく待つ |
 | redmine_gtt のマップエラーが出る | hwins-db に PostGIS が入っており、database.yml が `postgis` アダプタを使っていることを確認する |
-| Static イメージが pin されていない | ネットワーク接続のあるホストで `scripts/pin-static-image.sh` を実行する |
+| Apache フロントエンドが起動しない | `hwins-redmine` コンテナのログと `apache2ctl -k start` の結果を確認する |
 | ビルドが `git clone ... <plugin>` で失敗する（`Remote branch ... not found`） | 固定したタグが upstream に存在するか `git ls-remote --tags <url>` で確認する（`v` 接頭辞はリポジトリごとに異なる）。フォールバックなしの `--branch` は、存在しないタグを指定するとビルドが即失敗する |
 | `bundle install` が `pg` のビルドで失敗する / `pg_config` が見つからない | hwins-redmine イメージに `libpq-dev`（`/usr/bin/pg_config` を提供）が入っているか確認する。`postgresql-client` だけでは `pg_config` は入らず、`postgis` アダプタが使う `pg` gem のネイティブ拡張をビルドできない |
