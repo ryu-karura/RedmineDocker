@@ -12,10 +12,9 @@
 #   - DB dumps:      /opt/hwins/backup/db/
 #   - File archives: /opt/hwins/backup/files/
 #
-# Cron installation (runs daily at 02:00):
-#   echo "0 2 * * * root /opt/hwins/containers/scripts/backup.sh >> /var/log/hwins-backup.log 2>&1" \
-#       > /etc/cron.d/hwins-backup
-#   chmod 644 /etc/cron.d/hwins-backup
+# Runs rootless as the `hwins` user (no sudo — it drives rootless Podman).
+# Cron installation (daily at 02:00) via the hwins user's crontab (`crontab -e`):
+#   0 2 * * * /opt/hwins/containers/scripts/backup.sh >> /opt/hwins/backup/backup.log 2>&1
 
 set -euo pipefail
 

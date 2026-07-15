@@ -3,15 +3,18 @@
 #
 # Disaster recovery restore script for the hwins Redmine stack.
 #
+# Runs rootless as the `hwins` user (no sudo — Podman and the systemd --user
+# units are per-user).
+#
 # Usage:
-#   sudo bash /opt/hwins/containers/scripts/restore.sh <db_dump> <files_archive>
+#   bash /opt/hwins/containers/scripts/restore.sh <db_dump> <files_archive>
 #
 # Arguments:
 #   db_dump       — path to a .dump file created by backup.sh
 #   files_archive — path to a .tar.gz file created by backup.sh
 #
 # Example:
-#   sudo bash scripts/restore.sh \
+#   bash scripts/restore.sh \
 #       /opt/hwins/backup/db/redmine_20260620_020000.dump \
 #       /opt/hwins/backup/files/redmine_20260620_020000.tar.gz
 
@@ -66,8 +69,8 @@ read -r -p "Type 'RESTORE' to confirm: " CONFIRM
 
 # ── Step 1: Stop the Redmine service ──────────────────────────────────────────
 log "Step 1/6: Stopping ${SERVICE} ..."
-if systemctl is-active --quiet "${SERVICE}" 2>/dev/null; then
-    systemctl stop "${SERVICE}"
+if systemctl --user is-active --quiet "${SERVICE}" 2>/dev/null; then
+    systemctl --user stop "${SERVICE}"
     log "  ${SERVICE} stopped."
 else
     log "  ${SERVICE} was not running."
@@ -110,7 +113,7 @@ log "  Files restore complete."
 
 # ── Step 6: Restart the service ───────────────────────────────────────────────
 log "Step 6/6: Restarting ${SERVICE} ..."
-systemctl start "${SERVICE}"
+systemctl --user start "${SERVICE}"
 log "  ${SERVICE} started."
 log ""
 log "Restore complete. Monitor startup:"

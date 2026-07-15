@@ -7,13 +7,15 @@ repository is at `/opt/hwins/containers` and data at `/opt/hwins/data`.
 
 ## Service control
 
+Run as the `hwins` user (rootless — hence `--user`):
+
 ```bash
-systemctl start   hwins-db hwins-redmine hwins-static
-systemctl stop    hwins-static hwins-redmine hwins-db
-systemctl restart hwins-redmine
-systemctl status  hwins-redmine
-journalctl -u hwins-redmine -f          # follow application logs
-podman ps                               # running containers + health
+systemctl --user start   hwins-db hwins-redmine hwins-static
+systemctl --user stop    hwins-static hwins-redmine hwins-db
+systemctl --user restart hwins-redmine
+systemctl --user status  hwins-redmine
+journalctl --user -u hwins-redmine -f     # follow application logs
+podman ps                                 # running containers + health
 ```
 
 Dependencies (`Requires=`/`After=`) start the stack bottom-up and stop it
@@ -30,14 +32,14 @@ and restart:
 ```bash
 cd /opt/hwins/containers
 podman build -t localhost/hwins-redmine:6.1.3 containers/hwins-redmine
-systemctl restart hwins-redmine     # entrypoint re-runs migrations
+systemctl --user restart hwins-redmine     # entrypoint re-runs migrations
 ```
 
 ### httpd base image (re-pin digest)
 ```bash
 bash scripts/pin-static-image.sh
 podman build -t localhost/hwins-static:2.4 containers/hwins-static
-systemctl restart hwins-static
+systemctl --user restart hwins-static
 ```
 
 ---
@@ -49,16 +51,16 @@ archives `/opt/hwins/data/redmine/files`, keeping 7 generations under
 `/opt/hwins/backup/`. It reads the DB password from
 `secrets/db_password.txt`.
 
+Run as the `hwins` user (rootless Podman — no `sudo`):
+
 ```bash
-sudo bash /opt/hwins/containers/scripts/backup.sh
+bash /opt/hwins/containers/scripts/backup.sh
 ```
 
-Schedule daily at 02:00:
+Schedule daily at 02:00 via the `hwins` user's crontab (`crontab -e` as hwins):
 
-```bash
-echo "0 2 * * * root /opt/hwins/containers/scripts/backup.sh >> /var/log/hwins-backup.log 2>&1" \
-    | sudo tee /etc/cron.d/hwins-backup
-sudo chmod 644 /etc/cron.d/hwins-backup
+```cron
+0 2 * * * /opt/hwins/containers/scripts/backup.sh >> /opt/hwins/backup/backup.log 2>&1
 ```
 
 ---
@@ -70,7 +72,7 @@ dump, and unpacks the files archive. **It destroys current data** — it prompts
 for a `RESTORE` confirmation.
 
 ```bash
-sudo bash /opt/hwins/containers/scripts/restore.sh \
+bash /opt/hwins/containers/scripts/restore.sh \
     /opt/hwins/backup/db/redmine_YYYYMMDD_HHMMSS.dump \
     /opt/hwins/backup/files/redmine_YYYYMMDD_HHMMSS.tar.gz
 ```
@@ -85,8 +87,8 @@ runs `pg_restore`, restores files, and restarts the service.
 | Log                              | Location                                   |
 |----------------------------------|--------------------------------------------|
 | Redmine application              | `/opt/hwins/data/redmine/log/production.log` |
-| Redmine / Puma stdout            | `journalctl -u hwins-redmine`              |
-| Reverse proxy (container)        | `journalctl -u hwins-static`               |
+| Redmine / Puma stdout            | `journalctl --user -u hwins-redmine`       |
+| Reverse proxy (container)        | `journalctl --user -u hwins-static`        |
 | Host Apache (TLS front)          | `/var/log/httpd/redmine_{access,error}.log` |
 
 Rotation is configured by `logrotate/redmine` (install to

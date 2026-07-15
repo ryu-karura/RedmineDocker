@@ -41,23 +41,36 @@ bash scripts/pin-static-image.sh
 
 ---
 
-## Production (Podman + Quadlets)
+## Production (rootless Podman + Quadlets)
 
-Prerequisites: AlmaLinux9 / RHEL9 with Podman 4.9+, an admin user `hwins`, and a
-host Apache for TLS termination.
+The stack runs **rootless**, as the unprivileged `hwins` user. All Podman state,
+secrets and Quadlet units are per-user; only the host Apache (TLS) is a system
+service. All steps below are run as `hwins` unless prefixed with `sudo`.
 
-### 1. Place the repository
+Prerequisites: AlmaLinux9 / RHEL9 with Podman 4.9+, the `hwins` user, and a host
+Apache for TLS termination.
+
+### 1. Prepare the data root (one-time, needs root)
 
 ```bash
-sudo mkdir -p /opt/hwins/containers
-sudo git clone <this-repo> /opt/hwins/containers
-sudo mkdir -p /opt/hwins/data/postgres/18 \
-              /opt/hwins/data/redmine/files \
-              /opt/hwins/data/redmine/log \
-              /opt/hwins/backup/db /opt/hwins/backup/files
+# Create /opt/hwins owned by hwins so the rootless containers can write to it,
+# and keep the containers running after logout / across reboots.
+sudo mkdir -p /opt/hwins
+sudo chown hwins:hwins /opt/hwins
+sudo loginctl enable-linger hwins
 ```
 
-### 2. Generate and register secrets
+### 2. Place the repository and create data dirs (as hwins)
+
+```bash
+git clone <this-repo> /opt/hwins/containers
+mkdir -p /opt/hwins/data/postgres/18 \
+         /opt/hwins/data/redmine/files \
+         /opt/hwins/data/redmine/log \
+         /opt/hwins/backup/db /opt/hwins/backup/files
+```
+
+### 3. Generate and register secrets (as hwins)
 
 ```bash
 cd /opt/hwins/containers
@@ -68,7 +81,7 @@ podman secret create secret_key_base secrets/secret_key_base.txt
 
 Optionally create `/opt/hwins/containers/.env` (from `.env.example`) for SMTP.
 
-### 3. Build the images
+### 4. Build the images (as hwins)
 
 ```bash
 cd /opt/hwins/containers
@@ -79,22 +92,24 @@ podman build -t localhost/hwins-redmine:6.1.3  containers/hwins-redmine
 podman build -t localhost/hwins-static:2.4     containers/hwins-static
 ```
 
-### 4. Install the Quadlet units
+### 5. Install the Quadlet units (as hwins)
 
 ```bash
-sudo cp quadlets/hwins.network            /etc/containers/systemd/
-sudo cp quadlets/hwins-db.container       /etc/containers/systemd/
-sudo cp quadlets/hwins-redmine.container  /etc/containers/systemd/
-sudo cp quadlets/hwins-static.container   /etc/containers/systemd/
-sudo systemctl daemon-reload
-sudo systemctl start hwins-db hwins-redmine hwins-static
+mkdir -p ~/.config/containers/systemd
+cp quadlets/hwins.network           ~/.config/containers/systemd/
+cp quadlets/hwins-db.container      ~/.config/containers/systemd/
+cp quadlets/hwins-redmine.container ~/.config/containers/systemd/
+cp quadlets/hwins-static.container  ~/.config/containers/systemd/
+systemctl --user daemon-reload
+systemctl --user start hwins-db hwins-redmine hwins-static
 ```
 
-Startup order is enforced by the units (`hwins-static` → `hwins-redmine` →
-`hwins-db`). Check health with `systemctl status hwins-redmine` and
+Startup order is enforced by the units' `Requires=`/`After=` dependencies:
+start order `hwins-db` → `hwins-redmine` → `hwins-static`, stop order reversed.
+Check health with `systemctl --user status hwins-redmine` and
 `podman healthcheck run hwins-redmine`.
 
-### 5. Configure the host Apache (TLS)
+### 6. Configure the host Apache (TLS)
 
 Edit `host-apache/redmine-proxy.conf` (set `YOUR_HOSTNAME` and certificate
 paths), then:
@@ -106,7 +121,7 @@ sudo systemctl reload httpd
 
 The host Apache proxies `https://<host>/redmine` to `127.0.0.1:18080`.
 
-### 6. Post-install
+### 7. Post-install
 
 - Log in at the public URL as `admin` / `admin` and change the password.
 - Load Japanese default data if desired:

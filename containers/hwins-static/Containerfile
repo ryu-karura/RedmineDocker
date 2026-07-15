@@ -16,14 +16,18 @@
 FROM docker.io/library/httpd:2.4
 
 # Enable the modules required for the reverse proxy and drop in our vhost.
+# Use the absolute config path so the build does not depend on the base image's
+# default WORKDIR. The Include directive is resolved by Apache relative to
+# ServerRoot (/usr/local/apache2) at runtime, so it stays relative.
 RUN set -eux; \
+    conf=/usr/local/apache2/conf/httpd.conf; \
     sed -i \
         -e 's|^#\(LoadModule proxy_module .*\)|\1|' \
         -e 's|^#\(LoadModule proxy_http_module .*\)|\1|' \
         -e 's|^#\(LoadModule headers_module .*\)|\1|' \
         -e 's|^#\(LoadModule rewrite_module .*\)|\1|' \
-        conf/httpd.conf; \
-    printf '\nInclude conf/redmine-proxy.conf\n' >> conf/httpd.conf
+        "$conf"; \
+    printf '\nInclude conf/redmine-proxy.conf\n' >> "$conf"
 
 COPY httpd-redmine.conf /usr/local/apache2/conf/redmine-proxy.conf
 
