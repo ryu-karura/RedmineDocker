@@ -1,0 +1,45 @@
+# quadlets/hwins-db.container
+#
+# Podman Quadlet unit for hwins-db: PostgreSQL 18 + PostGIS 3.6.
+# Place at /etc/containers/systemd/hwins-db.container, then run:
+#   systemctl daemon-reload && systemctl start hwins-db
+#
+# The database password is provided as a Podman secret (created once with:
+#   podman secret create db_password /opt/hwins/containers/secrets/db_password.txt
+# see docs/Setup.md). Port 5432 is intentionally not published.
+
+[Unit]
+Description=hwins Redmine Database (PostgreSQL 18 + PostGIS 3.6)
+Documentation=file:///opt/hwins/containers/docs/Design.md
+After=network-online.target
+Wants=network-online.target
+
+[Container]
+Image=localhost/hwins-db:18-3.6
+ContainerName=hwins-db
+Network=hwins-net
+
+# Redmine role/database created by the image from these variables.
+Environment=POSTGRES_DB=redmine
+Environment=POSTGRES_USER=redmine
+Environment=POSTGRES_PASSWORD_FILE=/run/secrets/db_password
+Secret=db_password,type=mount,target=db_password
+
+# Persist the data directory under the hwins data root (SELinux relabel via :Z).
+Volume=/opt/hwins/data/postgres/18:/var/lib/postgresql:Z
+
+Timezone=Asia/Tokyo
+
+HealthCmd=pg_isready -U redmine -d redmine -q
+HealthInterval=10s
+HealthTimeout=5s
+HealthRetries=5
+HealthStartPeriod=30s
+
+[Service]
+Restart=on-failure
+RestartSec=10s
+TimeoutStopSec=60
+
+[Install]
+WantedBy=multi-user.target

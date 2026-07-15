@@ -1,0 +1,39 @@
+# quadlets/hwins-static.container
+#
+# Podman Quadlet unit for hwins-static: Apache httpd 2.4 reverse proxy.
+# Place at /etc/containers/systemd/hwins-static.container, then run:
+#   systemctl daemon-reload && systemctl start hwins-static
+#
+# This is the only published container. It is bound to loopback (18080); the
+# host Apache terminates TLS on 443 and proxies /redmine to it.
+
+[Unit]
+Description=hwins Redmine Static/Proxy Tier (Apache httpd 2.4)
+Documentation=file:///opt/hwins/containers/docs/Design.md
+After=network-online.target hwins-redmine.service
+Wants=network-online.target
+Requires=hwins-redmine.service
+
+[Container]
+Image=localhost/hwins-static:2.4
+ContainerName=hwins-static
+Network=hwins-net
+
+# Publish on loopback only — external access is via the host Apache on 443.
+PublishPort=127.0.0.1:18080:80
+
+Timezone=Asia/Tokyo
+
+HealthCmd=bash -c 'exec 3<>/dev/tcp/127.0.0.1/80'
+HealthInterval=30s
+HealthTimeout=5s
+HealthRetries=3
+HealthStartPeriod=20s
+
+[Service]
+Restart=on-failure
+RestartSec=10s
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target

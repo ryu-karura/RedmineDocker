@@ -1,14 +1,19 @@
-# /etc/logrotate.d/redmine
+# /etc/logrotate.d/hwins-redmine
 #
-# Log rotation configuration for RedmineDocker.
-# Retains logs for exactly 60 days using daily rotation.
+# Log rotation configuration for the hwins Redmine stack.
+# Retains logs for 60 days using daily rotation.
 #
-# Install with: sudo cp /opt/redmine/containers/logrotate/redmine /etc/logrotate.d/redmine
-# Test with:    sudo logrotate --debug /etc/logrotate.d/redmine
-# Force run:    sudo logrotate --force /etc/logrotate.d/redmine
+# Install with: sudo cp /opt/hwins/containers/logrotate/redmine /etc/logrotate.d/hwins-redmine
+# Test with:    sudo logrotate --debug /etc/logrotate.d/hwins-redmine
+# Force run:    sudo logrotate --force /etc/logrotate.d/hwins-redmine
+#
+# The Redmine application log is written inside the hwins-redmine container to
+# /usr/src/redmine/log, which is bind-mounted to the host path below. copytruncate
+# is used because the log file is held open by the Puma process in the container;
+# this avoids needing to signal the process or match its (namespaced) uid/gid.
 
-# ── Production Redmine application log ───────────────────────────────────────
-/opt/redmine/data/redmine1/log/production.log {
+# ── Redmine application log ───────────────────────────────────────────────────
+/opt/hwins/data/redmine/log/production.log {
     daily
     rotate 60
     compress
@@ -18,27 +23,9 @@
     copytruncate
     dateext
     dateformat -%Y%m%d
-    create 0644 redmine_adm redmine
-    su redmine_adm redmine
 }
 
-# ── Production Puma logs ──────────────────────────────────────────────────────
-/opt/redmine/data/redmine1/log/puma.log
-/opt/redmine/data/redmine1/log/puma_error.log {
-    daily
-    rotate 60
-    compress
-    delaycompress
-    missingok
-    notifempty
-    copytruncate
-    dateext
-    dateformat -%Y%m%d
-    create 0644 redmine_adm redmine
-    su redmine_adm redmine
-}
-
-# ── Host Apache logs ──────────────────────────────────────────────────────────
+# ── Host Apache logs (front reverse proxy) ────────────────────────────────────
 /var/log/httpd/redmine_access.log
 /var/log/httpd/redmine_error.log {
     daily

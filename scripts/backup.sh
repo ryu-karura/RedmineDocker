@@ -1,28 +1,32 @@
 #!/bin/bash
 # scripts/backup.sh
 #
-# Automated backup script for RedmineDocker.
+# Automated backup script for the hwins Redmine stack.
 # Retains exactly 7 generations of backups.
 #
 # Backup scope:
-#   - PostgreSQL database: redmine_prod (pg_dump custom format)
-#   - Uploaded files:      /opt/redmine/data/redmine1/files/ (tar+gzip)
+#   - PostgreSQL database: redmine (pg_dump custom format)
+#   - Uploaded files:      /opt/hwins/data/redmine/files/ (tar+gzip)
 #
 # Backup destinations:
-#   - DB dumps:   /opt/redmine/backup/db/
-#   - File archives: /opt/redmine/backup/files/
+#   - DB dumps:      /opt/hwins/backup/db/
+#   - File archives: /opt/hwins/backup/files/
 #
-# Cron installation (runs daily at 02:00):
-#   echo "0 2 * * * root /opt/redmine/containers/scripts/backup.sh >> /var/log/redmine-backup.log 2>&1" \
-#       > /etc/cron.d/redmine-backup
-#   chmod 644 /etc/cron.d/redmine-backup
+# Runs rootless as the `hwins` user (no sudo — it drives rootless Podman).
+# Cron installation (daily at 02:00) via the hwins user's crontab (`crontab -e`):
+#   0 2 * * * /opt/hwins/containers/scripts/backup.sh >> /opt/hwins/backup/backup.log 2>&1
 
 set -euo pipefail
 
 # ── Configuration ──────────────────────────────────────────────────────────────
-ENV_FILE="/opt/redmine/containers/.env"
-BACKUP_DB_DIR="/opt/redmine/backup/db"
-BACKUP_FILES_DIR="/opt/redmine/backup/files"
+SECRETS_DIR="${SECRETS_DIR:-/opt/hwins/containers/secrets}"
+DB_PASSWORD_FILE="${DB_PASSWORD_FILE:-${SECRETS_DIR}/db_password.txt}"
+BACKUP_DB_DIR="/opt/hwins/backup/db"
+BACKUP_FILES_DIR="/opt/hwins/backup/files"
+FILES_SOURCE_DIR="/opt/hwins/data/redmine/files"
+DB_CONTAINER="hwins-db"
+DB_NAME="redmine"
+DB_USER="redmine"
 KEEP_GENERATIONS=7
 TIMESTAMP=$(date -u '+%Y%m%d_%H%M%S')
 LOG_PREFIX="[$(date -u '+%Y-%m-%dT%H:%M:%SZ')] [backup]"
@@ -32,18 +36,14 @@ log()  { echo "${LOG_PREFIX} $*"; }
 die()  { echo "${LOG_PREFIX} ERROR: $*" >&2; exit 1; }
 warn() { echo "${LOG_PREFIX} WARNING: $*" >&2; }
 
-# ── Load environment ───────────────────────────────────────────────────────────
-[ -f "${ENV_FILE}" ] || die "Environment file not found: ${ENV_FILE}"
-# shellcheck source=/dev/null
-source "${ENV_FILE}"
+# ── Load the database password (Podman/Docker secret file) ────────────────────
+[ -r "${DB_PASSWORD_FILE}" ] || die "DB password file not readable: ${DB_PASSWORD_FILE}"
+DB_PASSWORD="$(cat "${DB_PASSWORD_FILE}")"
+[ -n "${DB_PASSWORD}" ] || die "DB password file is empty: ${DB_PASSWORD_FILE}"
 
-[ -z "${REDMINE_DB_PASSWORD:-}" ] && die "REDMINE_DB_PASSWORD is not set in ${ENV_FILE}"
-POSTGRES_RUNTIME_PASSWORD="${POSTGRES_PASSWORD:-${POSTGRES_SUPERUSER_PASSWORD:-}}"
-[ -z "${POSTGRES_RUNTIME_PASSWORD}" ] && die "POSTGRES_PASSWORD or POSTGRES_SUPERUSER_PASSWORD is not set in ${ENV_FILE}"
-
-# ── Verify containers are running ─────────────────────────────────────────────
-if ! podman container inspect redmine-db --format '{{.State.Status}}' 2>/dev/null | grep -q 'running'; then
-    die "Container 'redmine-db' is not running. Cannot perform backup."
+# ── Verify the database container is running ──────────────────────────────────
+if ! podman container inspect "${DB_CONTAINER}" --format '{{.State.Status}}' 2>/dev/null | grep -q 'running'; then
+    die "Container '${DB_CONTAINER}' is not running. Cannot perform backup."
 fi
 
 # ── Create backup directories if needed ───────────────────────────────────────
@@ -52,20 +52,14 @@ chmod 750 "${BACKUP_DB_DIR}" "${BACKUP_FILES_DIR}"
 
 log "Starting backup (timestamp: ${TIMESTAMP}) ..."
 
-# ── Function: backup a single database ───────────────────────────────────────
+# ── Function: backup the database ─────────────────────────────────────────────
 backup_database() {
-    local DBNAME="$1"
-    local OUTFILE="${BACKUP_DB_DIR}/${DBNAME}_${TIMESTAMP}.dump"
+    local OUTFILE="${BACKUP_DB_DIR}/${DB_NAME}_${TIMESTAMP}.dump"
 
-    log "Backing up database: ${DBNAME} → $(basename "${OUTFILE}")"
+    log "Backing up database: ${DB_NAME} → $(basename "${OUTFILE}")"
 
-    PGPASSWORD="${POSTGRES_RUNTIME_PASSWORD}" \
-    podman exec redmine-db \
-        pg_dump \
-            -U postgres \
-            -F c \
-            -Z 6 \
-            "${DBNAME}" > "${OUTFILE}"
+    podman exec -e PGPASSWORD="${DB_PASSWORD}" "${DB_CONTAINER}" \
+        pg_dump -U "${DB_USER}" -F c -Z 6 "${DB_NAME}" > "${OUTFILE}"
 
     local SIZE
     SIZE=$(du -sh "${OUTFILE}" | cut -f1)
@@ -73,35 +67,31 @@ backup_database() {
 
     # ── Rotate: keep only KEEP_GENERATIONS most recent backups ───────────────
     local COUNT
-    COUNT=$(ls -1 "${BACKUP_DB_DIR}/${DBNAME}_"*.dump 2>/dev/null | wc -l)
+    COUNT=$(ls -1 "${BACKUP_DB_DIR}/${DB_NAME}_"*.dump 2>/dev/null | wc -l)
     if [ "${COUNT}" -gt "${KEEP_GENERATIONS}" ]; then
         log "  Rotating old backups (keeping ${KEEP_GENERATIONS}, found ${COUNT}) ..."
-        ls -1t "${BACKUP_DB_DIR}/${DBNAME}_"*.dump \
+        ls -1t "${BACKUP_DB_DIR}/${DB_NAME}_"*.dump \
             | tail -n +"$((KEEP_GENERATIONS + 1))" \
             | xargs rm -f
         log "  Rotation complete."
     fi
 }
 
-# ── Function: backup files for a Redmine environment ─────────────────────────
+# ── Function: backup uploaded files ───────────────────────────────────────────
 backup_files() {
-    local ENV_NUM="$1"        # 1, 2, or 3
-    local SOURCE_DIR="/opt/redmine/data/redmine${ENV_NUM}/files"
-    local OUTFILE="${BACKUP_FILES_DIR}/redmine${ENV_NUM}_${TIMESTAMP}.tar.gz"
+    local OUTFILE="${BACKUP_FILES_DIR}/redmine_${TIMESTAMP}.tar.gz"
 
-    if [ ! -d "${SOURCE_DIR}" ]; then
-        warn "Files directory not found: ${SOURCE_DIR}. Skipping."
+    if [ ! -d "${FILES_SOURCE_DIR}" ]; then
+        warn "Files directory not found: ${FILES_SOURCE_DIR}. Skipping."
         return 0
     fi
 
-    log "Backing up files: redmine${ENV_NUM} → $(basename "${OUTFILE}")"
+    log "Backing up files: ${FILES_SOURCE_DIR} → $(basename "${OUTFILE}")"
 
-    tar \
-        --create \
-        --gzip \
+    tar --create --gzip \
         --file="${OUTFILE}" \
-        --directory="$(dirname "${SOURCE_DIR}")" \
-        "$(basename "${SOURCE_DIR}")"
+        --directory="$(dirname "${FILES_SOURCE_DIR}")" \
+        "$(basename "${FILES_SOURCE_DIR}")"
 
     local SIZE
     SIZE=$(du -sh "${OUTFILE}" | cut -f1)
@@ -109,10 +99,10 @@ backup_files() {
 
     # ── Rotate ───────────────────────────────────────────────────────────────
     local COUNT
-    COUNT=$(ls -1 "${BACKUP_FILES_DIR}/redmine${ENV_NUM}_"*.tar.gz 2>/dev/null | wc -l)
+    COUNT=$(ls -1 "${BACKUP_FILES_DIR}/redmine_"*.tar.gz 2>/dev/null | wc -l)
     if [ "${COUNT}" -gt "${KEEP_GENERATIONS}" ]; then
         log "  Rotating old file backups (keeping ${KEEP_GENERATIONS}, found ${COUNT}) ..."
-        ls -1t "${BACKUP_FILES_DIR}/redmine${ENV_NUM}_"*.tar.gz \
+        ls -1t "${BACKUP_FILES_DIR}/redmine_"*.tar.gz \
             | tail -n +"$((KEEP_GENERATIONS + 1))" \
             | xargs rm -f
         log "  Rotation complete."
@@ -120,11 +110,10 @@ backup_files() {
 }
 
 # ── Perform backups ────────────────────────────────────────────────────────────
-backup_database "redmine_prod"
-
-backup_files 1
+backup_database
+backup_files
 
 # ── Summary ───────────────────────────────────────────────────────────────────
 log "Backup complete."
-log "DB backups:   $(ls -1 ${BACKUP_DB_DIR}/*.dump 2>/dev/null | wc -l) files in ${BACKUP_DB_DIR}"
-log "File backups: $(ls -1 ${BACKUP_FILES_DIR}/*.tar.gz 2>/dev/null | wc -l) files in ${BACKUP_FILES_DIR}"
+log "DB backups:   $(ls -1 "${BACKUP_DB_DIR}"/*.dump 2>/dev/null | wc -l) files in ${BACKUP_DB_DIR}"
+log "File backups: $(ls -1 "${BACKUP_FILES_DIR}"/*.tar.gz 2>/dev/null | wc -l) files in ${BACKUP_FILES_DIR}"

@@ -1,148 +1,119 @@
 #!/bin/bash
 # scripts/restore.sh
 #
-# Disaster recovery restore script for RedmineDocker.
-# Restores the production Redmine environment from backup files.
+# Disaster recovery restore script for the hwins Redmine stack.
+#
+# Runs rootless as the `hwins` user (no sudo — Podman and the systemd --user
+# units are per-user).
 #
 # Usage:
-#   sudo bash /opt/redmine/containers/scripts/restore.sh prod <db_dump> <files_archive>
+#   bash /opt/hwins/containers/scripts/restore.sh <db_dump> <files_archive>
 #
 # Arguments:
-#   env          — target environment: prod
-#   db_dump      — path to a .dump file created by backup.sh
+#   db_dump       — path to a .dump file created by backup.sh
 #   files_archive — path to a .tar.gz file created by backup.sh
 #
 # Example:
-#   sudo bash scripts/restore.sh prod \
-#       /opt/redmine/backup/db/redmine_prod_20260620_020000.dump \
-#       /opt/redmine/backup/files/redmine1_20260620_020000.tar.gz
+#   bash scripts/restore.sh \
+#       /opt/hwins/backup/db/redmine_20260620_020000.dump \
+#       /opt/hwins/backup/files/redmine_20260620_020000.tar.gz
 
 set -euo pipefail
 
-ENV_FILE="/opt/redmine/containers/.env"
+SECRETS_DIR="${SECRETS_DIR:-/opt/hwins/containers/secrets}"
+DB_PASSWORD_FILE="${DB_PASSWORD_FILE:-${SECRETS_DIR}/db_password.txt}"
+DB_CONTAINER="hwins-db"
+DB_NAME="redmine"
+DB_USER="redmine"
+SERVICE="hwins-redmine"
+DATA_DIR="/opt/hwins/data/redmine"
+FILES_DIR="${DATA_DIR}/files"
 LOG_PREFIX="[$(date -u '+%Y-%m-%dT%H:%M:%SZ')] [restore]"
 
 log()  { echo "${LOG_PREFIX} $*"; }
 die()  { echo "${LOG_PREFIX} ERROR: $*" >&2; exit 1; }
 
-# ── Argument validation ────────────────────────────────────────────────────────
 usage() {
-    echo "Usage: $0 <env> <db_dump_file> <files_archive>"
-    echo "  env: prod"
+    echo "Usage: $0 <db_dump_file> <files_archive>"
     exit 1
 }
 
-[ "$#" -eq 3 ] || usage
-
-TARGET_ENV="$1"
-DB_DUMP="$2"
-FILES_ARCHIVE="$3"
-
-# Map environment name to database and data directory
-case "${TARGET_ENV}" in
-    prod)
-        DB_NAME="redmine_prod"
-        ENV_NUM=1
-        SERVICE="redmine-prod"
-        ;;
-    *)
-        die "Unknown environment '${TARGET_ENV}'. Must be: prod."
-        ;;
-esac
-
-DATA_DIR="/opt/redmine/data/redmine${ENV_NUM}"
-FILES_DIR="${DATA_DIR}/files"
+[ "$#" -eq 2 ] || usage
+DB_DUMP="$1"
+FILES_ARCHIVE="$2"
 
 # ── Validate inputs ───────────────────────────────────────────────────────────
-[ -f "${DB_DUMP}" ]       || die "DB dump file not found: ${DB_DUMP}"
-[ -f "${FILES_ARCHIVE}" ] || die "Files archive not found: ${FILES_ARCHIVE}"
-[ -f "${ENV_FILE}" ]      || die "Environment file not found: ${ENV_FILE}"
+[ -f "${DB_DUMP}" ]          || die "DB dump file not found: ${DB_DUMP}"
+[ -f "${FILES_ARCHIVE}" ]    || die "Files archive not found: ${FILES_ARCHIVE}"
+[ -r "${DB_PASSWORD_FILE}" ] || die "DB password file not readable: ${DB_PASSWORD_FILE}"
 
-# shellcheck source=/dev/null
-source "${ENV_FILE}"
-[ -z "${REDMINE_DB_PASSWORD:-}" ]         && die "REDMINE_DB_PASSWORD not set."
-POSTGRES_RUNTIME_PASSWORD="${POSTGRES_PASSWORD:-${POSTGRES_SUPERUSER_PASSWORD:-}}"
-[ -z "${POSTGRES_RUNTIME_PASSWORD}" ] && die "POSTGRES_PASSWORD or POSTGRES_SUPERUSER_PASSWORD not set."
-export PGPASSWORD="${POSTGRES_RUNTIME_PASSWORD}"
+DB_PASSWORD="$(cat "${DB_PASSWORD_FILE}")"
+[ -n "${DB_PASSWORD}" ] || die "DB password file is empty: ${DB_PASSWORD_FILE}"
 
 # ── Safety confirmation ───────────────────────────────────────────────────────
 echo ""
 echo "  ╔══════════════════════════════════════════════════════════╗"
-echo "  ║           REDMINE DISASTER RECOVERY RESTORE              ║"
+echo "  ║           HWINS REDMINE DISASTER RECOVERY RESTORE         ║"
 echo "  ╠══════════════════════════════════════════════════════════╣"
-echo "  ║ Target environment:  ${TARGET_ENV} (${SERVICE})"
-echo "  ║ Database:            ${DB_NAME}"
-echo "  ║ DB dump:             ${DB_DUMP}"
-echo "  ║ Files archive:       ${FILES_ARCHIVE}"
+echo "  ║ Service:   ${SERVICE}"
+echo "  ║ Database:  ${DB_NAME}"
+echo "  ║ DB dump:   ${DB_DUMP}"
+echo "  ║ Files:     ${FILES_ARCHIVE}"
 echo "  ╠══════════════════════════════════════════════════════════╣"
-echo "  ║ WARNING: ALL CURRENT DATA IN '${DB_NAME}' WILL BE        ║"
-echo "  ║ DESTROYED AND REPLACED WITH THE BACKUP CONTENTS.         ║"
+echo "  ║ WARNING: ALL CURRENT DATA IN '${DB_NAME}' WILL BE         ║"
+echo "  ║ DESTROYED AND REPLACED WITH THE BACKUP CONTENTS.          ║"
 echo "  ╚══════════════════════════════════════════════════════════╝"
 echo ""
 read -r -p "Type 'RESTORE' to confirm: " CONFIRM
 [ "${CONFIRM}" = "RESTORE" ] || { echo "Aborted."; exit 1; }
 
-# ── Step 1: Stop the target Redmine service ───────────────────────────────────
+# ── Step 1: Stop the Redmine service ──────────────────────────────────────────
 log "Step 1/6: Stopping ${SERVICE} ..."
-if systemctl is-active --quiet "${SERVICE}" 2>/dev/null; then
-    systemctl stop "${SERVICE}"
+if systemctl --user is-active --quiet "${SERVICE}" 2>/dev/null; then
+    systemctl --user stop "${SERVICE}"
     log "  ${SERVICE} stopped."
 else
     log "  ${SERVICE} was not running."
 fi
 
-# ── Step 2: Verify database container is running ──────────────────────────────
+# ── Step 2: Verify the database container is running ──────────────────────────
 log "Step 2/6: Verifying database container ..."
-podman container inspect redmine-db --format '{{.State.Status}}' 2>/dev/null | grep -q 'running' \
-    || die "Container 'redmine-db' is not running."
-log "  redmine-db is running."
+podman container inspect "${DB_CONTAINER}" --format '{{.State.Status}}' 2>/dev/null | grep -q 'running' \
+    || die "Container '${DB_CONTAINER}' is not running."
+log "  ${DB_CONTAINER} is running."
+
+# psql/pg_restore inside the container authenticate with this password.
+PSQL() { podman exec -e PGPASSWORD="${DB_PASSWORD}" "${DB_CONTAINER}" psql -U "${DB_USER}" "$@"; }
 
 # ── Step 3: Drop and recreate the database ────────────────────────────────────
 log "Step 3/6: Recreating database ${DB_NAME} ..."
-podman exec redmine-db psql -U postgres \
-    -c "DROP DATABASE IF EXISTS ${DB_NAME};" || true
-podman exec redmine-db psql -U postgres \
-    -c "CREATE DATABASE ${DB_NAME} OWNER redmine_adm ENCODING 'UTF8' \
-        LC_COLLATE 'C.UTF-8' LC_CTYPE 'C.UTF-8' TEMPLATE template0;"
-podman exec redmine-db psql -U postgres -d "${DB_NAME}" \
-    -c "CREATE EXTENSION IF NOT EXISTS postgis;"
-podman exec redmine-db psql -U postgres -d "${DB_NAME}" \
-    -c "CREATE EXTENSION IF NOT EXISTS postgis_topology;"
-podman exec redmine-db psql -U postgres -d "${DB_NAME}" \
-    -c "GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO redmine_adm;"
-podman exec redmine-db psql -U postgres -d "${DB_NAME}" \
-    -c "GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO redmine_adm;"
+PSQL -d postgres -c "DROP DATABASE IF EXISTS ${DB_NAME};" || true
+PSQL -d postgres -c "CREATE DATABASE ${DB_NAME} OWNER ${DB_USER} ENCODING 'UTF8' \
+    LC_COLLATE 'C.UTF-8' LC_CTYPE 'C.UTF-8' TEMPLATE template0;"
+PSQL -d "${DB_NAME}" -c "CREATE EXTENSION IF NOT EXISTS postgis;"
+PSQL -d "${DB_NAME}" -c "CREATE EXTENSION IF NOT EXISTS postgis_topology;"
 log "  Database ${DB_NAME} recreated."
 
 # ── Step 4: Restore database from dump ────────────────────────────────────────
 log "Step 4/6: Restoring database from $(basename "${DB_DUMP}") ..."
 DUMP_BASENAME=$(basename "${DB_DUMP}")
-podman cp "${DB_DUMP}" "redmine-db:/tmp/${DUMP_BASENAME}"
-podman exec redmine-db pg_restore \
-    -U postgres \
-    -d "${DB_NAME}" \
-    --no-owner \
-    --role=redmine_adm \
-    --exit-on-error \
-    "/tmp/${DUMP_BASENAME}"
-podman exec redmine-db rm -f "/tmp/${DUMP_BASENAME}"
+podman cp "${DB_DUMP}" "${DB_CONTAINER}:/tmp/${DUMP_BASENAME}"
+podman exec -e PGPASSWORD="${DB_PASSWORD}" "${DB_CONTAINER}" \
+    pg_restore -U "${DB_USER}" -d "${DB_NAME}" --no-owner --role="${DB_USER}" \
+        --exit-on-error "/tmp/${DUMP_BASENAME}"
+podman exec "${DB_CONTAINER}" rm -f "/tmp/${DUMP_BASENAME}"
 log "  Database restore complete."
 
 # ── Step 5: Restore uploaded files ────────────────────────────────────────────
 log "Step 5/6: Restoring files from $(basename "${FILES_ARCHIVE}") ..."
+mkdir -p "${FILES_DIR}"
 rm -rf "${FILES_DIR:?}"/*
 tar -xzf "${FILES_ARCHIVE}" -C "${DATA_DIR}/"
-chown -R redmine_adm:redmine "${FILES_DIR}"
-chmod -R 755 "${FILES_DIR}"
 log "  Files restore complete."
 
-# ── Step 6: Clear caches and restart ─────────────────────────────────────────
-log "Step 6/6: Clearing caches and restarting ${SERVICE} ..."
-rm -rf "${DATA_DIR}/tmp/cache"/*
-mkdir -p "${DATA_DIR}/tmp/cache"
-chown -R redmine_adm:redmine "${DATA_DIR}/tmp"
-
-systemctl start "${SERVICE}"
+# ── Step 6: Restart the service ───────────────────────────────────────────────
+log "Step 6/6: Restarting ${SERVICE} ..."
+systemctl --user start "${SERVICE}"
 log "  ${SERVICE} started."
 log ""
 log "Restore complete. Monitor startup:"
