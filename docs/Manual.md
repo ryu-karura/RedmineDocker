@@ -1,468 +1,115 @@
-# Operations Manual — RedmineDocker
+# Operations Manual — RedmineDocker (hwins stack)
 
-## 1. Daily Operations
+Day-to-day operation of the production Podman deployment. Paths assume the
+repository is at `/opt/hwins/containers` and data at `/opt/hwins/data`.
 
-### Check Container Status
+---
+
+## Service control
 
 ```bash
-# View all Redmine-related containers
-podman ps --filter label=app=redmine
-
-# View systemd service status
-sudo systemctl status redmine-db redmine-prod
-
-# View recent logs for production
-sudo journalctl -u redmine-prod --since "1 hour ago"
+systemctl start   hwins-db hwins-redmine hwins-static
+systemctl stop    hwins-static hwins-redmine hwins-db
+systemctl restart hwins-redmine
+systemctl status  hwins-redmine
+journalctl -u hwins-redmine -f          # follow application logs
+podman ps                               # running containers + health
 ```
 
-### Start / Stop / Restart Services
+Dependencies (`Requires=`/`After=`) start the stack bottom-up and stop it
+top-down automatically.
+
+---
+
+## Updating
+
+### Redmine / plugins / theme
+Edit `containers/hwins-redmine/Containerfile` (image tag or plugin refs), rebuild,
+and restart:
 
 ```bash
-# Restart production Redmine (graceful — Puma drains connections)
-sudo systemctl restart redmine-prod
-
-# Restart all Redmine services
-sudo systemctl restart redmine-db redmine-prod
+cd /opt/hwins/containers
+podman build -t localhost/hwins-redmine:6.1.3 containers/hwins-redmine
+systemctl restart hwins-redmine     # entrypoint re-runs migrations
 ```
 
-### View Application Logs
-
+### httpd base image (re-pin digest)
 ```bash
-# Redmine production application log (Rails)
-tail -f /opt/redmine/data/redmine1/log/production.log
-
-# Apache access log inside production container
-podman exec redmine-prod tail -f /var/log/httpd/access_log
-
-# Puma log
-tail -f /opt/redmine/data/redmine1/log/puma.log
-
-# Systemd journal for production container
-sudo journalctl -u redmine-prod -n 100 --no-pager
+bash scripts/pin-static-image.sh
+podman build -t localhost/hwins-static:2.4 containers/hwins-static
+systemctl restart hwins-static
 ```
 
 ---
 
-## 2. Backup Procedures
+## Backup
 
-### Automated Backup
-
-A daily backup runs at 02:00 via cron (`/etc/cron.d/redmine-backup`). It retains exactly **7 generations**.
+`scripts/backup.sh` dumps the `redmine` database (pg_dump custom format) and
+archives `/opt/hwins/data/redmine/files`, keeping 7 generations under
+`/opt/hwins/backup/`. It reads the DB password from
+`secrets/db_password.txt`.
 
 ```bash
-# Verify the cron job is installed
-cat /etc/cron.d/redmine-backup
-
-# Manually trigger a backup (useful for pre-upgrade snapshots)
-sudo /opt/redmine/containers/scripts/backup.sh
+sudo bash /opt/hwins/containers/scripts/backup.sh
 ```
 
-### What Gets Backed Up
-
-| Item                    | Backup Location                              | Method         |
-|-------------------------|----------------------------------------------|----------------|
-| Production DB           | `/opt/redmine/backup/db/redmine_prod_YYYYMMDD_HHMMSS.dump` | pg_dump (custom format) |
-| Production files        | `/opt/redmine/backup/files/redmine1_YYYYMMDD_HHMMSS.tar.gz` | tar+gzip       |
-
-### List Existing Backups
+Schedule daily at 02:00:
 
 ```bash
-# Database backups
-ls -lht /opt/redmine/backup/db/ | head -20
-
-# File backups
-ls -lht /opt/redmine/backup/files/ | head -20
-```
-
-### Backup Rotation
-
-The script automatically deletes backups older than 7 generations. Verify the rotation is working:
-
-```bash
-ls /opt/redmine/backup/db/redmine_prod_*.dump | wc -l
-# Expected: exactly 7 (after 7+ days of operation)
+echo "0 2 * * * root /opt/hwins/containers/scripts/backup.sh >> /var/log/hwins-backup.log 2>&1" \
+    | sudo tee /etc/cron.d/hwins-backup
+sudo chmod 644 /etc/cron.d/hwins-backup
 ```
 
 ---
 
-## 3. Disaster Recovery (Restore from Backup)
+## Restore
 
-### Full Restore Procedure
-
-Use `scripts/restore.sh` for guided restore. The script accepts the database name and backup file as arguments.
+`scripts/restore.sh` drops and recreates the `redmine` database, restores the
+dump, and unpacks the files archive. **It destroys current data** — it prompts
+for a `RESTORE` confirmation.
 
 ```bash
-# Syntax:
-sudo /opt/redmine/containers/scripts/restore.sh <env> <db_dump_file> <files_archive>
-
-# Example: restore production from a specific backup
-sudo /opt/redmine/containers/scripts/restore.sh \
-    prod \
-    /opt/redmine/backup/db/redmine_prod_20260620_020000.dump \
-    /opt/redmine/backup/files/redmine1_20260620_020000.tar.gz
+sudo bash /opt/hwins/containers/scripts/restore.sh \
+    /opt/hwins/backup/db/redmine_YYYYMMDD_HHMMSS.dump \
+    /opt/hwins/backup/files/redmine_YYYYMMDD_HHMMSS.tar.gz
 ```
 
-### Manual Step-by-Step Restore
+The script stops `hwins-redmine`, recreates the DB (with PostGIS extensions),
+runs `pg_restore`, restores files, and restarts the service.
 
-If the script is unavailable, perform these steps manually:
+---
 
-#### Step 1: Stop Redmine Application
+## Logs
 
-```bash
-sudo systemctl stop redmine-prod
-```
+| Log                              | Location                                   |
+|----------------------------------|--------------------------------------------|
+| Redmine application              | `/opt/hwins/data/redmine/log/production.log` |
+| Redmine / Puma stdout            | `journalctl -u hwins-redmine`              |
+| Reverse proxy (container)        | `journalctl -u hwins-static`               |
+| Host Apache (TLS front)          | `/var/log/httpd/redmine_{access,error}.log` |
 
-#### Step 2: Restore the Database
-
-```bash
-source /opt/redmine/containers/.env
-
-# Drop and recreate the database
-podman exec redmine-db psql -U postgres -c "DROP DATABASE IF EXISTS redmine_prod;"
-podman exec redmine-db psql -U postgres \
-    -c "CREATE DATABASE redmine_prod OWNER redmine_adm ENCODING 'UTF8';"
-podman exec redmine-db psql -U postgres -d redmine_prod \
-    -c "CREATE EXTENSION IF NOT EXISTS postgis;"
-podman exec redmine-db psql -U postgres -d redmine_prod \
-    -c "CREATE EXTENSION IF NOT EXISTS postgis_topology;"
-podman exec redmine-db psql -U postgres -d redmine_prod \
-    -c "GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO redmine_adm;"
-podman exec redmine-db psql -U postgres -d redmine_prod \
-    -c "GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO redmine_adm;"
-
-# Restore from pg_dump custom-format backup
-# Copy dump file into the container first
-podman cp /opt/redmine/backup/db/redmine_prod_20260620_020000.dump \
-    redmine-db:/tmp/restore.dump
-
-podman exec redmine-db pg_restore \
-    -U postgres \
-    -d redmine_prod \
-    --no-owner \
-    --role=redmine_adm \
-    /tmp/restore.dump
-
-# Clean up
-podman exec redmine-db rm /tmp/restore.dump
-```
-
-#### Step 3: Restore Uploaded Files
+Rotation is configured by `logrotate/redmine` (install to
+`/etc/logrotate.d/hwins-redmine`): daily, 60 generations, `copytruncate` for the
+container-held application log.
 
 ```bash
-# Remove current files
-rm -rf /opt/redmine/data/redmine1/files/*
-
-# Extract backup archive
-tar -xzf /opt/redmine/backup/files/redmine1_20260620_020000.tar.gz \
-    -C /opt/redmine/data/redmine1/files/
-
-# Fix ownership
-chown -R redmine_adm:redmine /opt/redmine/data/redmine1/files/
-```
-
-#### Step 4: Clear Caches and Restart
-
-```bash
-# Clear Redmine cache (inside container at next start — entrypoint handles this)
-rm -rf /opt/redmine/data/redmine1/tmp/cache/*
-
-# Restart the application
-sudo systemctl start redmine-prod
-
-# Monitor startup
-sudo journalctl -u redmine-prod -f
-```
-
-#### Step 5: Verify Restoration
-
-```bash
-# Check container is running
-sudo systemctl status redmine-prod
-
-# Verify database row counts (quick sanity check)
-podman exec redmine-db psql -U postgres -d redmine_prod \
-    -c "SELECT relname, n_live_tup FROM pg_stat_user_tables ORDER BY n_live_tup DESC LIMIT 10;"
-
-# Check application is responding
-curl -sk https://localhost/redmine | grep -i 'redmine\|login'
+sudo logrotate --debug /etc/logrotate.d/hwins-redmine     # dry run
 ```
 
 ---
 
-## 4. Log Management
-
-### Log Rotation Configuration
-
-Log rotation is configured in `/etc/logrotate.d/redmine` and runs daily via the system logrotate cron job. Logs are retained for exactly **60 days**.
+## Health & diagnostics
 
 ```bash
-# View the logrotate config
-cat /etc/logrotate.d/redmine
-
-# Force an immediate rotation (for testing)
-sudo logrotate --force /etc/logrotate.d/redmine
-
-# Verify rotation is working (check for .1, .2, .gz files)
-ls -la /opt/redmine/data/redmine1/log/
+podman healthcheck run hwins-redmine
+podman exec -e PGPASSWORD="$(cat /opt/hwins/containers/secrets/db_password.txt)" \
+    hwins-db psql -U redmine -d redmine -c '\dx'          # list extensions (expect postgis)
+curl -sf http://127.0.0.1:18080/redmine/login >/dev/null && echo OK
 ```
 
-### Accessing Rotated Logs
+Rails console (for maintenance):
 
 ```bash
-# Current log
-tail -f /opt/redmine/data/redmine1/log/production.log
-
-# Yesterday's log
-zcat /opt/redmine/data/redmine1/log/production.log.1.gz 2>/dev/null \
-    || cat /opt/redmine/data/redmine1/log/production.log.1
-
-# Search for errors in all rotated logs
-zgrep -h "ERROR\|FATAL" /opt/redmine/data/redmine1/log/production.log* | head -50
-```
-
-### Container Journal Logs (systemd)
-
-```bash
-# Last 100 lines of journal for production container
-sudo journalctl -u redmine-prod -n 100
-
-# Since a specific date
-sudo journalctl -u redmine-prod --since "2026-06-20 00:00:00"
-
-# Export to file
-sudo journalctl -u redmine-prod --since "7 days ago" > /tmp/redmine-prod-journal.log
-```
-
----
-
-## 5. Plugin Deployment Workflow
-
-### Installing a New Plugin in Production
-
-1. **Add the plugin** to `containers/redmine-prod/Containerfile`.
-2. **Rebuild the redmine-prod image**:
-   ```bash
-   podman build -t localhost/redmine-prod:6.1.3-with-newplugin containers/redmine-prod/
-   ```
-3. **Update `quadlets/redmine-prod.container`** to reference the new image tag.
-4. **Run a manual backup** before deploying:
-   ```bash
-   sudo /opt/redmine/containers/scripts/backup.sh
-   ```
-5. **Reload and restart**:
-   ```bash
-   sudo systemctl daemon-reload && sudo systemctl restart redmine-prod
-   ```
-6. **Verify** the plugin appears in Administration → Plugins.
-
----
-
-## 6. Redmine Version Upgrade
-
-### Workflow
-
-To upgrade Redmine to a new version:
-
-#### Step 1: Run a Manual Backup
-
-```bash
-sudo /opt/redmine/containers/scripts/backup.sh
-```
-
-#### Step 2: Rebuild the redmine-prod Image
-
-```bash
-# Edit containers/redmine-prod/Containerfile to update REDMINE_VERSION
-vi /opt/redmine/containers/containers/redmine-prod/Containerfile
-
-# Rebuild
-podman build -t localhost/redmine-prod:X.Y.Z /opt/redmine/containers/containers/redmine-prod/
-```
-
-#### Step 3: Update Quadlet and Restart
-
-```bash
-# Update the image tag in the quadlet if changed
-vi /opt/redmine/containers/quadlets/redmine-prod.container
-
-sudo systemctl daemon-reload
-sudo systemctl restart redmine-prod
-sudo journalctl -u redmine-prod -f
-```
-
-#### Step 4: Validate
-
-- Browse to `https://your-host/redmine`
-- Test all critical workflows: issue creation, wiki, file upload, GTT maps
-- Verify all plugins load without errors in Administration → Plugins
-
----
-
-## 7. Container Maintenance
-
-### Update Container Images
-
-```bash
-# Rebuild all images (e.g., after base OS security updates)
-source /opt/redmine/containers/.env
-podman build --no-cache -f containers/redmine-db/Containerfile -t localhost/redmine-db:18-master containers/redmine-db/
-podman build --no-cache -t localhost/redmine-prod:6.1.3 containers/redmine-prod/
-
-# Update quadlet to use new image
-# (If tag hasn't changed, just restart to use same tag)
-sudo systemctl restart redmine-prod
-```
-
-### Prune Unused Container Layers
-
-```bash
-# Remove stopped containers and dangling images
-podman container prune -f
-podman image prune -f
-
-# More aggressive cleanup (removes all unused images)
-podman system prune -f
-```
-
-### Check Disk Usage
-
-```bash
-# Container storage
-podman system df
-
-# Data directories
-du -sh /opt/redmine/data/redmine1/
-du -sh /opt/redmine/backup/
-
-# PostgreSQL data
-du -sh /opt/redmine/data/postgres/
-```
-
----
-
-## 8. Database Maintenance
-
-### PostgreSQL Vacuum and Analyze
-
-```bash
-# Run vacuum on the Redmine database (recommended weekly)
-podman exec redmine-db vacuumdb -U postgres --all --analyze --verbose
-```
-
-### Check Database Size
-
-```bash
-podman exec redmine-db psql -U postgres -c \
-    "SELECT datname, pg_size_pretty(pg_database_size(datname)) AS size \
-     FROM pg_database WHERE datname LIKE 'redmine%';"
-```
-
-### Connect to Database Directly
-
-```bash
-# Production database
-podman exec -it redmine-db psql -U postgres -d redmine_prod
-```
-
-### PostgreSQL Configuration Reload (without restart)
-
-```bash
-podman exec redmine-db psql -U postgres -c "SELECT pg_reload_conf();"
-```
-
----
-
-## 9. Troubleshooting
-
-### Container Fails to Start
-
-```bash
-# Check systemd journal for errors
-sudo journalctl -u redmine-prod -n 50 --no-pager
-
-# Check container logs directly
-podman logs redmine-prod
-
-# Check if the container image exists
-podman images | grep redmine
-```
-
-### Puma Socket Not Created
-
-```bash
-# Check if puma.sock exists
-ls -la /opt/redmine/data/redmine1/tmp/puma.sock
-
-# If missing, check Puma log
-cat /opt/redmine/data/redmine1/log/puma.log
-
-# Manually test Puma startup inside the container
-podman exec -it --user redmine_adm redmine-prod /bin/bash
-cd /opt/redmine/app
-RAILS_ENV=production bundle exec puma -C config/puma.rb
-```
-
-### "502 Bad Gateway" from Host Apache
-
-```bash
-# Verify container is running and port is accessible
-curl -sk http://127.0.0.1:10080/redmine | head -20
-
-# Check host Apache error log
-sudo tail -50 /var/log/httpd/error_log
-
-# Check Apache is loading the proxy config
-sudo httpd -S | grep redmine
-```
-
-### Database Connection Error
-
-```bash
-# Verify database container is running
-sudo systemctl status redmine-db
-
-# Test connectivity from production container
-podman exec redmine-prod /bin/bash -c \
-    "PGPASSWORD=\$REDMINE_DB_PASSWORD psql -U redmine_adm -h redmine-db -d redmine_prod -c '\q' && echo OK"
-```
-
-### Plugin Fails to Load
-
-```bash
-# Check Rails error log for plugin errors
-grep -i "error\|exception\|plugin" /opt/redmine/data/redmine1/log/production.log | tail -30
-
-# Verify plugin directory exists and has correct permissions
-podman exec redmine-prod ls -la /opt/redmine/app/plugins/
-
-# Re-run plugin migrations for a specific plugin
-podman exec --user redmine_adm redmine-prod /bin/bash -c \
-    "cd /opt/redmine/app && RAILS_ENV=production bundle exec rake redmine:plugins:migrate NAME=plugin_name"
-```
-
-### Redmine_gtt Map Not Displaying
-
-The `redmine_gtt` plugin requires:
-- PostGIS extensions enabled on the database
-- `database.yml` using `postgis` adapter (not `postgresql`)
-- Yarn and webpack build completed during image build
-
-```bash
-# Verify PostGIS extension
-podman exec redmine-db psql -U postgres -d redmine_prod \
-    -c "SELECT PostGIS_Version();"
-
-# Verify adapter in use (from container)
-podman exec redmine-prod grep adapter /opt/redmine/app/config/database.yml
-# Expected: adapter: postgis
-```
-
-### SELinux Denials
-
-```bash
-# Check for recent SELinux denials related to Redmine
-sudo ausearch -m avc -ts recent | grep -i redmine
-
-# View audit2allow suggestions
-sudo audit2allow -a | grep -A5 redmine
+podman exec -it hwins-redmine bundle exec rails console -e production
 ```

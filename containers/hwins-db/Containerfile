@@ -1,0 +1,24 @@
+# hwins-db: PostgreSQL 18 + PostGIS 3.6
+#
+# Base image: docker.io/postgis/postgis:18-3.6 (Debian, PostgreSQL 18 + PostGIS 3.6)
+#
+# The Redmine role and database are created by the upstream image from the
+# POSTGRES_USER / POSTGRES_DB / POSTGRES_PASSWORD_FILE variables. The single
+# `redmine` role owns the `redmine` database and is what hwins-redmine connects
+# with — this mirrors the redmine.jp blog's single-DB-user model.
+#
+# The password is supplied as a Docker/Podman secret (POSTGRES_PASSWORD_FILE),
+# never as a plain environment variable.
+
+FROM docker.io/postgis/postgis:18-3.6
+
+ENV POSTGRES_DB=redmine
+ENV POSTGRES_USER=redmine
+ENV POSTGRES_INITDB_ARGS="--auth-host=scram-sha-256 --auth-local=peer --encoding=UTF8 --locale=C.UTF-8"
+
+# Ensure the PostGIS extensions required by the redmine_gtt plugin are present
+# in the Redmine database. The upstream postgis image already enables them
+# during first-time initialisation; this script is an idempotent safety net and
+# runs only on an empty data directory.
+COPY init-redmine.sh /docker-entrypoint-initdb.d/30-init-redmine.sh
+RUN chmod 0755 /docker-entrypoint-initdb.d/30-init-redmine.sh

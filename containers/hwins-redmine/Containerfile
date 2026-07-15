@@ -1,0 +1,164 @@
+# hwins-redmine: Redmine 6.1.3 (official image) + full plugin/theme stack
+#
+# Base image: docker.io/library/redmine:6.1.3 (bundles Ruby, Bundler, Puma and
+# all of Redmine's runtime gems — no rbenv build required).
+#
+# This image adds, on top of the official image:
+#   - Japanese CJK fonts (fonts-noto-cjk) so Gantt/PDF exports are not garbled
+#     (per the redmine.jp blog procedure).
+#   - The RedmineDocker plugin/theme stack (13 plugins + farend_fancy theme).
+#   - redmine_gtt frontend assets (yarn + webpack), which require PostGIS.
+#
+# The application lives at /usr/src/redmine (official image layout) and the
+# container runs as the image's `redmine` user. Puma listens on TCP :3000 and
+# is reached only by the hwins-static reverse proxy (never published to the host).
+#
+# Sub-URI: /redmine (RAILS_RELATIVE_URL_ROOT)
+#
+# Plugins installed (13):
+#   1.  redmine_wiki_lists        (tkusukawa, v0.0.11)
+#   2.  redmine_banner            (agileware-jp, v0.3.4)
+#   3.  redmine_issues_panel      (redmica, v1.2.1)
+#   4.  redmica_ui_extension      (redmica, v0.6.0)
+#   5.  redmine_ip_filter         (redmica, v1.1.1)
+#   6.  redmine_message_customize (redmica/farend, v1.1.0)
+#   7.  redmine_issue_templates   (redmica, v1.2.2)
+#   8.  view_customize            (onozaty, MUST be named 'view_customize')
+#   9.  redmine_logs              (haru, v0.4.0)
+#  10.  redmine_login_audit2      (seraph3000, v1.0.0)
+#  11.  redmine_wiki_extensions   (haru, v1.2.0)
+#  12.  redmine_solid_queue       (nishidayuya, v1.0.0)
+#  13.  redmine_gtt               (gtt-project, v6.0.3) ← requires yarn+webpack+PostGIS
+#
+# Theme: farend_fancy (farend, main branch for Redmine 6.1)
+
+FROM docker.io/library/redmine:6.1.3
+
+ARG REDMINE_HOME=/usr/src/redmine
+ENV REDMINE_HOME=${REDMINE_HOME}
+ENV RAILS_ENV=production
+ENV RAILS_RELATIVE_URL_ROOT=/redmine
+# Redmine serves its own static assets on the app port; the hwins-static proxy
+# simply forwards to it (mirrors the redmine.jp blog running redmine on :3000).
+ENV RAILS_SERVE_STATIC_FILES=1
+
+# ── System packages (root) ────────────────────────────────────────────────────
+USER root
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        # Japanese fonts for PDF/Gantt output (blog procedure)
+        fonts-noto-cjk fontconfig \
+        # Plugin build/runtime tooling
+        git \
+        # redmine_gtt frontend build (webpack) and its native gem deps (rgeo/GEOS/PROJ)
+        nodejs npm \
+        libgeos-dev libproj-dev \
+        # entrypoint helpers: envsubst (template rendering) + pg_isready (DB wait)
+        gettext-base postgresql-client \
+        # container healthcheck
+        curl \
+    && rm -rf /var/lib/apt/lists/* \
+    && fc-cache -fv
+
+# Yarn 1.22.22 (classic Yarn required by redmine_gtt's webpack build)
+RUN npm install -g yarn@1.22.22 \
+    && yarn --version
+
+# ── Plugins and theme ─────────────────────────────────────────────────────────
+# All plugins are cloned at build time so the code is baked into the image for
+# reproducibility. Update a plugin by rebuilding the image.
+
+# Theme: farend_fancy — use 'main' branch for Redmine 6.1 compatibility.
+# Redmine loads themes from public/themes/.
+RUN git clone --depth 1 \
+        https://github.com/farend/redmine_theme_farend_fancy.git \
+        ${REDMINE_HOME}/public/themes/farend_fancy
+
+WORKDIR ${REDMINE_HOME}/plugins
+
+# 1. redmine_wiki_lists (0.0.11) — wiki macro plugin
+#    Compatibility with Redmine 6.x is unverified (last commit 2022). Test first.
+RUN git clone --depth 1 --branch 0.0.11 \
+        https://github.com/tkusukawa/redmine_wiki_lists.git redmine_wiki_lists \
+    || git clone --depth 1 \
+        https://github.com/tkusukawa/redmine_wiki_lists.git redmine_wiki_lists
+
+# 2. redmine_banner (0.3.4) — site-wide banner messages
+RUN git clone --depth 1 --branch 0.3.4 \
+        https://github.com/agileware-jp/redmine_banner.git redmine_banner \
+    || git clone --depth 1 \
+        https://github.com/agileware-jp/redmine_banner.git redmine_banner
+
+# 3. redmine_issues_panel (1.2.1) — Kanban-style issues panel
+RUN git clone --depth 1 --branch 1.2.1 \
+        https://github.com/redmica/redmine_issues_panel.git redmine_issues_panel
+
+# 4. redmica_ui_extension (0.6.0) — UI improvements (Select2, mermaid, burndown)
+RUN git clone --depth 1 --branch 0.6.0 \
+        https://github.com/redmica/redmica_ui_extension.git redmica_ui_extension
+
+# 5. redmine_ip_filter (1.1.1) — IP-based access filtering
+RUN git clone --depth 1 --branch 1.1.1 \
+        https://github.com/redmica/redmine_ip_filter.git redmine_ip_filter
+
+# 6. redmine_message_customize (1.1.0) — customise UI text strings
+RUN git clone --depth 1 --branch 1.1.0 \
+        https://github.com/redmica/redmine_message_customize.git redmine_message_customize
+
+# 7. redmine_issue_templates (1.2.2) — issue creation templates
+RUN git clone --depth 1 --branch 1.2.2 \
+        https://github.com/redmica/redmine_issue_templates.git redmine_issue_templates
+
+# 8. view_customize — DIRECTORY NAME MUST BE 'view_customize' (required by init.rb)
+RUN git clone --depth 1 \
+        https://github.com/onozaty/redmine-view-customize.git view_customize
+
+# 9. redmine_logs (0.4.0) — log browser in admin UI
+RUN git clone --depth 1 --branch 0.4.0 \
+        https://github.com/haru/redmine_logs.git redmine_logs
+
+# 10. redmine_login_audit2 (1.0.0) — login/API access audit log
+#     Brand-new plugin (initial release April 2026). No CI. Validate before prod.
+RUN git clone --depth 1 --branch 1.0.0 \
+        https://github.com/seraph3000/redmine_login_audit2.git redmine_login_audit2 \
+    || git clone --depth 1 \
+        https://github.com/seraph3000/redmine_login_audit2.git redmine_login_audit2
+
+# 11. redmine_wiki_extensions (1.2.0) — wiki macros, comments, tags, voting
+RUN git clone --depth 1 --branch 1.2.0 \
+        https://github.com/haru/redmine_wiki_extensions.git redmine_wiki_extensions
+
+# 12. redmine_solid_queue (1.0.0) — Solid Queue as Redmine background job processor
+RUN git clone --depth 1 --branch 1.0.0 \
+        https://github.com/nishidayuya/redmine_solid_queue.git redmine_solid_queue \
+    || git clone --depth 1 \
+        https://github.com/nishidayuya/redmine_solid_queue.git redmine_solid_queue
+
+# 13. redmine_gtt (6.0.3) — Geo-Task-Tracker (requires PostGIS + webpack build)
+RUN git clone --depth 1 --branch 6.0.3 \
+        https://github.com/gtt-project/redmine_gtt.git redmine_gtt
+
+# ── Install plugin gems ───────────────────────────────────────────────────────
+# Bake all plugin gem dependencies into the image's bundle (/usr/local/bundle).
+WORKDIR ${REDMINE_HOME}
+RUN bundle install --jobs 4 --retry 3
+
+# ── Build redmine_gtt frontend assets (yarn + webpack) ───────────────────────
+RUN cd ${REDMINE_HOME}/plugins/redmine_gtt \
+    && yarn install --frozen-lockfile \
+    && npx webpack --mode production
+
+# ── Configuration templates and entrypoint ────────────────────────────────────
+COPY database.yml.tmpl ${REDMINE_HOME}/config/database.yml.tmpl
+COPY configuration.yml.tmpl ${REDMINE_HOME}/config/configuration.yml.tmpl
+COPY entrypoint.sh /usr/local/bin/hwins-entrypoint.sh
+RUN chmod 0755 /usr/local/bin/hwins-entrypoint.sh \
+    && chown -R redmine:redmine ${REDMINE_HOME}/config ${REDMINE_HOME}/plugins ${REDMINE_HOME}/public/themes
+
+# Run as the unprivileged application user shipped by the official image.
+USER redmine
+
+EXPOSE 3000
+
+ENTRYPOINT ["/usr/local/bin/hwins-entrypoint.sh"]

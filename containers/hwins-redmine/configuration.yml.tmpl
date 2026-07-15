@@ -1,13 +1,13 @@
-# containers/redmine-prod/configuration.yml.tmpl
+# containers/hwins-redmine/configuration.yml.tmpl
 #
-# Redmine application configuration template.
-# Processed by entrypoint.sh; variables substituted from .env.
+# Redmine application configuration template, rendered by entrypoint.sh with
+# envsubst before Puma starts.
 #
-# ${REDMINE_SECRET_TOKEN}  → unique secret key base for this environment
-# ${SMTP_HOST}             → SMTP server hostname
-# ${SMTP_PORT}             → SMTP server port
-# ${SMTP_USER}             → SMTP username
-# ${SMTP_PASSWORD}         → SMTP password
+# Substituted variables:
+#   ${SMTP_HOST}     → SMTP server hostname
+#   ${SMTP_PORT}     → SMTP server port
+#   ${SMTP_USER}     → SMTP username
+#   ${SMTP_PASSWORD} → SMTP password
 
 default:
   # ── Email delivery ───────────────────────────────────────────────────────
@@ -22,7 +22,7 @@ default:
       enable_starttls_auto: true
 
   # ── Attachments ──────────────────────────────────────────────────────────
-  # Maximum attachment size in kilobytes (50 MB)
+  # Storage path (relative to the Redmine root) and max size in kilobytes (50 MB).
   attachments_storage_path: files
   max_attachment_size: 51200
 
@@ -31,8 +31,6 @@ default:
 
   # ── Logging ──────────────────────────────────────────────────────────────
   log_level: info
-  log_rotating_size: 104857600
-  log_rotating_age: daily
 
   # ── SCM (version control) ────────────────────────────────────────────────
   scm_git_command: /usr/bin/git

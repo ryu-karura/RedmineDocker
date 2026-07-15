@@ -1,0 +1,57 @@
+# quadlets/hwins-redmine.container
+#
+# Podman Quadlet unit for hwins-redmine: Redmine 6.1.3 + plugin stack (Puma :3000).
+# Place at /etc/containers/systemd/hwins-redmine.container, then run:
+#   systemctl daemon-reload && systemctl start hwins-redmine
+#
+# The DB password and secret_key_base are Podman secrets (see docs/Setup.md).
+# Puma port 3000 is NOT published; only hwins-static reaches it over hwins-net.
+# SMTP settings (if any) come from the optional EnvironmentFile below.
+
+[Unit]
+Description=hwins Redmine Application 6.1.3
+Documentation=file:///opt/hwins/containers/docs/Design.md
+After=network-online.target hwins-db.service
+Wants=network-online.target
+Requires=hwins-db.service
+
+[Container]
+Image=localhost/hwins-redmine:6.1.3
+ContainerName=hwins-redmine
+Network=hwins-net
+
+Environment=RAILS_ENV=production
+Environment=RAILS_RELATIVE_URL_ROOT=/redmine
+Environment=REDMINE_DB_HOST=hwins-db
+Environment=REDMINE_DB_NAME=redmine
+Environment=REDMINE_DB_USER=redmine
+Environment=REDMINE_DB_PASSWORD_FILE=/run/secrets/db_password
+Environment=REDMINE_SECRET_KEY_BASE_FILE=/run/secrets/secret_key_base
+Environment=REDMINE_PLUGINS_MIGRATE=1
+# Optional non-secret settings (SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASSWORD).
+# The leading '-' makes the file optional (ignored if it does not exist).
+EnvironmentFile=-/opt/hwins/containers/.env
+
+Secret=db_password,type=mount,target=db_password
+Secret=secret_key_base,type=mount,target=secret_key_base
+
+# Persist uploaded attachments and logs under the hwins data root.
+Volume=/opt/hwins/data/redmine/files:/usr/src/redmine/files:Z
+Volume=/opt/hwins/data/redmine/log:/usr/src/redmine/log:Z
+
+Timezone=Asia/Tokyo
+
+HealthCmd=curl -f -s http://localhost:3000/redmine/login > /dev/null
+HealthInterval=30s
+HealthTimeout=10s
+HealthRetries=5
+HealthStartPeriod=180s
+
+[Service]
+Restart=on-failure
+RestartSec=10s
+TimeoutStartSec=300
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target
