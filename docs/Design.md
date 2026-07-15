@@ -2,7 +2,7 @@
 
 ## 1. 概要
 
-RedmineDocker は 3 つのコンテナが連携して Redmine 6.1.3 を動作させます。設計は [redmine.jp の Docker ガイド](https://blog.redmine.jp/articles/6_1/redmine-6_1-docker/) を踏襲しており、**公式** の `redmine` イメージを使い、認証情報は **ファイルベースのシークレット** で管理し、Compose / Quadlet の単一定義から運用するようにしています。3 層構成へ拡張し、この環境で求められる設定値に合わせています。
+RedmineDocker は 2 つのコンテナが連携して Redmine 6.1.3 を動作させます。設計は [redmine.jp の Docker ガイド](https://blog.redmine.jp/articles/6_1/redmine-6_1-docker/) を踏襲しており、**公式** の `redmine` イメージを使い、認証情報は **ファイルベースのシークレット** で管理し、Compose / Quadlet の単一定義から運用するようにしています。Apache フロントエンドを `hwins-redmine` に統合し、この環境で求められる設定値に合わせています。
 
 | 項目 | 値 |
 |------|----|
@@ -12,31 +12,28 @@ RedmineDocker は 3 つのコンテナが連携して Redmine 6.1.3 を動作さ
 | Rootless Podman ネットワーク | `hwins-net` |
 | Redmine イメージ | `docker.io/library/redmine:6.1.3` |
 | PostgreSQL / PostGIS | `docker.io/postgis/postgis:18-3.6` |
-| コンテナ Apache | `docker.io/library/httpd:2.4`（digest-pinned） |
+| Apache フロントエンド | `httpd` 2.4（`hwins-redmine` に内蔵） |
 | DB 名 / 所有者 | `redmine` / `redmine` |
 | DB コンテナ | `hwins-db` |
 | Redmine / Puma コンテナ | `hwins-redmine` |
-| Static / proxy コンテナ | `hwins-static` |
+| Web フロントコンテナ | `hwins-redmine` |
 | Puma 内部ポート | `3000`（ホスト公開なし） |
 | PostgreSQL 内部ポート | `5432`（ホスト公開なし） |
-| Static ホストポート | `127.0.0.1:18080` |
+| Web ホストポート | `127.0.0.1:18080` |
 | 公開 URL | `http://localhost/redmine/` |
 
 ## 2. トポロジー
 
 ```
-  client ──443──► Host Apache ──/redmine──► hwins-static (httpd 2.4, :18080)
-                                                    │ ProxyPass /redmine → hwins-redmine:3000
-                                                    ▼
-                                             hwins-redmine (Puma :3000, sub-URI /redmine)
-                                                    │ postgis adapter
+  client ──443──► Host Apache ──/redmine──► hwins-redmine (Apache 2.4 + Puma :3000, :18080)
+                                                    │ ProxyPass /redmine → 127.0.0.1:3000
                                                     ▼
                                              hwins-db (PostgreSQL 18 + PostGIS 3.6, :5432)
 ```
 
-- `hwins-static` のみが公開され、`127.0.0.1:18080` にバインドされます。ホスト側 Apache (`host-apache/redmine-proxy.conf`) が TLS を終端し、`/redmine` を転送します。
+- `hwins-redmine` が `127.0.0.1:18080` にバインドされ、Apache フロントエンドが `/redmine` を Puma に転送します。ホスト側 Apache (`host-apache/redmine-proxy.conf`) が TLS を終端し、`/redmine` を転送します。
 - PostgreSQL (5432) と Puma (3000) はホストには公開されません。
-- コンテナは `hwins-net` ブリッジ上で通信し、`hwins-db`、`hwins-redmine`、`hwins-static` という名前で相互解決します。
+- コンテナは `hwins-net` ブリッジ上で通信し、`hwins-db` と `hwins-redmine` という名前で相互解決します。
 
 ## 3. コンテナの役割
 
@@ -47,12 +44,9 @@ RedmineDocker は 3 つのコンテナが連携して Redmine 6.1.3 を動作さ
 ### hwins-redmine (`containers/hwins-redmine/`)
 - ベースイメージは `redmine:6.1.3`（公式、Ruby / Bundler / Puma / gem も含む）です。
 - 日本語 CJK フォント（PDF / Gantt 用）、13 プラグイン + `farend_fancy` テーマ、`redmine_gtt` の webpack ビルド（yarn）を追加します。プラグイン gem は `bundle install` でイメージに焼き込みます。
-- イメージ付属の `redmine` ユーザーで動作し、Puma は `/redmine`（`RAILS_RELATIVE_URL_ROOT`）配下で `:3000` を Listen します。
-- `entrypoint.sh` はシークレット解決（`*_FILE` 対応）、`config/database.yml` の描画（**`postgis`** アダプタ使用、redmine_gtt 必須）、`config/configuration.yml`（SMTP）の描画、DB 待機、コア / プラグインのマイグレーション実行、`rails server`（Puma）起動を行います。
+- Apache フロントエンドを組み込み、`127.0.0.1:80` で受けた `/redmine` リクエストを Puma の `:3000` に転送します。Puma は `/redmine`（`RAILS_RELATIVE_URL_ROOT`）配下で `:3000` を Listen します。
+- `entrypoint.sh` はシークレット解決（`*_FILE` 対応）、`config/database.yml` の描画（**`postgis`** アダプタ使用、redmine_gtt 必須）、`config/configuration.yml`（SMTP）の描画、DB 待機、コア / プラグインのマイグレーション実行、Apache の起動と `rails server`（Puma）起動を行います。
 
-### hwins-static (`containers/hwins-static/`)
-- ベースイメージは `httpd:2.4` で、`scripts/pin-static-image.sh` により digest 固定されます。
-- `/redmine` を `hwins-redmine:3000` へリバースプロキシします。Redmine 自体がそのポートで静的アセットを提供するため（公式イメージをそのまま動かしたときと同様）、共有アセットボリュームは不要です。基本的なセキュリティヘッダも追加します。
 
 ## 4. データと永続化
 
@@ -83,5 +77,5 @@ RedmineDocker は 3 つのコンテナが連携して Redmine 6.1.3 を動作さ
 
 ## 7. 補足 / 注意点
 
-- httpd ベースイメージは `2.4` タグで配布されるため、最初の pull 後に digest で固定する必要があります（`scripts/pin-static-image.sh`）。
-- `hwins-static` から Redmine の静的アセットを直接配信する（共有 `public/` ボリュームを使う）構成は今後の最適化候補です。現状の設計では、堅牢性を優先して Redmine 側でアセット配信を行っています。
+- Apache フロントエンドは `hwins-redmine` イメージに組み込まれ、個別の `hwins-static` イメージは不要になりました。
+- 追加の Web プロキシコンテナを置かず、Redmine コンテナ内で Apache と Puma を運用しています。現状の設計では、堅牢性を優先して Redmine 側でアセット配信を行っています。

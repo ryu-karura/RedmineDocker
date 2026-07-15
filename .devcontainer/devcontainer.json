@@ -7,7 +7,7 @@
   "forwardPorts": [18080],
   "portsAttributes": {
     "18080": {
-      "label": "Redmine (hwins-static reverse proxy)",
+      "label": "Redmine (Apache + Puma in hwins-redmine)",
       "onAutoForward": "notify"
     }
   },

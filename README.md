@@ -2,18 +2,17 @@
 
 **RHEL9 / AlmaLinux9 上で rootless Podman を使う Redmine 6.1 のコンテナ基盤**
 
-このリポジトリでは、運用時は systemd Quadlet で管理する 3 コンテナ構成の Redmine 基盤を構築・展開・運用し、開発時は Docker Compose で動かします。設計は [redmine.jp の Docker ガイド](https://blog.redmine.jp/articles/6_1/redmine-6_1-docker/) を踏襲し、公式 Redmine イメージと Docker/Podman シークレットを用いた 3 層構成へ拡張したものです。
+このリポジトリでは、運用時は systemd Quadlet で管理する 2 コンテナ構成の Redmine 基盤を構築・展開・運用し、開発時は Docker Compose で動かします。設計は [redmine.jp の Docker ガイド](https://blog.redmine.jp/articles/6_1/redmine-6_1-docker/) を踏襲し、公式 Redmine イメージと Docker/Podman シークレットを用いた 2 層構成へ拡張したものです。
 
 ---
 
 ## アーキテクチャ
 
 ```
-  client ──443──► Host Apache ──/redmine──► hwins-static (httpd 2.4)
+  client ──443──► Host Apache ──/redmine──► hwins-redmine (Apache 2.4 + Redmine 6.1.3)
                   (TLS, HSTS)   127.0.0.1:18080   │  ProxyPass /redmine
                                                   ▼
-                                           hwins-redmine (Redmine 6.1.3 + plugins)
-                                           Puma :3000  (sub-URI /redmine)
+                                           Puma :3000 (sub-URI /redmine)
                                                   │
                                                   ▼
                                            hwins-db (PostgreSQL 18 + PostGIS 3.6)
@@ -23,10 +22,9 @@
 | コンテナ | ビルドコンテキスト | イメージ | 役割 | 公開先 |
 |----------|-------------------|----------|------|--------|
 | `hwins-db` | `containers/hwins-db/` | `postgis/postgis:18-3.6` | PostgreSQL 18 + PostGIS 3.6 | なし（内部 5432） |
-| `hwins-redmine` | `containers/hwins-redmine/` | `redmine:6.1.3` + plugin stack | Redmine アプリ、Puma | なし（内部 3000） |
-| `hwins-static` | `containers/hwins-static/` | `httpd:2.4`（digest-pinned） | リバースプロキシ / 公開 Web 層 | `127.0.0.1:18080` |
+| `hwins-redmine` | `containers/hwins-redmine/` | `redmine:6.1.3` + plugin stack + Apache 2.4 | Redmine アプリ、Apache フロントエンド、Puma | `127.0.0.1:18080` |
 
-`hwins-static` のみがループバックに公開されます。ホスト側 Apache が 443 で TLS を終端し、`/redmine` をその先へ転送します。PostgreSQL (5432) と Puma (3000) はホストからは到達できません。
+`hwins-redmine` だけがループバックに公開されます。ホスト側 Apache が 443 で TLS を終端し、`/redmine` をその先へ転送します。PostgreSQL (5432) と Puma (3000) はホストからは到達できません。
 
 - **ネットワーク:** `hwins-net`（Podman Quadlet のネットワーク / Compose のブリッジ）。コンテナは名前で相互に解決します。
 - **公開 URL:** `http://localhost/redmine/`（サブ URI `/redmine`）。
@@ -41,7 +39,7 @@
 | OS (ホスト/WSL) | AlmaLinux9 / RHEL9 |
 | Redmine | 6.1.3 (`docker.io/library/redmine:6.1.3`) |
 | PostgreSQL | 18 + PostGIS 3.6 (`postgis/postgis:18-3.6`) |
-| Web 層 | Apache httpd 2.4 (`httpd:2.4`, digest-pinned) |
+| Web 層 | Apache httpd 2.4 (hwins-redmine 内蔵) |
 | Ruby / Puma | 公式 Redmine イメージに同梱 |
 | Node.js / Yarn | Debian `nodejs` + Yarn 1.22.22（redmine_gtt の webpack ビルド用） |
 
@@ -61,15 +59,13 @@ RedmineDocker/
 ├── docs/                         # 設計 / セットアップ / 運用手順
 ├── containers/
 │   ├── hwins-db/                 # PostgreSQL 18 + PostGIS 3.6
-│   ├── hwins-redmine/            # Redmine 6.1.3 + plugin/theme スタック
-│   └── hwins-static/             # Apache httpd 2.4 リバースプロキシ
+│   └── hwins-redmine/            # Redmine 6.1.3 + plugin/theme スタック + Apache フロントエンド
 ├── quadlets/                     # 本番用 Podman Quadlet ユニット
 │   ├── hwins.network
 │   ├── hwins-db.container
-│   ├── hwins-redmine.container
-│   └── hwins-static.container
+│   └── hwins-redmine.container
 ├── host-apache/                  # ホスト Apache のリバースプロキシ (TLS)
-├── scripts/                      # generate-secrets, pin-static-image, backup, restore
+├── scripts/                      # generate-secrets, backup, restore
 ├── logrotate/                    # ログローテーション
 ├── compose.dev.yaml              # 開発用 Docker Compose
 ├── .devcontainer/                # GitHub Codespaces / VS Code dev container
@@ -90,12 +86,7 @@ docker compose -f compose.dev.yaml up --build -d  # 初回ビルドは重めで�
 
 `compose.dev.yaml` は名前付きボリュームを使うため、`docker compose down` してもデータは残ります。
 
-ネットワーク接続のあるホストでは、httpd のベースイメージを digest で固定することもできます（issue #18）：
-
-```bash
-bash scripts/pin-static-image.sh
-```
-
+ネットワーク接続のあるホストでは、Apache フロントエンドが組み込まれた `hwins-redmine` イメージをそのままビルド・起動できます。
 ---
 
 ## クイックスタート (本番 / Podman + Quadlets)

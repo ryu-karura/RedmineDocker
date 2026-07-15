@@ -6,7 +6,7 @@
 #   systemctl [--user] daemon-reload
 #
 # Creates a dedicated bridge network with DNS so the containers reach each
-# other by name (hwins-db, hwins-redmine, hwins-static). No database or Puma
+# other by name (hwins-db, hwins-redmine). No database or Puma
 # port is exposed to the host.
 
 [Network]

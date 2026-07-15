@@ -2,14 +2,16 @@
 # containers/hwins-redmine/entrypoint.sh
 #
 # Entrypoint for the hwins-redmine container (Redmine 6.1.3, official image +
-# plugin stack). Runs as the unprivileged `redmine` user.
+# plugin stack). Runs as root so Apache can bind to TCP :80, while Puma is
+# started as the unprivileged `redmine` user.
 #
 # Sequence:
 #   1. Resolve secrets (supports Docker/Podman *_FILE indirection)
 #   2. Render config/database.yml (postgis adapter) and config/configuration.yml
 #   3. Wait for PostgreSQL to accept connections
 #   4. Run core + plugin database migrations (idempotent)
-#   5. exec Puma via `rails server` on TCP :3000 (sub-URI /redmine)
+#   5. Start Apache on TCP :80 and launch Puma via `rails server` on TCP :3000
+#      (sub-URI /redmine)
 #
 # Passwords are never baked into the image or passed as plain env in production;
 # they arrive as secret files referenced by *_FILE variables.
@@ -68,11 +70,13 @@ cd "${REDMINE_HOME}"
 
 # ── 2. Render configuration from templates ────────────────────────────────────
 log "Rendering config/database.yml (postgis adapter) ..."
+# shellcheck disable=SC2016
 envsubst '${REDMINE_DB_HOST} ${REDMINE_DB_NAME} ${REDMINE_DB_USER} ${REDMINE_DB_PASSWORD}' \
     < config/database.yml.tmpl > config/database.yml
 chmod 640 config/database.yml
 
 log "Rendering config/configuration.yml ..."
+# shellcheck disable=SC2016
 envsubst '${SMTP_HOST} ${SMTP_PORT} ${SMTP_USER} ${SMTP_PASSWORD}' \
     < config/configuration.yml.tmpl > config/configuration.yml
 chmod 640 config/configuration.yml
@@ -99,6 +103,31 @@ if [[ "${REDMINE_PLUGINS_MIGRATE}" == "1" ]]; then
     bundle exec rake redmine:plugins:migrate
 fi
 
-# ── 5. Start Puma (foreground / PID 1 after exec) ─────────────────────────────
+# ── 5. Start Apache + Puma (PID 1 supervises both processes) ─────────────
+cleanup() {
+    local status="${1:-0}"
+    trap - EXIT INT TERM
+    log "Stopping Apache HTTPD ..."
+    apache2ctl -k stop >/dev/null 2>&1 || true
+    if [[ -n "${puma_pid:-}" ]] && kill -0 "${puma_pid}" 2>/dev/null; then
+        log "Stopping Puma ..."
+        kill "${puma_pid}" 2>/dev/null || true
+        wait "${puma_pid}" 2>/dev/null || true
+    fi
+    exit "${status}"
+}
+trap 'cleanup $?' EXIT
+trap 'cleanup 143' INT
+trap 'cleanup 143' TERM
+
+log "Starting Apache HTTPD on :80 ..."
+apache2ctl -k start
+
 log "Starting Puma via rails server on :3000 (sub-URI ${RAILS_RELATIVE_URL_ROOT}) ..."
-exec bundle exec rails server -b 0.0.0.0 -p 3000 -e "${RAILS_ENV}"
+if command -v runuser >/dev/null 2>&1; then
+    runuser -u redmine -- /bin/bash -lc "cd '${REDMINE_HOME}' && exec env RAILS_RELATIVE_URL_ROOT='${RAILS_RELATIVE_URL_ROOT}' bundle exec rails server -b 0.0.0.0 -p 3000 -e '${RAILS_ENV}'" &
+else
+    su -s /bin/bash redmine -c "cd '${REDMINE_HOME}' && exec env RAILS_RELATIVE_URL_ROOT='${RAILS_RELATIVE_URL_ROOT}' bundle exec rails server -b 0.0.0.0 -p 3000 -e '${RAILS_ENV}'" &
+fi
+puma_pid=$!
+wait "${puma_pid}"

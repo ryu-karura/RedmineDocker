@@ -9,8 +9,8 @@
 `hwins` ユーザーとして実行します（rootless のため `--user` を付けます）。
 
 ```bash
-systemctl --user start   hwins-db hwins-redmine hwins-static
-systemctl --user stop    hwins-static hwins-redmine hwins-db
+systemctl --user start   hwins-db hwins-redmine
+systemctl --user stop    hwins-redmine hwins-db
 systemctl --user restart hwins-redmine
 systemctl --user status  hwins-redmine
 journalctl --user -u hwins-redmine -f     # アプリケーションログを追跡
@@ -32,12 +32,8 @@ podman build -t localhost/hwins-redmine:6.1.3 containers/hwins-redmine
 systemctl --user restart hwins-redmine     # entrypoint でマイグレーションを再実行
 ```
 
-### httpd ベースイメージ (digest を再度 pin)
-```bash
-bash scripts/pin-static-image.sh
-podman build -t localhost/hwins-static:2.4 containers/hwins-static
-systemctl --user restart hwins-static
-```
+### Apache フロントエンド
+`hwins-redmine` イメージに Apache の設定を入れたため、個別の `hwins-static` イメージは不要です。変更後は Redmine イメージを再ビルドして再起動します。
 
 ---
 
@@ -77,7 +73,7 @@ bash /opt/hwins/containers/scripts/restore.sh      /opt/hwins/backup/db/redmine_
 |------|--------|
 | Redmine アプリケーション | `/opt/hwins/data/redmine/log/production.log` |
 | Redmine / Puma の標準出力 | `journalctl --user -u hwins-redmine` |
-| リバースプロキシ（コンテナ） | `journalctl --user -u hwins-static` |
+| Apache フロントエンド（コンテナ） | `journalctl --user -u hwins-redmine` |
 | ホスト Apache（TLS フロント） | `/var/log/httpd/redmine_{access,error}.log` |
 
 ログローテーションは `logrotate/redmine` で設定されています（`/etc/logrotate.d/hwins-redmine` に配置）。日次、60 世代、コンテナ内のアプリケーションログには `copytruncate` を使います。

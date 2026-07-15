@@ -9,9 +9,9 @@
 #   - The RedmineDocker plugin/theme stack (13 plugins + farend_fancy theme).
 #   - redmine_gtt frontend assets (yarn + webpack), which require PostGIS.
 #
-# The application lives at /usr/src/redmine (official image layout) and the
-# container runs as the image's `redmine` user. Puma listens on TCP :3000 and
-# is reached only by the hwins-static reverse proxy (never published to the host).
+# The application lives at /usr/src/redmine (official image layout). Apache
+# listens on TCP :80 in front of Puma (:3000) so the Redmine container can be
+# published directly on localhost:18080 while keeping Puma internal.
 #
 # Sub-URI: /redmine (RAILS_RELATIVE_URL_ROOT)
 #
@@ -38,8 +38,8 @@ ARG REDMINE_HOME=/usr/src/redmine
 ENV REDMINE_HOME=${REDMINE_HOME}
 ENV RAILS_ENV=production
 ENV RAILS_RELATIVE_URL_ROOT=/redmine
-# Redmine serves its own static assets on the app port; the hwins-static proxy
-# simply forwards to it (mirrors the redmine.jp blog running redmine on :3000).
+# Redmine serves its own static assets on the app port; the Apache frontend
+# in this container forwards to it (mirrors the redmine.jp blog running redmine on :3000).
 ENV RAILS_SERVE_STATIC_FILES=1
 
 # ── System packages (root) ────────────────────────────────────────────────────
@@ -58,11 +58,12 @@ RUN apt-get update \
         #   pg   → libpq/pg_config (libpq-dev provides /usr/bin/pg_config, on PATH).
         # postgresql-client alone does NOT ship pg_config, so the pg native gem
         # fails to compile during `bundle install` without libpq-dev.
-        libgeos-dev libproj-dev libpq-dev \
+        # Ruby native extensions also need a compiler toolchain.
+        libgeos-dev libproj-dev libpq-dev build-essential pkg-config \
         # entrypoint helpers: envsubst (template rendering) + pg_isready (DB wait)
         gettext-base postgresql-client \
-        # container healthcheck
-        curl \
+        # container healthcheck + Apache frontend
+        curl apache2 \
     && rm -rf /var/lib/apt/lists/* \
     && fc-cache -fv
 
@@ -147,7 +148,9 @@ RUN git clone --depth 1 --branch v6.0.3 \
 # ── Install plugin gems ───────────────────────────────────────────────────────
 # Bake all plugin gem dependencies into the image's bundle (/usr/local/bundle).
 WORKDIR ${REDMINE_HOME}
-RUN bundle install --jobs 4 --retry 3
+RUN bundle install --jobs 4 --retry 3 \
+    && apt-get autoremove -y \
+    && rm -rf /var/lib/apt/lists/*
 
 # ── Build redmine_gtt frontend assets (yarn + webpack) ───────────────────────
 RUN cd ${REDMINE_HOME}/plugins/redmine_gtt \
@@ -157,13 +160,14 @@ RUN cd ${REDMINE_HOME}/plugins/redmine_gtt \
 # ── Configuration templates and entrypoint ────────────────────────────────────
 COPY database.yml.tmpl ${REDMINE_HOME}/config/database.yml.tmpl
 COPY configuration.yml.tmpl ${REDMINE_HOME}/config/configuration.yml.tmpl
+COPY httpd-redmine.conf /etc/apache2/conf-available/redmine-proxy.conf
 COPY entrypoint.sh /usr/local/bin/hwins-entrypoint.sh
-RUN chmod 0755 /usr/local/bin/hwins-entrypoint.sh \
+RUN a2enmod headers rewrite proxy proxy_http \
+    && a2dissite 000-default || true \
+    && a2enconf redmine-proxy \
+    && chmod 0755 /usr/local/bin/hwins-entrypoint.sh \
     && chown -R redmine:redmine ${REDMINE_HOME}/config ${REDMINE_HOME}/plugins ${REDMINE_HOME}/public/themes
 
-# Run as the unprivileged application user shipped by the official image.
-USER redmine
-
-EXPOSE 3000
+EXPOSE 80
 
 ENTRYPOINT ["/usr/local/bin/hwins-entrypoint.sh"]
