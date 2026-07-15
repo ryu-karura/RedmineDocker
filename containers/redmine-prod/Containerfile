@@ -4,7 +4,8 @@
 #   - Official Docker Hub image: redmine:6.1.3-trixie
 #   - Ruby 3.4.4 (via rbenv, system-wide at /usr/local/rbenv)
 #   - Bundler 2.6.8
-#   - Node.js 22.23.1 LTS (via NodeSource repository)
+#   - Node.js 20.x (Debian trixie `nodejs` apt package — sufficient for the
+#     redmine_gtt webpack build, which pins no `engines.node` requirement)
 #   - Yarn 1.22.22 (classic Yarn, required for redmine_gtt webpack build)
 #   - Apache httpd 2.4 (mod_proxy to Puma unix socket)
 #   - Puma (bundled with Redmine 6.1.3)
@@ -35,7 +36,6 @@ FROM docker.io/library/redmine:6.1.3-trixie
 
 ARG RUBY_VERSION=3.4.4
 ARG BUNDLER_VERSION=2.6.8
-ARG NODE_MAJOR=22
 ARG REDMINE_VERSION=6.1.3
 ARG RAILS_ENV=production
 ARG REDMINE_SUBURI=/redmine
@@ -64,7 +64,9 @@ RUN apt-get update \
         # Apache and required runtime tools
         apache2 apache2-utils \
         # Additional utilities
-        sudo tzdata findutils which ca-certificates gnupg \
+        # gettext-base provides `envsubst`, required by entrypoint.sh to render
+        # config/database.yml and config/configuration.yml from templates.
+        sudo tzdata findutils which ca-certificates gnupg gettext-base \
     && rm -rf /var/lib/apt/lists/*
 
 # ── Install Node.js and npm ───────────────────────────────────────────────────
@@ -95,7 +97,13 @@ RUN gem install bundler:${BUNDLER_VERSION} --no-document \
 # ── Create redmine_adm user and group ────────────────────────────────────────
 # UID/GID 1001 must match the host redmine_adm user (see docs/Design.md §6)
 # so that bind-mounted volume permissions are consistent.
-RUN groupadd --gid 1001 redmine \
+#
+# The upstream redmine:6.1.3-trixie base image already ships a `redmine`
+# group (at a different GID), so `groupadd redmine` would fail with
+# "group 'redmine' already exists". Remap the existing group to GID 1001
+# instead of recreating it (mirrors the `usermod -u 26 postgres` remap
+# used in containers/redmine-db/Containerfile).
+RUN groupmod --gid 1001 redmine \
     && useradd --uid 1001 --gid 1001 \
         --home /opt/redmine \
         --no-create-home \
@@ -226,6 +234,18 @@ RUN git clone --depth 1 --branch 6.0.3 \
 
 # ── Bundle install (all gems including plugin dependencies) ──────────────────
 WORKDIR /opt/redmine/app
+
+# Hand ownership to redmine_adm BEFORE dropping privileges, so every write the
+# app user performs below succeeds:
+#   - /opt/redmine        : redmine_adm's HOME — yarn/npm/gem write caches here
+#                           (bundle/yarn/gem default to $HOME/.cache, $HOME/.bundle).
+#   - /opt/redmine/app    : plugin and theme directories were git-cloned as root
+#                           above; `yarn install`/`webpack` write node_modules
+#                           into plugins/redmine_gtt.
+#   - ${RBENV_ROOT}       : `bundle install` installs gems into the rbenv-managed
+#                           system Ruby gem directory (created as root).
+# Without this, each of these steps fails with EACCES (permission denied).
+RUN chown -R redmine_adm:redmine /opt/redmine ${RBENV_ROOT}
 
 USER redmine_adm
 
