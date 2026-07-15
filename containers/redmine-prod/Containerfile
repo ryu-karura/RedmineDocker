@@ -95,7 +95,13 @@ RUN gem install bundler:${BUNDLER_VERSION} --no-document \
 # ── Create redmine_adm user and group ────────────────────────────────────────
 # UID/GID 1001 must match the host redmine_adm user (see docs/Design.md §6)
 # so that bind-mounted volume permissions are consistent.
-RUN groupadd --gid 1001 redmine \
+#
+# The upstream redmine:6.1.3-trixie base image already ships a `redmine`
+# group (at a different GID), so `groupadd redmine` would fail with
+# "group 'redmine' already exists". Remap the existing group to GID 1001
+# instead of recreating it (mirrors the `usermod -u 26 postgres` remap
+# used in containers/redmine-db/Containerfile).
+RUN groupmod --gid 1001 redmine \
     && useradd --uid 1001 --gid 1001 \
         --home /opt/redmine \
         --no-create-home \
