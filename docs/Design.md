@@ -1,118 +1,87 @@
-# Design Document — RedmineDocker (hwins stack)
+# 設計書 — RedmineDocker (hwins スタック)
 
-## 1. Overview
+## 1. 概要
 
-RedmineDocker runs Redmine 6.1.3 as three cooperating containers. The design
-follows the [redmine.jp Docker guide](https://blog.redmine.jp/articles/6_1/redmine-6_1-docker/)
-— use the **official** `redmine` image (no custom Ruby build), keep credentials
-in **file-based secrets**, and drive everything from a single compose/quadlet
-definition — extended into a three-tier topology and adjusted to the values
-mandated for this deployment.
+RedmineDocker は 3 つのコンテナが連携して Redmine 6.1.3 を動作させます。設計は [redmine.jp の Docker ガイド](https://blog.redmine.jp/articles/6_1/redmine-6_1-docker/) を踏襲しており、**公式** の `redmine` イメージを使い、認証情報は **ファイルベースのシークレット** で管理し、Compose / Quadlet の単一定義から運用するようにしています。3 層構成へ拡張し、この環境で求められる設定値に合わせています。
 
-| Item                     | Value                                   |
-|--------------------------|-----------------------------------------|
-| WSL distribution         | `AlmaLinux9`                            |
-| Linux admin user         | `hwins`                                 |
-| Linux root directory     | `/opt/hwins`                            |
-| Rootless Podman network  | `hwins-net`                             |
-| Redmine image            | `docker.io/library/redmine:6.1.3`       |
-| PostgreSQL / PostGIS     | `docker.io/postgis/postgis:18-3.6`      |
-| Container Apache         | `docker.io/library/httpd:2.4` (digest-pinned) |
-| DB name / owner          | `redmine` / `redmine`                   |
-| DB container             | `hwins-db`                              |
-| Redmine / Puma container | `hwins-redmine`                         |
-| Static / proxy container | `hwins-static`                          |
-| Puma internal port       | `3000` (not published)                  |
-| PostgreSQL internal port | `5432` (not published)                  |
-| Static host port         | `127.0.0.1:18080`                       |
-| Public URL               | `http://localhost/redmine/`             |
+| 項目 | 値 |
+|------|----|
+| WSL ディストリビューション | `AlmaLinux9` |
+| Linux 管理ユーザー | `hwins` |
+| Linux ルートディレクトリ | `/opt/hwins` |
+| Rootless Podman ネットワーク | `hwins-net` |
+| Redmine イメージ | `docker.io/library/redmine:6.1.3` |
+| PostgreSQL / PostGIS | `docker.io/postgis/postgis:18-3.6` |
+| コンテナ Apache | `docker.io/library/httpd:2.4`（digest-pinned） |
+| DB 名 / 所有者 | `redmine` / `redmine` |
+| DB コンテナ | `hwins-db` |
+| Redmine / Puma コンテナ | `hwins-redmine` |
+| Static / proxy コンテナ | `hwins-static` |
+| Puma 内部ポート | `3000`（ホスト公開なし） |
+| PostgreSQL 内部ポート | `5432`（ホスト公開なし） |
+| Static ホストポート | `127.0.0.1:18080` |
+| 公開 URL | `http://localhost/redmine/` |
 
-## 2. Topology
+## 2. トポロジー
 
 ```
- client ──443──► Host Apache ──/redmine──► hwins-static (httpd 2.4, :18080)
-                                                   │ ProxyPass /redmine → hwins-redmine:3000
-                                                   ▼
-                                            hwins-redmine (Puma :3000, sub-URI /redmine)
-                                                   │ postgis adapter
-                                                   ▼
-                                            hwins-db (PostgreSQL 18 + PostGIS 3.6, :5432)
+  client ──443──► Host Apache ──/redmine──► hwins-static (httpd 2.4, :18080)
+                                                    │ ProxyPass /redmine → hwins-redmine:3000
+                                                    ▼
+                                             hwins-redmine (Puma :3000, sub-URI /redmine)
+                                                    │ postgis adapter
+                                                    ▼
+                                             hwins-db (PostgreSQL 18 + PostGIS 3.6, :5432)
 ```
 
-- Only `hwins-static` is published, bound to loopback `127.0.0.1:18080`. The host
-  Apache (`host-apache/redmine-proxy.conf`) terminates TLS and proxies `/redmine`.
-- PostgreSQL (5432) and Puma (3000) are never exposed to the host.
-- Containers communicate over the `hwins-net` bridge and resolve each other by
-  name (`hwins-db`, `hwins-redmine`, `hwins-static`).
+- `hwins-static` のみが公開され、`127.0.0.1:18080` にバインドされます。ホスト側 Apache (`host-apache/redmine-proxy.conf`) が TLS を終端し、`/redmine` を転送します。
+- PostgreSQL (5432) と Puma (3000) はホストには公開されません。
+- コンテナは `hwins-net` ブリッジ上で通信し、`hwins-db`、`hwins-redmine`、`hwins-static` という名前で相互解決します。
 
-## 3. Container responsibilities
+## 3. コンテナの役割
 
 ### hwins-db (`containers/hwins-db/`)
-- Base `postgis/postgis:18-3.6`. `POSTGRES_USER=redmine`, `POSTGRES_DB=redmine`,
-  `POSTGRES_PASSWORD_FILE=/run/secrets/db_password`.
-- The single `redmine` role owns the `redmine` database (blog's single-user
-  model). `init-redmine.sh` ensures the `postgis`/`postgis_topology` extensions
-  exist (idempotent; the base image already enables them at first init).
+- ベースイメージは `postgis/postgis:18-3.6` です。`POSTGRES_USER=redmine`、`POSTGRES_DB=redmine`、`POSTGRES_PASSWORD_FILE=/run/secrets/db_password` を設定します。
+- 1 つの `redmine` ロールが `redmine` データベースを所有する（ブログの単一ユーザーモデル）構成です。`init-redmine.sh` は `postgis` / `postgis_topology` 拡張機能が存在することを確認します（冪等で、ベースイメージ側で初回初期化時に有効化済みです）。
 
 ### hwins-redmine (`containers/hwins-redmine/`)
-- Base `redmine:6.1.3` (official; bundles Ruby, Bundler, Puma, gems).
-- Adds: Japanese CJK fonts (PDF/Gantt), the 13-plugin stack + `farend_fancy`
-  theme, and the `redmine_gtt` webpack build (yarn). Plugin gems are baked via
-  `bundle install`.
-- Runs as the image's `redmine` user; Puma listens on `:3000` under sub-URI
-  `/redmine` (`RAILS_RELATIVE_URL_ROOT`).
-- `entrypoint.sh` resolves secrets (supports `*_FILE`), renders
-  `config/database.yml` with the **`postgis`** adapter (required by redmine_gtt —
-  the official image's env-driven database.yml only knows `postgresql`), renders
-  `config/configuration.yml` (SMTP), waits for the DB, runs core + plugin
-  migrations, and execs `rails server` (Puma).
+- ベースイメージは `redmine:6.1.3`（公式、Ruby / Bundler / Puma / gem も含む）です。
+- 日本語 CJK フォント（PDF / Gantt 用）、13 プラグイン + `farend_fancy` テーマ、`redmine_gtt` の webpack ビルド（yarn）を追加します。プラグイン gem は `bundle install` でイメージに焼き込みます。
+- イメージ付属の `redmine` ユーザーで動作し、Puma は `/redmine`（`RAILS_RELATIVE_URL_ROOT`）配下で `:3000` を Listen します。
+- `entrypoint.sh` はシークレット解決（`*_FILE` 対応）、`config/database.yml` の描画（**`postgis`** アダプタ使用、redmine_gtt 必須）、`config/configuration.yml`（SMTP）の描画、DB 待機、コア / プラグインのマイグレーション実行、`rails server`（Puma）起動を行います。
 
 ### hwins-static (`containers/hwins-static/`)
-- Base `httpd:2.4`, pinned by digest via `scripts/pin-static-image.sh`.
-- Reverse-proxies `/redmine` to `hwins-redmine:3000`. Redmine serves its own
-  static assets on that port (as the official image does when run directly), so
-  no shared asset volume is required. Adds baseline security headers.
+- ベースイメージは `httpd:2.4` で、`scripts/pin-static-image.sh` により digest 固定されます。
+- `/redmine` を `hwins-redmine:3000` へリバースプロキシします。Redmine 自体がそのポートで静的アセットを提供するため（公式イメージをそのまま動かしたときと同様）、共有アセットボリュームは不要です。基本的なセキュリティヘッダも追加します。
 
-## 4. Data & persistence
+## 4. データと永続化
 
-| Path (host, production)              | Mounted in       | Contents                    |
-|--------------------------------------|------------------|-----------------------------|
-| `/opt/hwins/data/postgres/18`        | hwins-db         | PostgreSQL data directory   |
-| `/opt/hwins/data/redmine/files`      | hwins-redmine    | Uploaded attachments        |
-| `/opt/hwins/data/redmine/log`        | hwins-redmine    | Redmine `production.log`    |
-| `/opt/hwins/backup/{db,files}`       | host             | Backups (see Manual)        |
+| ホスト上のパス（本番） | マウント先 | 内容 |
+|------------------------|------------|------|
+| `/opt/hwins/data/postgres/18` | hwins-db | PostgreSQL のデータディレクトリ |
+| `/opt/hwins/data/redmine/files` | hwins-redmine | アップロードされた添付ファイル |
+| `/opt/hwins/data/redmine/log` | hwins-redmine | Redmine の `production.log` |
+| `/opt/hwins/backup/{db,files}` | host | バックアップ（Manual 参照） |
 
-In development (`compose.dev.yaml`) these are named volumes (`pgdata`,
-`hwins_files`) instead of host bind-mounts. Plugins and the theme are baked into
-the image and are **not** volume-mounted (a volume would shadow them).
+開発環境 (`compose.dev.yaml`) では、これらは名前付きボリューム (`pgdata`、`hwins_files`) になり、ホストの bind mount ではなくなります。プラグインとテーマはイメージに焼き込まれており、ボリュームマウントは行いません（ボリュームで上書きされるため）。
 
-## 5. Secrets
+## 5. シークレット
 
-Two secrets, as files, never plain env:
+ファイルとして保存される 2 つのシークレットで、プレーンな環境変数ではありません。
 
-| Secret            | Consumed by                | Source file                      |
-|-------------------|----------------------------|----------------------------------|
-| `db_password`     | hwins-db, hwins-redmine    | `secrets/db_password.txt`        |
-| `secret_key_base` | hwins-redmine              | `secrets/secret_key_base.txt`    |
+| シークレット | 利用先 | ソースファイル |
+|--------------|--------|----------------|
+| `db_password` | hwins-db, hwins-redmine | `secrets/db_password.txt` |
+| `secret_key_base` | hwins-redmine | `secrets/secret_key_base.txt` |
 
-`scripts/generate-secrets.sh` creates the files (mode 600, git-ignored). In dev
-they are wired via Compose `secrets:`; in prod they are registered with
-`podman secret create` and referenced by the quadlet `Secret=` directives, which
-mount them at `/run/secrets/<name>`.
+`scripts/generate-secrets.sh` がファイルを作成します（mode 600、git ignore）。開発環境では Compose の `secrets:` で接続し、本番環境では `podman secret create` で登録して Quadlet の `Secret=` ディレクティブから参照し、`/run/secrets/<name>` にマウントします。
 
-## 6. Users & permissions
+## 6. ユーザーと権限
 
-- Inside the containers the official images' own users apply: `redmine` (Redmine
-  app) and `postgres`/`redmine` (database). No custom UID/GID remap is performed
-  — this is a deliberate simplification over the previous rbenv-based image.
-- On the host, the `hwins` admin user owns `/opt/hwins`. With rootless Podman the
-  container users map to the invoking user's subordinate UID range; host
-  bind-mount ownership is managed with `:Z` SELinux relabeling.
+- コンテナ内では公式イメージが持つユーザーをそのまま使用します: `redmine`（Redmine アプリ）と `postgres` / `redmine`（データベース）。独自の UID/GID リマップは行いません。これは、以前の rbenv ベースイメージよりも簡素化した設計です。
+- ホスト側では `hwins` 管理ユーザーが `/opt/hwins` を所有します。rootless Podman ではコンテナユーザーが呼び出し元ユーザーのサブ UID 範囲にマップされ、ホストの bind mount 所有権は `:Z` SELinux relabel で管理します。
 
-## 7. Notes / caveats
+## 7. 補足 / 注意点
 
-- The httpd base image ships as the moving `2.4` tag and must be pinned by
-  digest after the first pull (`scripts/pin-static-image.sh`), per project policy.
-- Serving Redmine static assets directly from `hwins-static` (via a shared
-  `public/` volume) is a possible future optimization; the current design keeps
-  asset serving in Redmine for robustness.
+- httpd ベースイメージは `2.4` タグで配布されるため、最初の pull 後に digest で固定する必要があります（`scripts/pin-static-image.sh`）。
+- `hwins-static` から Redmine の静的アセットを直接配信する（共有 `public/` ボリュームを使う）構成は今後の最適化候補です。現状の設計では、堅牢性を優先して Redmine 側でアセット配信を行っています。

@@ -1,17 +1,17 @@
-# compose.dev.yaml — DEVELOPMENT ONLY
+# compose.dev.yaml — 開発環境専用
 #
-# Docker Compose definition for the hwins Redmine stack. It mirrors the
-# production Podman Quadlet units in quadlets/ (same images, environment,
-# secrets and health checks) but uses named volumes instead of /opt/hwins host
-# bind-mounts so it runs without host preparation.
+# hwins Redmine スタック用の Docker Compose 定義です。production の Podman Quadlet
+# ユニット (quadlets/) と同じイメージ・環境変数・シークレット・ヘルスチェックを使いますが、
+# /opt/hwins のホスト bind-mount ではなく名前付きボリュームを使うため、ホスト準備なしで
+# 実行できます。
 #
-# Production deployment does NOT use this file — it uses Podman + systemd
-# Quadlets as described in docs/Setup.md.
+# 本番デプロイではこのファイルは使用せず、docs/Setup.md で説明する Podman + systemd
+# Quadlets を使います。
 #
-# Usage:
-#   bash scripts/generate-secrets.sh          # creates ./secrets/*.txt
+# 使い方:
+#   bash scripts/generate-secrets.sh          # ./secrets/*.txt を生成
 #   docker compose -f compose.dev.yaml up --build -d
-#   open http://localhost:18080/redmine/      # (or via host Apache: http://localhost/redmine/)
+#   http://localhost:18080/redmine/ を開く      # （または host Apache 経由: http://localhost/redmine/）
 
 name: hwins
 
@@ -41,7 +41,7 @@ services:
     restart: always
     networks:
       - hwins-net
-    # Port 5432 is deliberately NOT published to the host.
+    # ポート 5432 は意図的にホストへ公開しません。
     environment:
       POSTGRES_DB: redmine
       POSTGRES_USER: redmine
@@ -67,7 +67,7 @@ services:
     restart: always
     networks:
       - hwins-net
-    # Puma port 3000 is NOT published to the host; only hwins-static reaches it.
+    # Puma のポート 3000 はホストへ公開しません。hwins-static だけが到達します。
     depends_on:
       hwins-db:
         condition: service_healthy
@@ -107,7 +107,7 @@ services:
       hwins-redmine:
         condition: service_healthy
     ports:
-      # Published on loopback only; a host Apache proxies :80/redmine → here.
+      # ループバックのみ公開します。ホスト Apache が :80/redmine → ここへ転送します。
       - "127.0.0.1:18080:80"
     healthcheck:
       test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/80' || exit 1"]

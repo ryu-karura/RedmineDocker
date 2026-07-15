@@ -1,41 +1,38 @@
-# Operations Manual — RedmineDocker (hwins stack)
+# 運用手順 — RedmineDocker (hwins スタック)
 
-Day-to-day operation of the production Podman deployment. Paths assume the
-repository is at `/opt/hwins/containers` and data at `/opt/hwins/data`.
+本番環境の Podman デプロイにおける日常運用手順です。パスはリポジトリが `/opt/hwins/containers`、データが `/opt/hwins/data` にある前提です。
 
 ---
 
-## Service control
+## サービス制御
 
-Run as the `hwins` user (rootless — hence `--user`):
+`hwins` ユーザーとして実行します（rootless のため `--user` を付けます）。
 
 ```bash
 systemctl --user start   hwins-db hwins-redmine hwins-static
 systemctl --user stop    hwins-static hwins-redmine hwins-db
 systemctl --user restart hwins-redmine
 systemctl --user status  hwins-redmine
-journalctl --user -u hwins-redmine -f     # follow application logs
-podman ps                                 # running containers + health
+journalctl --user -u hwins-redmine -f     # アプリケーションログを追跡
+podman ps                                 # 実行中コンテナとヘルス状態を表示
 ```
 
-Dependencies (`Requires=`/`After=`) start the stack bottom-up and stop it
-top-down automatically.
+依存関係 (`Requires=` / `After=`) により、スタックは下から上へ起動し、上から下へ停止します。
 
 ---
 
-## Updating
+## 更新
 
-### Redmine / plugins / theme
-Edit `containers/hwins-redmine/Containerfile` (image tag or plugin refs), rebuild,
-and restart:
+### Redmine / プラグイン / テーマ
+`containers/hwins-redmine/Containerfile`（イメージタグやプラグイン参照）を変更し、再ビルドして再起動します。
 
 ```bash
 cd /opt/hwins/containers
 podman build -t localhost/hwins-redmine:6.1.3 containers/hwins-redmine
-systemctl --user restart hwins-redmine     # entrypoint re-runs migrations
+systemctl --user restart hwins-redmine     # entrypoint でマイグレーションを再実行
 ```
 
-### httpd base image (re-pin digest)
+### httpd ベースイメージ (digest を再度 pin)
 ```bash
 bash scripts/pin-static-image.sh
 podman build -t localhost/hwins-static:2.4 containers/hwins-static
@@ -44,20 +41,17 @@ systemctl --user restart hwins-static
 
 ---
 
-## Backup
+## バックアップ
 
-`scripts/backup.sh` dumps the `redmine` database (pg_dump custom format) and
-archives `/opt/hwins/data/redmine/files`, keeping 7 generations under
-`/opt/hwins/backup/`. It reads the DB password from
-`secrets/db_password.txt`.
+`scripts/backup.sh` は `redmine` データベースのダンプ（pg_dump のカスタム形式）を作成し、`/opt/hwins/data/redmine/files` をアーカイブして `/opt/hwins/backup/` 配下に 7 世代保存します。DB パスワードは `secrets/db_password.txt` から読み取ります。
 
-Run as the `hwins` user (rootless Podman — no `sudo`):
+`hwins` ユーザーとして実行します（rootless Podman のため `sudo` 不要）。
 
 ```bash
 bash /opt/hwins/containers/scripts/backup.sh
 ```
 
-Schedule daily at 02:00 via the `hwins` user's crontab (`crontab -e` as hwins):
+`hwins` ユーザーの crontab で毎日 02:00 に実行するように設定できます（`crontab -e` を実行）。
 
 ```cron
 0 2 * * * /opt/hwins/containers/scripts/backup.sh >> /opt/hwins/backup/backup.log 2>&1
@@ -65,52 +59,44 @@ Schedule daily at 02:00 via the `hwins` user's crontab (`crontab -e` as hwins):
 
 ---
 
-## Restore
+## 復元
 
-`scripts/restore.sh` drops and recreates the `redmine` database, restores the
-dump, and unpacks the files archive. **It destroys current data** — it prompts
-for a `RESTORE` confirmation.
+`scripts/restore.sh` は `redmine` データベースを削除して再作成し、ダンプを復元してファイルアーカイブを展開します。**現在のデータは破壊されます**。`RESTORE` 確認プロンプトが表示されます。
 
 ```bash
-bash /opt/hwins/containers/scripts/restore.sh \
-    /opt/hwins/backup/db/redmine_YYYYMMDD_HHMMSS.dump \
-    /opt/hwins/backup/files/redmine_YYYYMMDD_HHMMSS.tar.gz
+bash /opt/hwins/containers/scripts/restore.sh      /opt/hwins/backup/db/redmine_YYYYMMDD_HHMMSS.dump      /opt/hwins/backup/files/redmine_YYYYMMDD_HHMMSS.tar.gz
 ```
 
-The script stops `hwins-redmine`, recreates the DB (with PostGIS extensions),
-runs `pg_restore`, restores files, and restarts the service.
+このスクリプトは `hwins-redmine` を停止し、DB（PostGIS 拡張込み）を再作成して `pg_restore` を実行し、ファイルを復元してサービスを再起動します。
 
 ---
 
-## Logs
+## ログ
 
-| Log                              | Location                                   |
-|----------------------------------|--------------------------------------------|
-| Redmine application              | `/opt/hwins/data/redmine/log/production.log` |
-| Redmine / Puma stdout            | `journalctl --user -u hwins-redmine`       |
-| Reverse proxy (container)        | `journalctl --user -u hwins-static`        |
-| Host Apache (TLS front)          | `/var/log/httpd/redmine_{access,error}.log` |
+| ログ | 配置先 |
+|------|--------|
+| Redmine アプリケーション | `/opt/hwins/data/redmine/log/production.log` |
+| Redmine / Puma の標準出力 | `journalctl --user -u hwins-redmine` |
+| リバースプロキシ（コンテナ） | `journalctl --user -u hwins-static` |
+| ホスト Apache（TLS フロント） | `/var/log/httpd/redmine_{access,error}.log` |
 
-Rotation is configured by `logrotate/redmine` (install to
-`/etc/logrotate.d/hwins-redmine`): daily, 60 generations, `copytruncate` for the
-container-held application log.
+ログローテーションは `logrotate/redmine` で設定されています（`/etc/logrotate.d/hwins-redmine` に配置）。日次、60 世代、コンテナ内のアプリケーションログには `copytruncate` を使います。
 
 ```bash
-sudo logrotate --debug /etc/logrotate.d/hwins-redmine     # dry run
+sudo logrotate --debug /etc/logrotate.d/hwins-redmine     # ドライラン
 ```
 
 ---
 
-## Health & diagnostics
+## ヘルスチェックと診断
 
 ```bash
 podman healthcheck run hwins-redmine
-podman exec -e PGPASSWORD="$(cat /opt/hwins/containers/secrets/db_password.txt)" \
-    hwins-db psql -U redmine -d redmine -c '\dx'          # list extensions (expect postgis)
+podman exec -e PGPASSWORD="$(cat /opt/hwins/containers/secrets/db_password.txt)"     hwins-db psql -U redmine -d redmine -c '\dx'          # 拡張機能を表示（postgis を期待）
 curl -sf http://127.0.0.1:18080/redmine/login >/dev/null && echo OK
 ```
 
-Rails console (for maintenance):
+メンテナンス用の Rails コンソール:
 
 ```bash
 podman exec -it hwins-redmine bundle exec rails console -e production
