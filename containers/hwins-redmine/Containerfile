@@ -91,23 +91,23 @@ RUN git clone --depth 1 --branch 0.3.4 \
         https://github.com/agileware-jp/redmine_banner.git redmine_banner
 
 # 3. redmine_issues_panel (1.2.1) — Kanban-style issues panel
-RUN git clone --depth 1 --branch 1.2.1 \
+RUN git clone --depth 1 --branch v1.2.1 \
         https://github.com/redmica/redmine_issues_panel.git redmine_issues_panel
 
 # 4. redmica_ui_extension (0.6.0) — UI improvements (Select2, mermaid, burndown)
-RUN git clone --depth 1 --branch 0.6.0 \
+RUN git clone --depth 1 --branch v0.6.0 \
         https://github.com/redmica/redmica_ui_extension.git redmica_ui_extension
 
 # 5. redmine_ip_filter (1.1.1) — IP-based access filtering
-RUN git clone --depth 1 --branch 1.1.1 \
+RUN git clone --depth 1 --branch v1.1.1 \
         https://github.com/redmica/redmine_ip_filter.git redmine_ip_filter
 
 # 6. redmine_message_customize (1.1.0) — customise UI text strings
-RUN git clone --depth 1 --branch 1.1.0 \
+RUN git clone --depth 1 --branch v1.1.0 \
         https://github.com/redmica/redmine_message_customize.git redmine_message_customize
 
-# 7. redmine_issue_templates (1.2.2) — issue creation templates
-RUN git clone --depth 1 --branch 1.2.2 \
+# 7. redmine_issue_templates (master) — issue creation templates
+RUN git clone --depth 1  \
         https://github.com/redmica/redmine_issue_templates.git redmine_issue_templates
 
 # 8. view_customize — DIRECTORY NAME MUST BE 'view_customize' (required by init.rb)
@@ -120,7 +120,7 @@ RUN git clone --depth 1 --branch 0.4.0 \
 
 # 10. redmine_login_audit2 (1.0.0) — login/API access audit log
 #     Brand-new plugin (initial release April 2026). No CI. Validate before prod.
-RUN git clone --depth 1 --branch 1.0.0 \
+RUN git clone --depth 1 --branch v1.0.0 \
         https://github.com/seraph3000/redmine_login_audit2.git redmine_login_audit2 \
     || git clone --depth 1 \
         https://github.com/seraph3000/redmine_login_audit2.git redmine_login_audit2
@@ -130,13 +130,13 @@ RUN git clone --depth 1 --branch 1.2.0 \
         https://github.com/haru/redmine_wiki_extensions.git redmine_wiki_extensions
 
 # 12. redmine_solid_queue (1.0.0) — Solid Queue as Redmine background job processor
-RUN git clone --depth 1 --branch 1.0.0 \
+RUN git clone --depth 1 --branch v1.0.0 \
         https://github.com/nishidayuya/redmine_solid_queue.git redmine_solid_queue \
     || git clone --depth 1 \
         https://github.com/nishidayuya/redmine_solid_queue.git redmine_solid_queue
 
 # 13. redmine_gtt (6.0.3) — Geo-Task-Tracker (requires PostGIS + webpack build)
-RUN git clone --depth 1 --branch 6.0.3 \
+RUN git clone --depth 1 --branch v6.0.3 \
         https://github.com/gtt-project/redmine_gtt.git redmine_gtt
 
 # ── Install plugin gems ───────────────────────────────────────────────────────
