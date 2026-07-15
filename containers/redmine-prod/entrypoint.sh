@@ -1,8 +1,7 @@
 #!/bin/bash
-# containers/docker1/entrypoint.sh
+# containers/redmine-prod/entrypoint.sh
 #
-# Entrypoint for Docker1 (Production Redmine 6.1.3).
-# Also used as the base for Docker2 (plugin verification).
+# Entrypoint for the redmine-prod container (Production Redmine 6.1.3).
 #
 # Sequence:
 #   1. Validate required environment variables

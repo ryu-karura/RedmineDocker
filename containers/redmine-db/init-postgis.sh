@@ -1,5 +1,5 @@
 #!/bin/bash
-# containers/docker0/init-postgis.sh
+# containers/redmine-db/init-postgis.sh
 #
 # PostgreSQL initialization script for RedmineDocker.
 # Called by the upstream postgis/postgis entrypoint during first-time

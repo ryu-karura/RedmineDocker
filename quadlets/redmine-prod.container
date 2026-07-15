@@ -1,6 +1,6 @@
 # quadlets/redmine-prod.container
 #
-# Podman Quadlet container unit for Docker1: Production Redmine 6.1.3
+# Podman Quadlet container unit for redmine-prod: Production Redmine 6.1.3
 # Place in /etc/containers/systemd/redmine-prod.container
 # Run: systemctl daemon-reload
 #

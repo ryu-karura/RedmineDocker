@@ -1,5 +1,10 @@
 # Setup Guide — RedmineDocker
 
+This guide covers the **production** deployment with Podman + systemd
+Quadlets. For development in GitHub Codespaces (Docker + Compose), see
+[Development in GitHub Codespaces](#development-in-github-codespaces) at the
+end of this document.
+
 ## Prerequisites
 
 - Red Hat Enterprise Linux 9.5 (production) or AlmaLinux 9.5 on WSL2 (development)
@@ -75,7 +80,7 @@ sudo useradd --uid 1001 --gid 1001 --home /opt/redmine --no-create-home \
     --shell /sbin/nologin redmine_adm
 
 # The postgres user (UID 26) is used for host-side bind-mount ownership
-# compatibility with Docker0. Ensure it exists or create it if needed:
+# compatibility with the redmine-db container. Ensure it exists or create it if needed:
 # sudo groupadd --gid 26 postgres
 # sudo useradd --uid 26 --gid 26 --home /var/lib/pgsql --no-create-home \
 #     --shell /bin/bash postgres
@@ -86,7 +91,7 @@ sudo useradd --uid 1001 --gid 1001 --home /opt/redmine --no-create-home \
 ## Step 4: Create Data Directory Structure
 
 ```bash
-# Docker0 mounts /opt/redmine/data/postgres/18 at /var/lib/postgresql.
+# The redmine-db container mounts /opt/redmine/data/postgres/18 at /var/lib/postgresql.
 # The upstream PostgreSQL 18 image stores PGDATA in the 18/docker subdirectory.
 sudo mkdir -p /opt/redmine/data/postgres/18/docker
 sudo mkdir -p /opt/redmine/data/redmine1/{files,log,public/{assets,plugin_assets},tmp}
@@ -113,16 +118,16 @@ Build all container images from the repository root. Source the `.env` file firs
 cd /opt/redmine/containers
 source .env
 
-# Build Database container (Docker0)
+# Build Database container (redmine-db)
 podman build \
-    -f containers/docker0/Containerfile \
+    -f containers/redmine-db/Containerfile \
     -t localhost/redmine-db:18-master \
-    containers/docker0/
+    containers/redmine-db/
 
-# Build Production Redmine container (Docker1)
+# Build Production Redmine container (redmine-prod)
 podman build \
     -t localhost/redmine-prod:6.1.3 \
-    containers/docker1/
+    containers/redmine-prod/
 ```
 
 > Build times are significant (15–40 minutes per Redmine image) due to Ruby compilation, gem installation, and plugin asset compilation. Ensure adequate disk space (≥10 GB free per image).
@@ -280,7 +285,7 @@ sudo chmod 644 /etc/cron.d/redmine-backup
 
 Access the Redmine instance through the browser and complete initial setup:
 
-### Production (Docker1)
+### Production (redmine-prod)
 
 1. Browse to `https://your-host/redmine`
 2. Log in with default credentials: `admin` / `admin`
@@ -339,8 +344,8 @@ After completing all steps, verify the following:
 
 To upgrade to a new Redmine patch release (e.g., 6.1.3 → 6.1.4):
 
-1. Update `REDMINE_VERSION` build argument in `containers/docker1/Containerfile`
-2. Rebuild the image: `podman build -t localhost/redmine-prod:6.1.4 containers/docker1/`
+1. Update `REDMINE_VERSION` build argument in `containers/redmine-prod/Containerfile`
+2. Rebuild the image: `podman build -t localhost/redmine-prod:6.1.4 containers/redmine-prod/`
 3. Update the image reference in `quadlets/redmine-prod.container`
 4. `sudo systemctl daemon-reload && sudo systemctl restart redmine-prod`
 
@@ -358,4 +363,49 @@ sudo firewall-cmd --reload
 
 # Verify
 sudo firewall-cmd --list-all
+```
+
+---
+
+## Development in GitHub Codespaces
+
+GitHub Codespaces runs the workspace inside a dev container, and Podman
+does not work in that nested, rootless environment. Development therefore
+uses **Docker** (provided by the `docker-in-docker` dev container feature
+in `.devcontainer/devcontainer.json`) with **`compose.dev.yaml`** in place
+of the Quadlet units. The container images themselves are identical — the
+same Containerfiles are built by both runtimes.
+
+Differences from production:
+
+| Aspect            | Production (this guide)          | Codespaces development          |
+|-------------------|----------------------------------|---------------------------------|
+| Runtime           | Podman 4.9.x                     | Docker (docker-in-docker)       |
+| Orchestration     | systemd Quadlets (`quadlets/`)   | `compose.dev.yaml`              |
+| Persistent data   | Bind mounts under `/opt/redmine` | Named Docker volumes            |
+| Reverse proxy/TLS | Host Apache on port 443          | None — port 10080 is forwarded  |
+| `.env` location   | `/opt/redmine/containers/.env`   | Repository root `./.env`        |
+
+Steps:
+
+```bash
+# 1. Generate .env in the repository root (no sudo needed)
+bash scripts/generate-env.sh
+
+# 2. Build and start the stack (first build takes 15–40 minutes)
+docker compose -f compose.dev.yaml up --build -d
+
+# 3. Follow the logs until Puma is listening
+docker compose -f compose.dev.yaml logs -f redmine-prod
+# Wait for: "Puma 6.x.x ... Listening on unix:///opt/redmine/app/tmp/puma.sock"
+```
+
+Then open the forwarded port **10080** in the Codespaces "Ports" panel and
+browse to `/redmine` (default login: `admin` / `admin`).
+
+To stop and reset:
+
+```bash
+docker compose -f compose.dev.yaml down        # keep data volumes
+docker compose -f compose.dev.yaml down -v     # discard data volumes
 ```

@@ -1,4 +1,4 @@
-# Docker0: PostgreSQL 18 + PostGIS master
+# redmine-db: PostgreSQL 18 + PostGIS master
 #
 # Base image: postgis/postgis:18-master
 # OS image: Debian trixie (via the upstream postgis/postgis image)

@@ -1,6 +1,6 @@
 # quadlets/redmine-db.container
 #
-# Podman Quadlet container unit for Docker0: PostgreSQL 18 + PostGIS master
+# Podman Quadlet container unit for redmine-db: PostgreSQL 18 + PostGIS master
 # Place in /etc/containers/systemd/redmine-db.container
 # Run: systemctl daemon-reload
 #
@@ -19,7 +19,7 @@ Wants=network-online.target
 # Redmine containers depend on this — they declare After=redmine-db.service
 
 [Container]
-# Image built from containers/docker0/Containerfile
+# Image built from containers/redmine-db/Containerfile
 Image=localhost/redmine-db:18-master
 
 # Container name (accessible as hostname 'redmine-db' within the network)
