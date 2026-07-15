@@ -1,20 +1,28 @@
 #!/bin/bash
 # scripts/generate-env.sh
 #
-# Generates /opt/redmine/containers/.env with cryptographically random passwords.
+# Generates a .env file with cryptographically random passwords in the
+# repository root (the directory containing this scripts/ directory).
+# On a production host cloned to /opt/redmine/containers this resolves to
+# /opt/redmine/containers/.env; in a Codespaces/dev checkout it resolves to
+# the checkout root, where compose.dev.yaml expects it.
 #
 # All passwords are 16-character strings containing uppercase letters,
 # lowercase letters, and digits (no special characters to avoid shell quoting issues).
 #
 # Run this script ONCE during initial setup:
-#   sudo bash /opt/redmine/containers/scripts/generate-env.sh
+#   Production:  sudo bash /opt/redmine/containers/scripts/generate-env.sh
+#   Development: bash scripts/generate-env.sh
+#
+# Set ENV_FILE to override the output path.
 #
 # The .env file is excluded from git. Keep a secure backup of this file.
 # If .env is lost, all containers must be re-initialized with the new passwords.
 
 set -euo pipefail
 
-ENV_FILE="/opt/redmine/containers/.env"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ENV_FILE="${ENV_FILE:-$(dirname "${SCRIPT_DIR}")/.env}"
 
 if [ -f "${ENV_FILE}" ]; then
     echo "WARNING: ${ENV_FILE} already exists."
@@ -25,14 +33,20 @@ if [ -f "${ENV_FILE}" ]; then
     fi
 fi
 
+# Random generators read a finite chunk of /dev/urandom instead of the
+# endless stream: with an endless stream, tr keeps writing after the final
+# `head` exits and dies from SIGPIPE, which aborts the script under
+# `set -o pipefail`. The chunk sizes leave a wide safety margin over the
+# required output lengths; the results are length-checked below.
+
 # Generate a 16-character random alphanumeric password (uppercase + lowercase + digits)
 gen_password() {
-    LC_ALL=C tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 16
+    head -c 4096 /dev/urandom | LC_ALL=C tr -dc 'A-Za-z0-9' | head -c 16
 }
 
-# Generate a long secret key base (64 hex characters, standard for Rails)
+# Generate a long secret key base (128 hex characters, standard for Rails)
 gen_secret() {
-    LC_ALL=C tr -dc 'a-f0-9' < /dev/urandom | head -c 128
+    head -c 65536 /dev/urandom | LC_ALL=C tr -dc 'a-f0-9' | head -c 128
 }
 
 echo "Generating passwords and secret tokens ..."
@@ -40,6 +54,13 @@ echo "Generating passwords and secret tokens ..."
 POSTGRES_SUPERUSER_PASSWORD=$(gen_password)
 REDMINE_DB_PASSWORD=$(gen_password)
 REDMINE_SECRET_TOKEN=$(gen_secret)
+
+if [ "${#POSTGRES_SUPERUSER_PASSWORD}" -ne 16 ] \
+        || [ "${#REDMINE_DB_PASSWORD}" -ne 16 ] \
+        || [ "${#REDMINE_SECRET_TOKEN}" -ne 128 ]; then
+    echo "ERROR: generated secrets have unexpected lengths; aborting." >&2
+    exit 1
+fi
 
 # Write the .env file
 cat > "${ENV_FILE}" <<EOF

@@ -1,4 +1,4 @@
-# Docker1: Production Redmine 6.1.3
+# redmine-prod: Production Redmine 6.1.3
 #
 # Stack:
 #   - Official Docker Hub image: redmine:6.1.3-trixie

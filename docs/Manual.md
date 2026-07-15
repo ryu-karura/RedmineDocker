@@ -239,10 +239,10 @@ sudo journalctl -u redmine-prod --since "7 days ago" > /tmp/redmine-prod-journal
 
 ### Installing a New Plugin in Production
 
-1. **Add the plugin** to `containers/docker1/Containerfile`.
-2. **Rebuild the Docker1 image**:
+1. **Add the plugin** to `containers/redmine-prod/Containerfile`.
+2. **Rebuild the redmine-prod image**:
    ```bash
-   podman build -t localhost/redmine-prod:6.1.3-with-newplugin containers/docker1/
+   podman build -t localhost/redmine-prod:6.1.3-with-newplugin containers/redmine-prod/
    ```
 3. **Update `quadlets/redmine-prod.container`** to reference the new image tag.
 4. **Run a manual backup** before deploying:
@@ -269,14 +269,14 @@ To upgrade Redmine to a new version:
 sudo /opt/redmine/containers/scripts/backup.sh
 ```
 
-#### Step 2: Rebuild Docker1 Image
+#### Step 2: Rebuild the redmine-prod Image
 
 ```bash
-# Edit containers/docker1/Containerfile to update REDMINE_VERSION
-vi /opt/redmine/containers/containers/docker1/Containerfile
+# Edit containers/redmine-prod/Containerfile to update REDMINE_VERSION
+vi /opt/redmine/containers/containers/redmine-prod/Containerfile
 
 # Rebuild
-podman build -t localhost/redmine-prod:X.Y.Z /opt/redmine/containers/containers/docker1/
+podman build -t localhost/redmine-prod:X.Y.Z /opt/redmine/containers/containers/redmine-prod/
 ```
 
 #### Step 3: Update Quadlet and Restart
@@ -305,8 +305,8 @@ sudo journalctl -u redmine-prod -f
 ```bash
 # Rebuild all images (e.g., after base OS security updates)
 source /opt/redmine/containers/.env
-podman build --no-cache -f containers/docker0/Containerfile -t localhost/redmine-db:18-master containers/docker0/
-podman build --no-cache -t localhost/redmine-prod:6.1.3 containers/docker1/
+podman build --no-cache -f containers/redmine-db/Containerfile -t localhost/redmine-db:18-master containers/redmine-db/
+podman build --no-cache -t localhost/redmine-prod:6.1.3 containers/redmine-prod/
 
 # Update quadlet to use new image
 # (If tag hasn't changed, just restart to use same tag)

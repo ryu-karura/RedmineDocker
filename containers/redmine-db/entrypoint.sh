@@ -1,7 +1,7 @@
 #!/bin/bash
-# containers/docker0/entrypoint.sh
+# containers/redmine-db/entrypoint.sh
 #
-# PostgreSQL first-run configuration hook for Docker0.
+# PostgreSQL first-run configuration hook for the redmine-db container.
 #
 # The upstream postgis/postgis:18-master image executes this script from
 # /docker-entrypoint-initdb.d/ after initdb and before the final PostgreSQL

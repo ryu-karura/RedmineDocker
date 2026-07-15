@@ -1,4 +1,4 @@
-# containers/docker1/puma.rb
+# containers/redmine-prod/puma.rb
 #
 # Puma configuration for Redmine 6.1.3 — Production Environment
 #

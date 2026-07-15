@@ -40,8 +40,8 @@ This document describes the complete architecture for a Redmine platform running
 │                                                         │
 │  Podman Network: redmine_net (10.89.1.0/24)             │
 │  ┌──────────────────┐  ┌──────────────────────────────┐ │
-│  │ Docker0          │  │ Docker1 (redmine-prod)        │ │
-│  │ redmine-db       │  │ Port: 10080 → 80              │ │
+│  │ redmine-db       │  │ redmine-prod                  │ │
+│  │ PostgreSQL       │  │ Port: 10080 → 80              │ │
 │  │ 10.89.1.10:5432  │  │ Apache + Puma + Redmine 6.1.3 │ │
 │  │ PostgreSQL 18    │  │ Sub-URI: /redmine             │ │
 │  │ PostGIS master   │  │ DB: redmine_prod              │ │
@@ -60,10 +60,10 @@ This document describes the complete architecture for a Redmine platform running
 | Subnet        | `10.89.1.0/24`              |
 | Gateway       | `10.89.1.1`                 |
 
-| Container     | Hostname      | IP Address    | Exposed Port (Host→Container) |
-|---------------|---------------|---------------|-------------------------------|
-| Docker0       | `redmine-db`  | `10.89.1.10`  | None (internal only)          |
-| Docker1       | `redmine-prod`| `10.89.1.11`  | `127.0.0.1:10080 → 80`        |
+| Container      | Hostname      | IP Address    | Exposed Port (Host→Container) |
+|----------------|---------------|---------------|-------------------------------|
+| `redmine-db`   | `redmine-db`  | `10.89.1.10`  | None (internal only)          |
+| `redmine-prod` | `redmine-prod`| `10.89.1.11`  | `127.0.0.1:10080 → 80`        |
 
 The database port (5432) is **not** exposed to the host. The Redmine container connects to the database exclusively via the internal `redmine_net` bridge network using hostname `redmine-db`.
 
@@ -74,8 +74,8 @@ The database port (5432) is **not** exposed to the host. The Redmine container c
 ```
 /opt/redmine/
 ├── containers/             # This repository (git clone target)
-│   ├── docker0/
-│   ├── docker1/
+│   ├── redmine-db/
+│   ├── redmine-prod/
 │   ├── quadlets/
 │   ├── host-apache/
 │   ├── scripts/
@@ -100,12 +100,12 @@ The database port (5432) is **not** exposed to the host. The Redmine container c
 
 | Host Path                              | Container Path                      | Container       |
 |----------------------------------------|-------------------------------------|-----------------|
-| `/opt/redmine/data/postgres/18`        | `/var/lib/postgresql`               | Docker0         |
-| `/opt/redmine/data/redmine1/files`     | `/opt/redmine/app/files`            | Docker1         |
-| `/opt/redmine/data/redmine1/log`       | `/opt/redmine/app/log`              | Docker1         |
-| `/opt/redmine/data/redmine1/public/assets` | `/opt/redmine/app/public/assets` | Docker1         |
-| `/opt/redmine/data/redmine1/public/plugin_assets` | `/opt/redmine/app/public/plugin_assets` | Docker1 |
-| `/opt/redmine/data/redmine1/tmp`       | `/opt/redmine/app/tmp`              | Docker1         |
+| `/opt/redmine/data/postgres/18`        | `/var/lib/postgresql`               | `redmine-db`    |
+| `/opt/redmine/data/redmine1/files`     | `/opt/redmine/app/files`            | `redmine-prod`  |
+| `/opt/redmine/data/redmine1/log`       | `/opt/redmine/app/log`              | `redmine-prod`  |
+| `/opt/redmine/data/redmine1/public/assets` | `/opt/redmine/app/public/assets` | `redmine-prod`  |
+| `/opt/redmine/data/redmine1/public/plugin_assets` | `/opt/redmine/app/public/plugin_assets` | `redmine-prod` |
+| `/opt/redmine/data/redmine1/tmp`       | `/opt/redmine/app/tmp`              | `redmine-prod`  |
 
 ---
 
@@ -118,7 +118,7 @@ The database port (5432) is **not** exposed to the host. The Redmine container c
 | `postgres`     | 26   | 26   | postgres | `/var/lib/pgsql` | Host bind-mount owner for the PostgreSQL container |
 | `redmine_adm`  | 1001 | 1001 | redmine  | `/opt/redmine`   | Redmine app process owner        |
 
-> **Note:** Docker0 remaps the upstream image's `postgres` user to UID 26 so existing host-side bind-mount ownership remains compatible. The `redmine_adm` UID/GID 1001 must still be created identically on the host and inside each Redmine container to ensure bind-mount permissions are consistent.
+> **Note:** The `redmine-db` image remaps the upstream image's `postgres` user to UID 26 so existing host-side bind-mount ownership remains compatible. The `redmine_adm` UID/GID 1001 must still be created identically on the host and inside each Redmine container to ensure bind-mount permissions are consistent.
 
 ### Directory Permissions
 
@@ -156,7 +156,7 @@ The database port (5432) is **not** exposed to the host. The Redmine container c
 
 | Database Name   | Owner        | Encoding | Extensions        | Used By     |
 |-----------------|--------------|----------|-------------------|-------------|
-| `redmine_prod`  | `redmine_adm`| UTF8     | postgis, postgis_topology | Docker1 |
+| `redmine_prod`  | `redmine_adm`| UTF8     | postgis, postgis_topology | `redmine-prod` |
 
 ### Shared Database Account
 
@@ -199,9 +199,9 @@ Puma (RAILS_RELATIVE_URL_ROOT=/redmine)
 
 ### Sub-URI Assignment
 
-| Container | Sub-URI         | RAILS_RELATIVE_URL_ROOT | Host Port |
-|-----------|-----------------|-------------------------|-----------|
-| Docker1   | `/redmine`      | `/redmine`              | `10080`   |
+| Container      | Sub-URI         | RAILS_RELATIVE_URL_ROOT | Host Port |
+|----------------|-----------------|-------------------------|-----------|
+| `redmine-prod` | `/redmine`      | `/redmine`              | `10080`   |
 
 ---
 
