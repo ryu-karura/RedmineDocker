@@ -135,3 +135,5 @@ sudo systemctl reload httpd
 | `/redmine` から 503 が返る | hwins-redmine のヘルスチェックがまだ通っていない（初回起動時にビルド / マイグレーションを実行中）ため、しばらく待つ |
 | redmine_gtt のマップエラーが出る | hwins-db に PostGIS が入っており、database.yml が `postgis` アダプタを使っていることを確認する |
 | Static イメージが pin されていない | ネットワーク接続のあるホストで `scripts/pin-static-image.sh` を実行する |
+| ビルドが `git clone ... <plugin>` で失敗する（`Remote branch ... not found`） | 固定したタグが upstream に存在するか `git ls-remote --tags <url>` で確認する（`v` 接頭辞はリポジトリごとに異なる）。フォールバックなしの `--branch` は、存在しないタグを指定するとビルドが即失敗する |
+| `bundle install` が `pg` のビルドで失敗する / `pg_config` が見つからない | hwins-redmine イメージに `libpq-dev`（`/usr/bin/pg_config` を提供）が入っているか確認する。`postgresql-client` だけでは `pg_config` は入らず、`postgis` アダプタが使う `pg` gem のネイティブ拡張をビルドできない |

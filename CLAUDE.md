@@ -125,6 +125,14 @@ Start/stop order is enforced by `Requires=`/`After=` in the units:
   `entrypoint.sh` renders `config/database.yml` from
   `database.yml.tmpl` (adapter `postgis`, `schema_search_path: public,topology`)
   instead of relying on the official image's env-driven config.
+- **The `postgis` adapter needs native gem build deps in the image.** It pulls in
+  `activerecord-postgis-adapter` → `rgeo` (needs `libgeos-dev`, `libproj-dev`) and
+  the `pg` gem (needs `libpq-dev`, which provides `/usr/bin/pg_config` **on PATH**).
+  All three must be `apt-get install`ed in `hwins-redmine`'s Containerfile before
+  `bundle install`. `postgresql-client` (used by the entrypoint for `pg_isready`)
+  does **not** ship `pg_config` — omitting `libpq-dev` makes `bundle install` fail
+  compiling `pg`. Prefer `libpq-dev` (PATH-clean) over a versioned PGDG dev package
+  whose `pg_config` lands under `/usr/lib/postgresql/<v>/bin` off the default PATH.
 - **Config is rendered from `*.tmpl` at container start** via `envsubst` in
   `entrypoint.sh` — edit the `.tmpl` files (`database.yml.tmpl`,
   `configuration.yml.tmpl`), not any generated `.yml`.
@@ -139,6 +147,12 @@ Start/stop order is enforced by `Requires=`/`After=` in the units:
   bumping one, edit `containers/hwins-redmine/Containerfile`, keep the numbered
   comment list accurate, and note that `view_customize`'s clone directory
   **must** be named `view_customize` (required by its `init.rb`).
+  **Verify every `--branch` tag actually exists upstream** with
+  `git ls-remote --tags --heads <url>` before pinning — the `v`-prefix convention
+  varies per repo (some tags are `v1.2.1`, others `0.3.4`), and a `--branch` on a
+  nonexistent tag with no `|| git clone` fallback fails the whole build. The four
+  clones carrying a `|| git clone <url>` fallback degrade to the default branch if
+  the tag is missing; add one when unsure of a tag.
 - **Migrations run automatically on start.** `entrypoint.sh` runs
   `rake db:migrate` and (when `REDMINE_PLUGINS_MIGRATE=1`)
   `rake redmine:plugins:migrate`. Restarting `hwins-redmine` re-applies them

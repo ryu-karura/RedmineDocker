@@ -30,7 +30,7 @@
 #  12.  redmine_solid_queue       (nishidayuya, v1.0.0)
 #  13.  redmine_gtt               (gtt-project, v6.0.3) ← requires yarn+webpack+PostGIS
 #
-# Theme: farend_fancy (farend, main branch for Redmine 6.1)
+# Theme: farend_fancy (farend, default 'master' branch — the repo has no 'main')
 
 FROM docker.io/library/redmine:6.1.3
 
@@ -51,9 +51,14 @@ RUN apt-get update \
         fonts-noto-cjk fontconfig \
         # Plugin build/runtime tooling
         git \
-        # redmine_gtt frontend build (webpack) and its native gem deps (rgeo/GEOS/PROJ)
+        # redmine_gtt frontend build (webpack)
         nodejs npm \
-        libgeos-dev libproj-dev \
+        # native gem build deps for the postgis adapter:
+        #   rgeo → GEOS/PROJ (libgeos-dev, libproj-dev)
+        #   pg   → libpq/pg_config (libpq-dev provides /usr/bin/pg_config, on PATH).
+        # postgresql-client alone does NOT ship pg_config, so the pg native gem
+        # fails to compile during `bundle install` without libpq-dev.
+        libgeos-dev libproj-dev libpq-dev \
         # entrypoint helpers: envsubst (template rendering) + pg_isready (DB wait)
         gettext-base postgresql-client \
         # container healthcheck
@@ -69,8 +74,8 @@ RUN npm install -g yarn@1.22.22 \
 # All plugins are cloned at build time so the code is baked into the image for
 # reproducibility. Update a plugin by rebuilding the image.
 
-# Theme: farend_fancy — use 'main' branch for Redmine 6.1 compatibility.
-# Redmine loads themes from public/themes/.
+# Theme: farend_fancy — cloned from its default branch ('master'; the repo has
+# no 'main' branch). Redmine loads themes from public/themes/.
 RUN git clone --depth 1 \
         https://github.com/farend/redmine_theme_farend_fancy.git \
         ${REDMINE_HOME}/public/themes/farend_fancy
