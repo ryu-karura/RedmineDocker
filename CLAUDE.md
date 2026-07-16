@@ -213,10 +213,16 @@ Start/stop order is enforced by `Requires=`/`After=` in the units:
   nonexistent tag with no `|| git clone` fallback fails the whole build. The four
   clones carrying a `|| git clone <url>` fallback degrade to the default branch if
   the tag is missing; add one when unsure of a tag.
-- **Migrations run automatically on start.** `entrypoint.sh` runs
-  `rake db:migrate` and (when `REDMINE_PLUGINS_MIGRATE=1`)
-  `rake redmine:plugins:migrate`. Restarting `redmine-web` re-applies them
-  idempotently — that is the intended upgrade path.
+- **Migrations run automatically on start, gated by the same switches as the
+  official image.** `entrypoint.sh` runs `rake db:migrate` **unless**
+  `REDMINE_NO_DB_MIGRATE` is set (non-empty), and runs
+  `rake redmine:plugins:migrate` when `REDMINE_PLUGINS_MIGRATE` is set
+  (non-empty, `!= 0`) — both mirroring `docker-entrypoint.sh` upstream. The one
+  deliberate divergence is the default: upstream leaves both unset (plugins do
+  not migrate), while this stack bakes in 13 plugins and so defaults
+  `REDMINE_PLUGINS_MIGRATE=1`. Restarting `redmine-web` re-applies migrations
+  idempotently — that is the intended upgrade path; set `REDMINE_NO_DB_MIGRATE=1`
+  to boot without migrating (e.g. to inspect a DB before an upgrade).
 
 ## Shell script conventions
 
