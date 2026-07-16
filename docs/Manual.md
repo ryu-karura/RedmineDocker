@@ -32,6 +32,11 @@ podman build -t localhost/redmine-web:6.1.3 containers/redmine-web
 systemctl --user restart redmine-web     # entrypoint でマイグレーションを再実行
 ```
 
+マイグレーションを実行せずに起動したい場合（アップグレード前の DB 確認など）は、
+公式イメージと同じく `REDMINE_NO_DB_MIGRATE` に値を設定します
+（`quadlets/redmine-web.container` のコメント行を参照）。値を空にする / 未設定に戻すと
+再びコアの `db:migrate` を実行します。
+
 ### Apache フロントエンド
 `redmine-web` イメージに Apache の設定を入れたため、個別の `redmine-static` イメージは不要です。変更後は Redmine イメージを再ビルドして再起動します。
 

@@ -9,7 +9,8 @@
 #   1. Resolve secrets (supports Docker/Podman *_FILE indirection)
 #   2. Render config/database.yml (postgis adapter) and config/configuration.yml
 #   3. Wait for PostgreSQL to accept connections
-#   4. Run core + plugin database migrations (idempotent)
+#   4. Run core + plugin database migrations (idempotent; gated by
+#      REDMINE_NO_DB_MIGRATE / REDMINE_PLUGINS_MIGRATE, per the official image)
 #   5. Start Apache on TCP :80 and launch Puma via `rails server` on TCP :3000
 #      (sub-URI /redmine)
 #
@@ -30,6 +31,13 @@ SMTP_HOST="${SMTP_HOST:-localhost}"
 SMTP_PORT="${SMTP_PORT:-25}"
 SMTP_USER="${SMTP_USER:-}"
 SMTP_PASSWORD="${SMTP_PASSWORD:-}"
+# Migration switches mirror the official redmine image's docker-entrypoint.sh:
+#   REDMINE_NO_DB_MIGRATE   set (non-empty) → skip core `rake db:migrate`
+#   REDMINE_PLUGINS_MIGRATE set (non-empty) → run `rake redmine:plugins:migrate`
+# We diverge from upstream only in the default: upstream leaves both unset (so
+# core migrates but plugins do not), whereas this stack bakes in 13 plugins and
+# therefore defaults REDMINE_PLUGINS_MIGRATE=1 to migrate them on every boot.
+REDMINE_NO_DB_MIGRATE="${REDMINE_NO_DB_MIGRATE:-}"
 REDMINE_PLUGINS_MIGRATE="${REDMINE_PLUGINS_MIGRATE:-1}"
 
 log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] [redmine-web] $*"; }
@@ -97,12 +105,18 @@ done
 log "PostgreSQL is ready."
 
 # ── 4. Database migrations ────────────────────────────────────────────────────
-log "Running core database migrations ..."
-bundle exec rake db:migrate
+if [[ -z "${REDMINE_NO_DB_MIGRATE}" ]]; then
+    log "Running core database migrations ..."
+    bundle exec rake db:migrate
+else
+    log "REDMINE_NO_DB_MIGRATE set — skipping core database migrations."
+fi
 
-if [[ "${REDMINE_PLUGINS_MIGRATE}" == "1" ]]; then
+if [[ -n "${REDMINE_PLUGINS_MIGRATE}" && "${REDMINE_PLUGINS_MIGRATE}" != "0" ]]; then
     log "Running plugin migrations ..."
     bundle exec rake redmine:plugins:migrate
+else
+    log "REDMINE_PLUGINS_MIGRATE unset/0 — skipping plugin migrations."
 fi
 
 # ── 5. Start Apache + Puma (PID 1 supervises both processes) ─────────────

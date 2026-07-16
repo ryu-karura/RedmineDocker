@@ -87,6 +87,9 @@ services:
       REDMINE_DB_PASSWORD_FILE: /run/secrets/db_password
       REDMINE_SECRET_KEY_BASE_FILE: /run/secrets/secret_key_base
       REDMINE_PLUGINS_MIGRATE: "1"
+      # 公式イメージ同様、値を設定するとコアの db:migrate をスキップします
+      # （既定は未設定 = 起動時にマイグレーションを実行）。
+      # REDMINE_NO_DB_MIGRATE: "1"
     secrets:
       - db_password
       - secret_key_base
