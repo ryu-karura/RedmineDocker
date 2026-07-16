@@ -1,8 +1,16 @@
-# containers/redmine-web/httpd-redmine.conf
+# containers/redmine-web/httpd-redmine.conf.tmpl
 #
 # Reverse-proxy virtual host for the integrated redmine-web container.
-# Publishes the Redmine sub-URI (/redmine) and forwards all requests to the
-# Puma listener on 127.0.0.1:3000.
+# Publishes the Redmine sub-URI (RAILS_RELATIVE_URL_ROOT, default /redmine)
+# and forwards all requests to the Puma listener on 127.0.0.1:3000.
+#
+# Rendered by entrypoint.sh with envsubst (like database.yml.tmpl and
+# configuration.yml.tmpl) so the sub-URI stays in sync with the
+# RAILS_RELATIVE_URL_ROOT env var instead of being a second hardcoded copy of
+# it. A default-rendered copy is also baked in at build time (Containerfile)
+# so `a2enconf` has a file to enable before the entrypoint ever runs.
+#
+# Substituted variable: ${RAILS_RELATIVE_URL_ROOT}
 
 # Quiet the "could not reliably determine the server's fully qualified domain
 # name" warning and suppress version disclosure.
@@ -25,12 +33,12 @@ ServerSignature Off
     RequestHeader setifempty X-Forwarded-Proto "http"
 
     # Convenience: send bare / to the Redmine sub-URI.
-    RedirectMatch ^/$ /redmine/
+    RedirectMatch ^/$ ${RAILS_RELATIVE_URL_ROOT}/
 
     # Forward the Redmine sub-URI to Puma. Redmine serves its own static assets
     # (CSS/JS/themes) on this port.
-    ProxyPass        /redmine  http://127.0.0.1:3000/redmine
-    ProxyPassReverse /redmine  http://127.0.0.1:3000/redmine
+    ProxyPass        ${RAILS_RELATIVE_URL_ROOT}  http://127.0.0.1:3000${RAILS_RELATIVE_URL_ROOT}
+    ProxyPassReverse ${RAILS_RELATIVE_URL_ROOT}  http://127.0.0.1:3000${RAILS_RELATIVE_URL_ROOT}
 
     # ── Security headers ──────────────────────────────────────────────────────
     Header always set X-Content-Type-Options "nosniff"

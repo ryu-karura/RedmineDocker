@@ -7,11 +7,12 @@
 #
 # Sequence:
 #   1. Resolve secrets (supports Docker/Podman *_FILE indirection)
-#   2. Render config/database.yml (postgis adapter) and config/configuration.yml
+#   2. Render config/database.yml (postgis adapter), config/configuration.yml,
+#      and the Apache proxy vhost (sub-URI RAILS_RELATIVE_URL_ROOT)
 #   3. Wait for PostgreSQL to accept connections
 #   4. Run core + plugin database migrations (idempotent)
 #   5. Start Apache on TCP :80 and launch Puma via `rails server` on TCP :3000
-#      (sub-URI /redmine)
+#      (sub-URI RAILS_RELATIVE_URL_ROOT, default /redmine)
 #
 # Passwords are never baked into the image or passed as plain env in production;
 # they arrive as secret files referenced by *_FILE variables.
@@ -82,6 +83,12 @@ envsubst '${SMTP_HOST} ${SMTP_PORT} ${SMTP_USER} ${SMTP_PASSWORD}' \
     < config/configuration.yml.tmpl > config/configuration.yml
 chown redmine:redmine config/configuration.yml
 chmod 640 config/configuration.yml
+
+log "Rendering Apache proxy config (sub-URI ${RAILS_RELATIVE_URL_ROOT}) ..."
+# shellcheck disable=SC2016
+envsubst '${RAILS_RELATIVE_URL_ROOT}' \
+    < /etc/apache2/conf-available/redmine-proxy.conf.tmpl \
+    > /etc/apache2/conf-available/redmine-proxy.conf
 
 # ── 3. Wait for PostgreSQL ────────────────────────────────────────────────────
 log "Waiting for PostgreSQL at ${REDMINE_DB_HOST}:5432 ..."

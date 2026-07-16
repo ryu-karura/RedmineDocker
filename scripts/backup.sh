@@ -15,18 +15,35 @@
 # Runs rootless as the `redmine` user (no sudo — it drives rootless Podman).
 # Cron installation (daily at 02:00) via the redmine user's crontab (`crontab -e`):
 #   0 2 * * * /opt/redmine/containers/scripts/backup.sh >> /opt/redmine/backup/backup.log 2>&1
+#
+# Reads /opt/redmine/containers/.env (DATA_ROOT, DB_NAME, DB_USER,
+# DB_CONTAINER_NAME), if present, for the same non-secret values the Quadlet
+# units use — see docs/Design.md, "設定項目" for why Quadlet unit files
+# themselves cannot read this file. Every value below defaults to the
+# stack's standard layout, so this script behaves exactly as before when no
+# .env exists.
 
 set -euo pipefail
 
+# ── Load non-secret overrides from .env, if present ───────────────────────────
+ENV_FILE="${ENV_FILE:-/opt/redmine/containers/.env}"
+if [ -r "${ENV_FILE}" ]; then
+    set -a
+    # shellcheck disable=SC1090
+    source "${ENV_FILE}"
+    set +a
+fi
+
 # ── Configuration ──────────────────────────────────────────────────────────────
-SECRETS_DIR="${SECRETS_DIR:-/opt/redmine/containers/secrets}"
+DATA_ROOT="${DATA_ROOT:-/opt/redmine}"
+SECRETS_DIR="${SECRETS_DIR:-${DATA_ROOT}/containers/secrets}"
 DB_PASSWORD_FILE="${DB_PASSWORD_FILE:-${SECRETS_DIR}/db_password.txt}"
-BACKUP_DB_DIR="/opt/redmine/backup/db"
-BACKUP_FILES_DIR="/opt/redmine/backup/files"
-FILES_SOURCE_DIR="/opt/redmine/data/redmine/files"
-DB_CONTAINER="redmine-db"
-DB_NAME="redmine"
-DB_USER="redmine"
+BACKUP_DB_DIR="${DATA_ROOT}/backup/db"
+BACKUP_FILES_DIR="${DATA_ROOT}/backup/files"
+FILES_SOURCE_DIR="${DATA_ROOT}/data/redmine/files"
+DB_CONTAINER="${DB_CONTAINER_NAME:-redmine-db}"
+DB_NAME="${DB_NAME:-redmine}"
+DB_USER="${DB_USER:-redmine}"
 KEEP_GENERATIONS=7
 TIMESTAMP=$(date -u '+%Y%m%d_%H%M%S')
 LOG_PREFIX="[$(date -u '+%Y-%m-%dT%H:%M:%SZ')] [backup]"

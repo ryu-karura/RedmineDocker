@@ -10,6 +10,8 @@
 
 RHEL の実機がまだ用意できない場合は、本番環境と同じ Podman + Quadlets 手順を開発環境 A と同じ WSL (AlmaLinux 9.5 以上) 上でリハーサルできます。手順は本ガイド末尾の「本番相当の動作確認 (WSL)」の章を参照してください。
 
+コンテナ名・DB 名・ユーザー名・SUB URI・ポートなどの設定値の一覧、および `.env` に集約できるもの/できないもの（本番の Quadlet はなぜ `.env` を読めないか）は `docs/Design.md` の「設定項目 (Configuration)」章を参照してください。
+
 ---
 
 ## 開発環境 A — WSL (AlmaLinux 9.5 以上)
@@ -47,6 +49,8 @@ rootless Podman は特権ポート (<1024) への bind にホスト側の準備�
 `docker compose -f compose.dev.yaml down` で停止できます（名前付きボリュームは保持されます）。`down -v` を指定するとデータも破棄されます。
 
 オプション — 追加の静的プロキシコンテナは不要です。`redmine-web` イメージに組み込まれた Apache フロントエンドをそのまま使います。
+
+オプション — コンテナ名・DB 名・ユーザー名・SUB URI・ポートなどを既定値から変更したい場合は `cp .env.example .env` としてから編集してください（`docker compose` が自動で読み込みます）。何もしなければ `.env.example` に書かれた既定値がそのまま使われます。詳細は `docs/Design.md` の「設定項目」章を参照してください。この手順は開発環境 A・B のどちらでも共通です。
 
 ---
 
@@ -108,7 +112,7 @@ podman secret create db_password     secrets/db_password.txt
 podman secret create secret_key_base secrets/secret_key_base.txt
 ```
 
-必要に応じて `.env.example` から `/opt/redmine/containers/.env` を作成し、SMTP 設定を入れます。
+必要に応じて `.env.example` から `/opt/redmine/containers/.env` を作成し、SMTP 設定を入れます。この `.env` は `scripts/backup.sh`/`scripts/restore.sh` の DB 名・ユーザー名・データルートの既定値も上書きできますが、`quadlets/*.container` 自体のコンテナ名・DB 名・SUB URI 等はここでは変更できません（`docs/Design.md` の「設定項目」章に理由と一覧があります）。
 
 ### 4. イメージをビルドする (redmine ユーザーとして)
 

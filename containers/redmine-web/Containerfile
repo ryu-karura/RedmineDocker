@@ -169,10 +169,17 @@ COPY configuration.yml.tmpl ${REDMINE_HOME}/config/configuration.yml.tmpl
 # Replaces the stock config.ru so Puma mounts the app under
 # RAILS_RELATIVE_URL_ROOT (/redmine) itself — see config.ru for why.
 COPY config.ru ${REDMINE_HOME}/config.ru
-COPY httpd-redmine.conf /etc/apache2/conf-available/redmine-proxy.conf
+COPY httpd-redmine.conf.tmpl /etc/apache2/conf-available/redmine-proxy.conf.tmpl
 COPY entrypoint.sh /usr/local/bin/redmine-entrypoint.sh
 RUN a2enmod headers rewrite proxy proxy_http \
     && a2dissite 000-default || true \
+    # Build-time default render, purely so a2enconf has a file to enable;
+    # entrypoint.sh re-renders this from the .tmpl at container start in case
+    # RAILS_RELATIVE_URL_ROOT was overridden via .env, so this copy is never
+    # actually served as-is.
+    && envsubst '${RAILS_RELATIVE_URL_ROOT}' \
+        < /etc/apache2/conf-available/redmine-proxy.conf.tmpl \
+        > /etc/apache2/conf-available/redmine-proxy.conf \
     && a2enconf redmine-proxy \
     && chmod 0755 /usr/local/bin/redmine-entrypoint.sh \
     && chown -R redmine:redmine ${REDMINE_HOME}/config ${REDMINE_HOME}/plugins ${REDMINE_HOME}/public/themes

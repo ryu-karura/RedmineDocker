@@ -17,16 +17,32 @@
 #   bash scripts/restore.sh \
 #       /opt/redmine/backup/db/redmine_20260620_020000.dump \
 #       /opt/redmine/backup/files/redmine_20260620_020000.tar.gz
+#
+# Reads /opt/redmine/containers/.env (DATA_ROOT, DB_NAME, DB_USER,
+# DB_CONTAINER_NAME, WEB_CONTAINER_NAME), if present — see backup.sh and
+# docs/Design.md, "設定項目". Every value below defaults to the stack's
+# standard layout, so this script behaves exactly as before when no .env
+# exists.
 
 set -euo pipefail
 
-SECRETS_DIR="${SECRETS_DIR:-/opt/redmine/containers/secrets}"
+# ── Load non-secret overrides from .env, if present ───────────────────────────
+ENV_FILE="${ENV_FILE:-/opt/redmine/containers/.env}"
+if [ -r "${ENV_FILE}" ]; then
+    set -a
+    # shellcheck disable=SC1090
+    source "${ENV_FILE}"
+    set +a
+fi
+
+DATA_ROOT="${DATA_ROOT:-/opt/redmine}"
+SECRETS_DIR="${SECRETS_DIR:-${DATA_ROOT}/containers/secrets}"
 DB_PASSWORD_FILE="${DB_PASSWORD_FILE:-${SECRETS_DIR}/db_password.txt}"
-DB_CONTAINER="redmine-db"
-DB_NAME="redmine"
-DB_USER="redmine"
-SERVICE="redmine-web"
-DATA_DIR="/opt/redmine/data/redmine"
+DB_CONTAINER="${DB_CONTAINER_NAME:-redmine-db}"
+DB_NAME="${DB_NAME:-redmine}"
+DB_USER="${DB_USER:-redmine}"
+SERVICE="${WEB_CONTAINER_NAME:-redmine-web}"
+DATA_DIR="${DATA_ROOT}/data/redmine"
 FILES_DIR="${DATA_DIR}/files"
 LOG_PREFIX="[$(date -u '+%Y-%m-%dT%H:%M:%SZ')] [restore]"
 

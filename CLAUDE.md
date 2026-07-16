@@ -65,14 +65,14 @@ RedmineDocker/
 ├── .github/copilot-instructions.md # pointer to this file, no duplicated content
 ├── containers/
 │   ├── redmine-db/                # Containerfile + init-redmine.sh (PostGIS ext)
-│   └── redmine-web/           # Containerfile, entrypoint.sh, httpd-redmine.conf, *.yml.tmpl
+│   └── redmine-web/           # Containerfile, entrypoint.sh, *.tmpl (db/config/httpd)
 ├── quadlets/                    # production Podman Quadlet units (*.container, *.network)
 ├── host-apache/                 # host-side TLS reverse proxy vhost
 ├── scripts/                     # generate-secrets, backup, restore
 ├── logrotate/                   # /etc/logrotate.d config
 ├── compose.dev.yaml             # development orchestration
 ├── .devcontainer/               # Codespaces / VS Code dev container
-├── .env.example                 # optional NON-secret overrides (SMTP, TZ)
+├── .env.example                 # non-secret config reference (see docs/Design.md)
 └── .gitignore
 ```
 
@@ -137,7 +137,31 @@ Start/stop order is enforced by `Requires=`/`After=` in the units:
   `REDMINE_DB_PASSWORD_FILE`); `entrypoint.sh::resolve_secret` reads the file if
   `${VAR}_FILE` is set, else falls back to `${VAR}`. Never introduce a plaintext
   password into a Containerfile, compose file, quadlet, or committed `.env`.
-  `.env` holds only NON-secret overrides (SMTP, TZ) — see `.env.example`.
+  `.env` holds only NON-secret overrides — see `.env.example`.
+- **`.env` is the single reference for non-secret config** (container/network
+  naming, `DB_NAME`/`DB_USER`, `RAILS_RELATIVE_URL_ROOT`, `WEB_HOST_PORT`,
+  `DATA_ROOT`, `TZ`, SMTP) — full table and rationale in `docs/Design.md`,
+  "設定項目 (Configuration)". Three different things read it: `compose.dev.yaml`
+  (Compose's built-in `.env` autoload, used by every `${VAR:-default}` in that
+  file), `quadlets/redmine-web.container`'s `EnvironmentFile=` (container
+  process env only — `SMTP_*`/`TZ`), and `scripts/backup.sh`/`restore.sh`
+  (plain bash, `source` it directly). **Podman Quadlet `*.container` units have
+  no envsubst/variable-substitution pass over their own directives** — only
+  `Environment=`/`EnvironmentFile=` reach the container's process env, never
+  `Image=`/`ContainerName=`/`Volume=`/`PublishPort=`/`Network=`/`Timezone=`/
+  `HealthCmd=`. So in production, container/network names, DB name/user, the
+  sub-URI, and data paths stay hardcoded in `quadlets/*.container` (and, for
+  the sub-URI, in `host-apache/redmine-proxy.conf`) — change those files
+  directly, in lockstep, if you ever need to. Don't try to make Quadlet units
+  read `.env` for these; that requires a template-render step that doesn't
+  exist yet and is a bigger change than a config tweak.
+- **The Apache sub-URI proxy config is templated, like `database.yml`.**
+  `containers/redmine-web/httpd-redmine.conf.tmpl` is rendered by
+  `entrypoint.sh` via `envsubst` (substituting `RAILS_RELATIVE_URL_ROOT`) into
+  `/etc/apache2/conf-available/redmine-proxy.conf` on every container start —
+  the Containerfile also pre-renders a build-time default so `a2enconf` has a
+  file to enable, but that copy is never actually served as-is. Edit the
+  `.tmpl`, not a generated `.conf`.
 - **The database adapter is `postgis`, not `postgresql`.** Required by the
   `redmine_gtt` plugin; using `postgresql` breaks startup. This is why
   `entrypoint.sh` renders `config/database.yml` from
@@ -159,10 +183,12 @@ Start/stop order is enforced by `Requires=`/`After=` in the units:
   so a root-owned 640 file it can't read makes `rails server` crash on boot
   with `Permission denied @ rb_sysopen - config/database.yml`.
 - **`config.ru` is replaced (`containers/redmine-web/config.ru`), not left as
-  the stock one-liner.** `httpd-redmine.conf` proxies `/redmine` to Puma
-  *without* stripping the prefix (`ProxyPass /redmine
-  http://127.0.0.1:3000/redmine`), and the container healthcheck also curls
-  Puma directly at `/redmine/login`. `config.relative_url_root` (defaulted
+  the stock one-liner.** `httpd-redmine.conf.tmpl` (rendered to
+  `redmine-proxy.conf`, see above) proxies the sub-URI to Puma *without*
+  stripping the prefix (`ProxyPass ${RAILS_RELATIVE_URL_ROOT}
+  http://127.0.0.1:3000${RAILS_RELATIVE_URL_ROOT}`), and the container
+  healthcheck also curls Puma directly at `/redmine/login`.
+  `config.relative_url_root` (defaulted
   from `RAILS_RELATIVE_URL_ROOT`) only affects URL *generation*, not request
   dispatch, so with the stock `run Rails.application` config.ru, Puma 404s
   on every request (`No route matches [GET] "/redmine/login"`). Our
@@ -173,6 +199,10 @@ Start/stop order is enforced by `Requires=`/`After=` in the units:
 - **Keep dev and prod in lockstep.** `compose.dev.yaml` and the `quadlets/`
   units deliberately use the same images, env vars, secrets, and healthchecks.
   A change to one tier's runtime contract should be mirrored in the other.
+  `compose.dev.yaml`'s `${VAR:-default}` values must keep matching whatever's
+  hardcoded in `quadlets/*.container` — the `.env.example` defaults are the
+  same literals as the quadlets, so lockstep holds as long as nobody edits an
+  `.env` (dev-only customization is fine; it just no longer mirrors prod).
   The one deliberate divergence: `compose.dev.yaml` publishes `redmine-web` on
   host port **8080** (not 80), because rootless Podman/Docker cannot bind a
   loopback listener to a privileged port (<1024) without host prep
