@@ -1,8 +1,76 @@
 # 運用手順 — RedmineDocker (redmine スタック)
 
-本番環境の Podman デプロイにおける日常運用手順です。パスはリポジトリが `/opt/redmine/containers`、データが `/opt/redmine/data` にある前提です（`DATA_ROOT` を `.env` で変更している場合はそのパスに読み替えてください）。
+本番環境の Podman デプロイにおける日常運用手順です。パスはリポジトリが `/opt/redmine/containers`、データが `/opt/redmine/data` にある前提です（`DATA_ROOT` を `.env` で変更している場合はそのパスに読み替えてください）。次の「コマンド集」章のみ、開発環境 (`compose.dev.yaml`) のコマンドも併記しています。
 
 コンテナ名・DB 名・ユーザー名・データルートなどの設定値の一覧と、`.env` に集約できるもの/できないもの（`quadlets/*.container` 自体は `.env` を読めません）は `docs/Design.md` の「設定項目 (Configuration)」章を参照してください。
+
+---
+
+## コマンド集（Podman/Docker が初めての方へ）
+
+### まず基礎知識: イメージ・コンテナ・ボリュームは別物
+
+- **イメージ (image)** — アプリの「設計図」。`build` で作られます。
+- **コンテナ (container)** — イメージから実際に動いている（動いていた）実体。
+- **ボリューム / bind mount** — DB データや添付ファイルの実体。**イメージともコンテナとも別の場所に保存されています。**
+
+**つまり「ビルドし直す」「コンテナを作り直す」だけでは DB も添付ファイルも消えません。** データが消えるのはボリューム自体を明示的に削除する操作（後述の `down -v` や `/opt/redmine/data` の手動削除）を行ったときだけです。開発環境は名前付きボリューム `pgdata`/`redmine_files`、本番環境は `/opt/redmine/data/` 配下の bind mount にデータが入っています。
+
+### 開発環境 (WSL / Codespaces, `compose.dev.yaml`)
+
+#### 実行・停止
+
+```bash
+docker compose -f compose.dev.yaml up -d           # 起動（イメージがあればそのまま使う）
+docker compose -f compose.dev.yaml up --build -d   # Containerfile の変更を反映してビルドしてから起動
+                                                    #   ※ DB・添付ファイルは消えません（上記参照）
+docker compose -f compose.dev.yaml stop            # コンテナを止めるだけ（イメージ・データはそのまま、再開が速い）
+docker compose -f compose.dev.yaml down            # コンテナとネットワークを削除（名前付きボリュームは残る＝DB・添付は消えない）
+```
+
+#### 確認・ログ
+
+```bash
+docker compose -f compose.dev.yaml ps              # 起動状況とヘルスチェック結果
+podman ps                                          # 同じ内容を podman 単体で確認
+docker compose -f compose.dev.yaml logs -f redmine-web       # ログをリアルタイム追跡（Ctrl+C で終了）
+docker compose -f compose.dev.yaml logs --tail 100 redmine-db  # 直近100行だけ表示
+```
+
+#### イメージの削除
+
+```bash
+podman images                                      # イメージ一覧（サイズ・作成日時を確認）
+podman rmi localhost/redmine-web:6.1.3             # 特定のイメージを削除（DB・添付ファイルには影響しません）
+docker compose -f compose.dev.yaml down --rmi all  # このスタックのイメージをまとめて削除（ボリュームは残る）
+podman image prune                                 # どのコンテナからも参照されていないイメージだけ安全に削除
+```
+
+`podman rmi` はそのイメージを使っているコンテナが実行中だと失敗します。先に `docker compose -f compose.dev.yaml down`（`-v` は付けない）でコンテナを止めてから実行してください。
+
+#### ⚠️ 本当に DB・添付ファイルごと消したいとき（開発環境のリセット）
+
+```bash
+docker compose -f compose.dev.yaml down -v   # 名前付きボリューム (pgdata, redmine_files) ごと削除
+```
+
+`-v` を付けたときだけデータが消えます。動作確認用の使い捨て環境をまっさらに戻したいとき以外は付けないでください。
+
+### 本番環境 (systemd Quadlets)
+
+起動・停止・確認・ログは「サービス制御」章、再ビルドは「更新」章を参照してください（どちらも `/opt/redmine/data` の bind mount とは別物を操作するだけなので、DB・添付ファイルは消えません）。
+
+#### イメージの削除
+
+```bash
+podman images
+podman rmi localhost/redmine-web:6.1.3   # サービスを停止していないと失敗します（先に systemctl --user stop redmine-web）
+podman image prune                        # 未使用イメージだけ安全に削除
+```
+
+#### ⚠️ 本当に DB・添付ファイルごと消したいとき
+
+`/opt/redmine/data/` を直接削除する以外に方法はありません。**バックアップ（下記「バックアップ」章）を取ってから、内容をよく確認して実行してください。** 通常の運用でここに触れる必要はありません。
 
 ---
 
