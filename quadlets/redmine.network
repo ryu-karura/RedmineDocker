@@ -1,0 +1,17 @@
+# quadlets/redmine.network
+#
+# Podman Quadlet network definition for the redmine Redmine stack.
+# Place at /etc/containers/systemd/redmine.network (system) or
+# ~/.config/containers/systemd/redmine.network (rootless), then run:
+#   systemctl [--user] daemon-reload
+#
+# Creates a dedicated bridge network with DNS so the containers reach each
+# other by name (redmine-db, redmine-web). No database or Puma
+# port is exposed to the host.
+
+[Network]
+NetworkName=redmine-net
+Driver=bridge
+
+[Install]
+WantedBy=multi-user.target

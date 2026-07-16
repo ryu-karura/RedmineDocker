@@ -1,7 +1,7 @@
 #!/bin/bash
-# containers/hwins-redmine/entrypoint.sh
+# containers/redmine-web/entrypoint.sh
 #
-# Entrypoint for the hwins-redmine container (Redmine 6.1.3, official image +
+# Entrypoint for the redmine-web container (Redmine 6.1.3, official image +
 # plugin stack). Runs as root so Apache can bind to TCP :80, while Puma is
 # started as the unprivileged `redmine` user.
 #
@@ -23,7 +23,7 @@ RAILS_ENV="${RAILS_ENV:-production}"
 RAILS_RELATIVE_URL_ROOT="${RAILS_RELATIVE_URL_ROOT:-/redmine}"
 export RAILS_ENV RAILS_RELATIVE_URL_ROOT
 
-REDMINE_DB_HOST="${REDMINE_DB_HOST:-hwins-db}"
+REDMINE_DB_HOST="${REDMINE_DB_HOST:-redmine-db}"
 REDMINE_DB_NAME="${REDMINE_DB_NAME:-redmine}"
 REDMINE_DB_USER="${REDMINE_DB_USER:-redmine}"
 SMTP_HOST="${SMTP_HOST:-localhost}"
@@ -32,8 +32,8 @@ SMTP_USER="${SMTP_USER:-}"
 SMTP_PASSWORD="${SMTP_PASSWORD:-}"
 REDMINE_PLUGINS_MIGRATE="${REDMINE_PLUGINS_MIGRATE:-1}"
 
-log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] [hwins-redmine] $*"; }
-die() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] [hwins-redmine] ERROR: $*" >&2; exit 1; }
+log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] [redmine-web] $*"; }
+die() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] [redmine-web] ERROR: $*" >&2; exit 1; }
 
 # ── 1. Resolve secrets ────────────────────────────────────────────────────────
 # read_secret VAR: if ${VAR}_FILE is set, read the value from that file;

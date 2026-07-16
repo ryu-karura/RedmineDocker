@@ -1,4 +1,4 @@
-# RedmineDocker (hwins スタック)
+# RedmineDocker (redmine スタック)
 
 **RHEL9 / AlmaLinux9 上で rootless Podman を使う Redmine 6.1 のコンテナ基盤**
 
@@ -9,24 +9,24 @@
 ## アーキテクチャ
 
 ```
-  client ──443──► Host Apache ──/redmine──► hwins-redmine (Apache 2.4 + Redmine 6.1.3)
-                  (TLS, HSTS)   127.0.0.1:18080   │  ProxyPass /redmine
+  client ──443──► Host Apache ──/redmine──► redmine-web (Apache 2.4 + Redmine 6.1.3)
+                  (TLS, HSTS)   127.0.0.1:80   │  ProxyPass /redmine
                                                   ▼
                                            Puma :3000 (sub-URI /redmine)
                                                   │
                                                   ▼
-                                           hwins-db (PostgreSQL 18 + PostGIS 3.6)
+                                           redmine-db (PostgreSQL 18 + PostGIS 3.6)
                                            :5432   DB=redmine / owner=redmine
 ```
 
 | コンテナ | ビルドコンテキスト | イメージ | 役割 | 公開先 |
 |----------|-------------------|----------|------|--------|
-| `hwins-db` | `containers/hwins-db/` | `postgis/postgis:18-3.6` | PostgreSQL 18 + PostGIS 3.6 | なし（内部 5432） |
-| `hwins-redmine` | `containers/hwins-redmine/` | `redmine:6.1.3` + plugin stack + Apache 2.4 | Redmine アプリ、Apache フロントエンド、Puma | `127.0.0.1:18080` |
+| `redmine-db` | `containers/redmine-db/` | `postgis/postgis:18-3.6` | PostgreSQL 18 + PostGIS 3.6 | なし（内部 5432） |
+| `redmine-web` | `containers/redmine-web/` | `docker.io/library/redmine:6.1.3` + plugin stack + Apache 2.4 | Redmine アプリ、Apache フロントエンド、Puma | `127.0.0.1:80` |
 
-`hwins-redmine` だけがループバックに公開されます。ホスト側 Apache が 443 で TLS を終端し、`/redmine` をその先へ転送します。PostgreSQL (5432) と Puma (3000) はホストからは到達できません。
+`redmine-web` だけがループバックに公開されます。ホスト側 Apache が 443 で TLS を終端し、`/redmine` をその先へ転送します。PostgreSQL (5432) と Puma (3000) はホストからは到達できません。
 
-- **ネットワーク:** `hwins-net`（Podman Quadlet のネットワーク / Compose のブリッジ）。コンテナは名前で相互に解決します。
+- **ネットワーク:** `redmine-net`（Podman Quadlet のネットワーク / Compose のブリッジ）。コンテナは名前で相互に解決します。
 - **公開 URL:** `http://localhost/redmine/`（サブ URI `/redmine`）。
 - **シークレット:** `db_password` と `secret_key_base` はファイルベースのシークレットです（開発では Docker シークレット、本番では Podman シークレット）。プレーンな環境変数ではなく、`scripts/generate-secrets.sh` で生成します。
 
@@ -39,15 +39,15 @@
 | OS (ホスト/WSL) | AlmaLinux9 / RHEL9 |
 | Redmine | 6.1.3 (`docker.io/library/redmine:6.1.3`) |
 | PostgreSQL | 18 + PostGIS 3.6 (`postgis/postgis:18-3.6`) |
-| Web 層 | Apache httpd 2.4 (hwins-redmine 内蔵) |
+| Web 層 | Apache httpd 2.4 (redmine-web 内蔵) |
 | Ruby / Puma | 公式 Redmine イメージに同梱 |
 | Node.js / Yarn | Debian `nodejs` + Yarn 1.22.22（redmine_gtt の webpack ビルド用） |
 
-`hwins-redmine` に焼き込まれているプラグイン (13 個): redmine_wiki_lists, redmine_banner,
+`redmine-web` に焼き込まれているプラグイン (13 個): redmine_wiki_lists, redmine_banner,
 redmine_issues_panel, redmica_ui_extension, redmine_ip_filter,
 redmine_message_customize, redmine_issue_templates, view_customize, redmine_logs,
 redmine_login_audit2, redmine_wiki_extensions, redmine_solid_queue, redmine_gtt。
-テーマ: farend_fancy。`redmine_gtt` には PostGIS と `postgis` アダプタが必要です（`containers/hwins-redmine/database.yml.tmpl` で設定）。
+テーマ: farend_fancy。`redmine_gtt` には PostGIS と `postgis` アダプタが必要です（`containers/redmine-web/database.yml.tmpl` で設定）。
 
 ---
 
@@ -58,12 +58,12 @@ RedmineDocker/
 ├── README.md
 ├── docs/                         # 設計 / セットアップ / 運用手順
 ├── containers/
-│   ├── hwins-db/                 # PostgreSQL 18 + PostGIS 3.6
-│   └── hwins-redmine/            # Redmine 6.1.3 + plugin/theme スタック + Apache フロントエンド
+│   ├── redmine-db/                 # PostgreSQL 18 + PostGIS 3.6
+│   └── redmine-web/            # Redmine 6.1.3 + plugin/theme スタック + Apache フロントエンド
 ├── quadlets/                     # 本番用 Podman Quadlet ユニット
-│   ├── hwins.network
-│   ├── hwins-db.container
-│   └── hwins-redmine.container
+│   ├── redmine.network
+│   ├── redmine-db.container
+│   └── redmine-web.container
 ├── host-apache/                  # ホスト Apache のリバースプロキシ (TLS)
 ├── scripts/                      # generate-secrets, backup, restore
 ├── logrotate/                    # ログローテーション
@@ -81,17 +81,17 @@ RedmineDocker/
 bash scripts/generate-secrets.sh                 # ./secrets/*.txt を生成
 docker compose -f compose.dev.yaml up --build -d  # 初回ビルドは重めです（プラグインと webpack の構築）
 # その後、転送ポートを開きます:
-#   http://localhost:18080/redmine/   (初期ログイン: admin / admin)
+#   http://localhost/redmine/   (初期ログイン: admin / admin)
 ```
 
 `compose.dev.yaml` は名前付きボリュームを使うため、`docker compose down` してもデータは残ります。
 
-ネットワーク接続のあるホストでは、Apache フロントエンドが組み込まれた `hwins-redmine` イメージをそのままビルド・起動できます。
+ネットワーク接続のあるホストでは、Apache フロントエンドが組み込まれた `redmine-web` イメージをそのままビルド・起動できます。
 ---
 
 ## クイックスタート (本番 / Podman + Quadlets)
 
-1. AlmaLinux9 ホスト上の `/opt/hwins/containers` にこのリポジトリをクローンします。
+1. AlmaLinux9 ホスト上の `/opt/redmine/containers` にこのリポジトリをクローンします。
 2. `bash scripts/generate-secrets.sh` を実行し、シークレットを登録します。
    `podman secret create db_password secrets/db_password.txt` と
    `podman secret create secret_key_base secrets/secret_key_base.txt` を実行します。

@@ -1,13 +1,13 @@
 #!/bin/bash
 # scripts/restore.sh
 #
-# Disaster recovery restore script for the hwins Redmine stack.
+# Disaster recovery restore script for the redmine Redmine stack.
 #
-# Runs rootless as the `hwins` user (no sudo — Podman and the systemd --user
+# Runs rootless as the `redmine` user (no sudo — Podman and the systemd --user
 # units are per-user).
 #
 # Usage:
-#   bash /opt/hwins/containers/scripts/restore.sh <db_dump> <files_archive>
+#   bash /opt/redmine/containers/scripts/restore.sh <db_dump> <files_archive>
 #
 # Arguments:
 #   db_dump       — path to a .dump file created by backup.sh
@@ -15,18 +15,18 @@
 #
 # Example:
 #   bash scripts/restore.sh \
-#       /opt/hwins/backup/db/redmine_20260620_020000.dump \
-#       /opt/hwins/backup/files/redmine_20260620_020000.tar.gz
+#       /opt/redmine/backup/db/redmine_20260620_020000.dump \
+#       /opt/redmine/backup/files/redmine_20260620_020000.tar.gz
 
 set -euo pipefail
 
-SECRETS_DIR="${SECRETS_DIR:-/opt/hwins/containers/secrets}"
+SECRETS_DIR="${SECRETS_DIR:-/opt/redmine/containers/secrets}"
 DB_PASSWORD_FILE="${DB_PASSWORD_FILE:-${SECRETS_DIR}/db_password.txt}"
-DB_CONTAINER="hwins-db"
+DB_CONTAINER="redmine-db"
 DB_NAME="redmine"
 DB_USER="redmine"
-SERVICE="hwins-redmine"
-DATA_DIR="/opt/hwins/data/redmine"
+SERVICE="redmine-web"
+DATA_DIR="/opt/redmine/data/redmine"
 FILES_DIR="${DATA_DIR}/files"
 LOG_PREFIX="[$(date -u '+%Y-%m-%dT%H:%M:%SZ')] [restore]"
 
@@ -53,7 +53,7 @@ DB_PASSWORD="$(cat "${DB_PASSWORD_FILE}")"
 # ── Safety confirmation ───────────────────────────────────────────────────────
 echo ""
 echo "  ╔══════════════════════════════════════════════════════════╗"
-echo "  ║           HWINS REDMINE DISASTER RECOVERY RESTORE         ║"
+echo "  ║           REDMINE DISASTER RECOVERY RESTORE         ║"
 echo "  ╠══════════════════════════════════════════════════════════╣"
 echo "  ║ Service:   ${SERVICE}"
 echo "  ║ Database:  ${DB_NAME}"

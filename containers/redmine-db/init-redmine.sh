@@ -1,5 +1,5 @@
 #!/bin/bash
-# containers/hwins-db/init-redmine.sh
+# containers/redmine-db/init-redmine.sh
 #
 # Runs once, from the upstream postgis/postgis entrypoint's
 # /docker-entrypoint-initdb.d/ hook, during first-time initialisation of an

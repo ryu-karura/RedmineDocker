@@ -1,10 +1,10 @@
-# hwins-db: PostgreSQL 18 + PostGIS 3.6
+# redmine-db: PostgreSQL 18 + PostGIS 3.6
 #
 # Base image: docker.io/postgis/postgis:18-3.6 (Debian, PostgreSQL 18 + PostGIS 3.6)
 #
 # The Redmine role and database are created by the upstream image from the
 # POSTGRES_USER / POSTGRES_DB / POSTGRES_PASSWORD_FILE variables. The single
-# `redmine` role owns the `redmine` database and is what hwins-redmine connects
+# `redmine` role owns the `redmine` database and is what redmine-web connects
 # with — this mirrors the redmine.jp blog's single-DB-user model.
 #
 # The password is supplied as a Docker/Podman secret (POSTGRES_PASSWORD_FILE),

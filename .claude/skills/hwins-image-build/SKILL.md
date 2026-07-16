@@ -1,17 +1,17 @@
 ---
-name: hwins-image-build
+name: redmine-image-build
 description: >-
-  Build/troubleshoot the hwins-redmine container image. Use when editing
-  containers/hwins-redmine/Containerfile, bumping or adding a Redmine plugin or
+  Build/troubleshoot the redmine-web container image. Use when editing
+  containers/redmine-web/Containerfile, bumping or adding a Redmine plugin or
   theme, or diagnosing image-build failures — especially "Remote branch ... not
   found" from a git clone, or `pg_config`/native-gem (`pg`, `rgeo`) build errors
   during `bundle install`. Covers git-tag pinning discipline and the native build
   dependencies the `postgis` database adapter requires.
 ---
 
-# Building the hwins-redmine image
+# Building the redmine-web image
 
-The `hwins-redmine` image (`containers/hwins-redmine/Containerfile`) layers a
+The `redmine-web` image (`containers/redmine-web/Containerfile`) layers a
 plugin/theme stack and native-gem build tooling onto the official
 `redmine:6.1.3` base. Two classes of mistake break the build; both are avoidable
 with the checks below.
@@ -90,11 +90,11 @@ Containerfile installs `nodejs`/`npm` and pins Yarn to 1.22.22 — keep that pin
 git ls-remote --tags https://github.com/haru/redmine_logs.git | grep -E 'v1\.0\.0$'
 
 # Build the image end-to-end (must pass the plugin clones AND `bundle install`)
-docker compose -f compose.dev.yaml build hwins-redmine
-#   or: podman build -t localhost/hwins-redmine:6.1.3 containers/hwins-redmine
+docker compose -f compose.dev.yaml build redmine-web
+#   or: podman build -t localhost/redmine-web:6.1.3 containers/redmine-web
 
 # pg_config is present and on PATH inside the built image
-docker compose -f compose.dev.yaml run --rm --entrypoint sh hwins-redmine \
+docker compose -f compose.dev.yaml run --rm --entrypoint sh redmine-web \
     -c 'command -v pg_config && pg_config --version'
 
 # Full boot + reachability

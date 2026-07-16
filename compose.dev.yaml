@@ -1,8 +1,8 @@
 # compose.dev.yaml — 開発環境専用
 #
-# hwins Redmine スタック用の Docker Compose 定義です。production の Podman Quadlet
+# redmine Redmine スタック用の Docker Compose 定義です。production の Podman Quadlet
 # ユニット (quadlets/) と同じイメージ・環境変数・シークレット・ヘルスチェックを使いますが、
-# /opt/hwins のホスト bind-mount ではなく名前付きボリュームを使うため、ホスト準備なしで
+# /opt/redmine のホスト bind-mount ではなく名前付きボリュームを使うため、ホスト準備なしで
 # 実行できます。
 #
 # 本番デプロイではこのファイルは使用せず、docs/Setup.md で説明する Podman + systemd
@@ -11,18 +11,18 @@
 # 使い方:
 #   bash scripts/generate-secrets.sh          # ./secrets/*.txt を生成
 #   docker compose -f compose.dev.yaml up --build -d
-#   http://localhost:18080/redmine/ を開く      # （または host Apache 経由: http://localhost/redmine/）
+#   http://localhost/redmine/ を開く        # （または host Apache 経由: http://localhost/redmine/）
 
-name: hwins
+name: redmine
 
 networks:
-  hwins-net:
-    name: hwins-net
+  redmine-net:
+    name: redmine-net
     driver: bridge
 
 volumes:
   pgdata:
-  hwins_files:
+  redmine_files:
 
 secrets:
   db_password:
@@ -32,15 +32,15 @@ secrets:
 
 services:
   # ── PostgreSQL 18 + PostGIS 3.6 ──────────────────────────────────────────────
-  hwins-db:
+  redmine-db:
     build:
-      context: containers/hwins-db
+      context: containers/redmine-db
       dockerfile: Containerfile
-    image: localhost/hwins-db:18-3.6
-    container_name: hwins-db
+    image: localhost/redmine-db:18-3.6
+    container_name: redmine-db
     restart: always
     networks:
-      - hwins-net
+      - redmine-net
     # ポート 5432 は意図的にホストへ公開しません。
     environment:
       POSTGRES_DB: redmine
@@ -58,26 +58,26 @@ services:
       start_period: 30s
 
   # ── Redmine 6.1.3 + Apache 2.4 frontend (port 80 / :3000) ─────────────────
-  hwins-redmine:
+  redmine-web:
     build:
-      context: containers/hwins-redmine
+      context: containers/redmine-web
       dockerfile: Containerfile
-    image: localhost/hwins-redmine:6.1.3
-    container_name: hwins-redmine
+    image: localhost/redmine-web:6.1.3
+    container_name: redmine-web
     restart: always
     networks:
-      - hwins-net
+      - redmine-net
     ports:
       # ループバックのみ公開します。ホスト Apache が :80/redmine → ここへ転送します。
-      - "127.0.0.1:18080:80"
+      - "127.0.0.1:80:80"
     depends_on:
-      hwins-db:
+      redmine-db:
         condition: service_healthy
     environment:
       RAILS_ENV: production
       RAILS_RELATIVE_URL_ROOT: /redmine
       TZ: Asia/Tokyo
-      REDMINE_DB_HOST: hwins-db
+      REDMINE_DB_HOST: redmine-db
       REDMINE_DB_NAME: redmine
       REDMINE_DB_USER: redmine
       REDMINE_DB_PASSWORD_FILE: /run/secrets/db_password
@@ -87,7 +87,7 @@ services:
       - db_password
       - secret_key_base
     volumes:
-      - hwins_files:/usr/src/redmine/files
+      - redmine_files:/usr/src/redmine/files
     healthcheck:
       test: ["CMD-SHELL", 'apache_ok=0; puma_ok=0; curl -f -s http://localhost/redmine/login > /dev/null && apache_ok=1 || echo "Apache healthcheck failed"; curl -f -s http://127.0.0.1:3000/redmine/login > /dev/null && puma_ok=1 || echo "Puma healthcheck failed"; [ "$$apache_ok" -eq 1 ] && [ "$$puma_ok" -eq 1 ]']
       interval: 30s

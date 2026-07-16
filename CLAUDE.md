@@ -4,7 +4,7 @@ Guidance for AI assistants working in this repository.
 
 ## What this repository is
 
-RedmineDocker (the **hwins stack**) is container infrastructure for running
+RedmineDocker (the **redmine stack**) is container infrastructure for running
 **Redmine 6.1.3** on RHEL9 / AlmaLinux9. There is **no Redmine application
 source code here** — Redmine, its Ruby/Puma runtime, and its gems come from the
 official `redmine:6.1.3` image. This repo is the *packaging and operations*
@@ -18,29 +18,29 @@ Two orchestration paths share the **same two images** and only differ in
 orchestration + data placement:
 - **Development** — Docker Compose (`compose.dev.yaml`), named volumes.
 - **Production** — rootless Podman + systemd Quadlets (`quadlets/`), host bind
-  mounts under `/opt/hwins`.
+  mounts under `/opt/redmine`.
 
 ## Architecture (two tiers)
 
 ```
-client ──443──► Host Apache ──/redmine──► hwins-redmine (Apache 2.4 + Redmine 6.1.3)
-                (TLS, HSTS)   127.0.0.1:18080  │  ProxyPass /redmine
+client ──443──► Host Apache ──/redmine──► redmine-web (Apache 2.4 + Redmine 6.1.3)
+                (TLS, HSTS)   127.0.0.1:80  │  ProxyPass /redmine
                                                ▼
                                         Puma :3000 (sub-URI /redmine)
                                                │  postgis adapter
                                                ▼
-                                        hwins-db (PostgreSQL 18 + PostGIS 3.6, :5432)
+                                        redmine-db (PostgreSQL 18 + PostGIS 3.6, :5432)
 ```
 
 | Container | Build context | Base image | Role | Exposed |
 |-----------|---------------|------------|------|---------|
-| `hwins-db` | `containers/hwins-db/` | `postgis/postgis:18-3.6` | PostgreSQL 18 + PostGIS 3.6 | internal `:5432` only |
-| `hwins-redmine` | `containers/hwins-redmine/` | `redmine:6.1.3` | Redmine app + 13 plugins + theme, Apache 2.4 frontend, Puma | `127.0.0.1:18080` |
+| `redmine-db` | `containers/redmine-db/` | `postgis/postgis:18-3.6` | PostgreSQL 18 + PostGIS 3.6 | internal `:5432` only |
+| `redmine-web` | `containers/redmine-web/` | `redmine:6.1.3` | Redmine app + 13 plugins + theme, Apache 2.4 frontend, Puma | `127.0.0.1:80` |
 
-**Only `hwins-redmine` is published**, and only to loopback. In production the
+**Only `redmine-web` is published**, and only to loopback. In production the
 host Apache terminates TLS on 443 and forwards `/redmine` there. PostgreSQL
 (5432) and Puma (3000) are never reachable from the host. Containers resolve
-each other by name on the `hwins-net` bridge network. Public URL:
+each other by name on the `redmine-net` bridge network. Public URL:
 `http://localhost/redmine/` (sub-URI `/redmine`).
 
 ## Repository layout
@@ -50,8 +50,8 @@ RedmineDocker/
 ├── README.md                    # overview (Japanese)
 ├── docs/                        # Design.md / Setup.md / Manual.md (Japanese)
 ├── containers/
-│   ├── hwins-db/                # Containerfile + init-redmine.sh (PostGIS ext)
-│   └── hwins-redmine/           # Containerfile, entrypoint.sh, httpd-redmine.conf, *.yml.tmpl
+│   ├── redmine-db/                # Containerfile + init-redmine.sh (PostGIS ext)
+│   └── redmine-web/           # Containerfile, entrypoint.sh, httpd-redmine.conf, *.yml.tmpl
 ├── quadlets/                    # production Podman Quadlet units (*.container, *.network)
 ├── host-apache/                 # host-side TLS reverse proxy vhost
 ├── scripts/                     # generate-secrets, backup, restore
@@ -72,8 +72,8 @@ RedmineDocker/
 | Web tier | Apache httpd 2.4 (digest-pinned) |
 | Node.js / Yarn | Debian `nodejs` + Yarn 1.22.22 (for `redmine_gtt` webpack build) |
 
-`hwins-redmine` bakes in 13 plugins (see the numbered list in
-`containers/hwins-redmine/Containerfile`) plus the `farend_fancy` theme. All
+`redmine-web` bakes in 13 plugins (see the numbered list in
+`containers/redmine-web/Containerfile`) plus the `farend_fancy` theme. All
 plugins/themes are `git clone`d **at build time** so they are reproducible in
 the image — update a plugin by editing the Containerfile and rebuilding, not by
 mounting a volume.
@@ -83,29 +83,29 @@ mounting a volume.
 ```bash
 bash scripts/generate-secrets.sh                    # creates ./secrets/*.txt (git-ignored)
 docker compose -f compose.dev.yaml up --build -d    # first build is slow: plugin gems + webpack
-docker compose -f compose.dev.yaml logs -f hwins-redmine   # watch migrations run
-# Open http://localhost:18080/redmine/   (initial login: admin / admin)
+docker compose -f compose.dev.yaml logs -f redmine-web   # watch migrations run
+# Open http://localhost:80/redmine/   (initial login: admin / admin)
 ```
 
-- `docker compose ... down` keeps data (named volumes `pgdata`, `hwins_files`);
+- `docker compose ... down` keeps data (named volumes `pgdata`, `redmine_files`);
   `down -v` destroys it.
 - The dev container (`.devcontainer/`) provisions docker-in-docker and installs
-  `shellcheck`; port 18080 is auto-forwarded.
+  `shellcheck`; port 80 is auto-forwarded for the local development endpoint.
 
 ## Production workflow (rootless Podman + Quadlets)
 
-Runs **rootless** as the unprivileged `hwins` user; all Podman state, secrets,
+Runs **rootless** as the unprivileged `redmine` user; all Podman state, secrets,
 and Quadlet units are per-user (`systemctl --user`). Only the host Apache is a
 system service. Full steps are in `docs/Setup.md`; the shape:
 
-1. `sudo` once: create `/opt/hwins` owned by `hwins`, `loginctl enable-linger hwins`.
-2. Clone repo to `/opt/hwins/containers`; create `/opt/hwins/data/{postgres/18,redmine/{files,log}}` and `/opt/hwins/backup/{db,files}`.
+1. `sudo` once: create `/opt/redmine` owned by `redmine`, `loginctl enable-linger redmine`.
+2. Clone repo to `/opt/redmine/containers`; create `/opt/redmine/data/{postgres/18,redmine/{files,log}}` and `/opt/redmine/backup/{db,files}`.
 3. `bash scripts/generate-secrets.sh` then `podman secret create db_password …` / `secret_key_base …`.
-4. `podman build` the two images (`hwins-db` and `hwins-redmine`).
+4. `podman build` the two images (`redmine-db` and `redmine-web`).
 5. Copy `quadlets/*` to `~/.config/containers/systemd/`, `systemctl --user daemon-reload`, start.
 
 Start/stop order is enforced by `Requires=`/`After=` in the units:
-`hwins-db → hwins-redmine` up, reverse down.
+`redmine-db → redmine-web` up, reverse down.
 
 ## Key conventions — follow these
 
@@ -126,7 +126,7 @@ Start/stop order is enforced by `Requires=`/`After=` in the units:
 - **The `postgis` adapter needs native gem build deps in the image.** It pulls in
   `activerecord-postgis-adapter` → `rgeo` (needs `libgeos-dev`, `libproj-dev`) and
   the `pg` gem (needs `libpq-dev`, which provides `/usr/bin/pg_config` **on PATH**).
-  All three must be `apt-get install`ed in `hwins-redmine`'s Containerfile before
+  All three must be `apt-get install`ed in `redmine-web`'s Containerfile before
   `bundle install`. `postgresql-client` (used by the entrypoint for `pg_isready`)
   does **not** ship `pg_config` — omitting `libpq-dev` makes `bundle install` fail
   compiling `pg`. Prefer `libpq-dev` (PATH-clean) over a versioned PGDG dev package
@@ -134,13 +134,13 @@ Start/stop order is enforced by `Requires=`/`After=` in the units:
 - **Config is rendered from `*.tmpl` at container start** via `envsubst` in
   `entrypoint.sh` — edit the `.tmpl` files (`database.yml.tmpl`,
   `configuration.yml.tmpl`), not any generated `.yml`.
-- **The Apache frontend is built into `hwins-redmine`**. The separate
-  `hwins-static` image is no longer part of the stack.
+- **The Apache frontend is built into `redmine-web`**. The separate
+  `redmine-static` image is no longer part of the stack.
 - **Keep dev and prod in lockstep.** `compose.dev.yaml` and the `quadlets/`
   units deliberately use the same images, env vars, secrets, and healthchecks.
   A change to one tier's runtime contract should be mirrored in the other.
 - **Plugins/themes are pinned by git tag/branch at build time.** When adding or
-  bumping one, edit `containers/hwins-redmine/Containerfile`, keep the numbered
+  bumping one, edit `containers/redmine-web/Containerfile`, keep the numbered
   comment list accurate, and note that `view_customize`'s clone directory
   **must** be named `view_customize` (required by its `init.rb`).
   **Verify every `--branch` tag actually exists upstream** with
@@ -151,7 +151,7 @@ Start/stop order is enforced by `Requires=`/`After=` in the units:
   the tag is missing; add one when unsure of a tag.
 - **Migrations run automatically on start.** `entrypoint.sh` runs
   `rake db:migrate` and (when `REDMINE_PLUGINS_MIGRATE=1`)
-  `rake redmine:plugins:migrate`. Restarting `hwins-redmine` re-applies them
+  `rake redmine:plugins:migrate`. Restarting `redmine-web` re-applies them
   idempotently — that is the intended upgrade path.
 
 ## Shell script conventions
@@ -164,7 +164,7 @@ Start/stop order is enforced by `Requires=`/`After=` in the units:
 - Structured logging via `log()`/`die()` helpers with timestamps; user-facing
   destructive actions require an explicit typed confirmation (see `restore.sh`
   requiring the literal `RESTORE`).
-- Operational scripts (`backup.sh`, `restore.sh`) run **rootless as `hwins`**
+- Operational scripts (`backup.sh`, `restore.sh`) run **rootless as `redmine`**
   and drive Podman directly — no `sudo`. Backups keep 7 generations; restore is
   destructive and recreates the DB with PostGIS extensions.
 
@@ -189,12 +189,12 @@ the stack:
 shellcheck scripts/*.sh                                    # lint shell
 docker compose -f compose.dev.yaml config                 # validate compose syntax
 docker compose -f compose.dev.yaml up --build -d           # full build + boot
-curl -sf http://localhost:18080/redmine/login && echo OK   # app reachable
+curl -sf http://localhost:80/redmine/login && echo OK   # app reachable
 ```
 
 Healthchecks are defined for both services; `docker compose ps` /
-`podman healthcheck run hwins-redmine` report status. A Rails console for
-diagnostics: `podman exec -it hwins-redmine bundle exec rails console -e production`.
+`podman healthcheck run redmine-web` report status. A Rails console for
+diagnostics: `podman exec -it redmine-web bundle exec rails console -e production`.
 
 ## Git & branch workflow
 

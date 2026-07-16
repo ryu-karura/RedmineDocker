@@ -1,7 +1,7 @@
 #!/bin/bash
 # scripts/generate-secrets.sh
 #
-# Generates the secret files consumed by the hwins stack:
+# Generates the secret files consumed by the redmine stack:
 #   - secrets/db_password.txt      : PostgreSQL password for the `redmine` role
 #                                    (also the app DB password — single user model)
 #   - secrets/secret_key_base.txt  : Rails secret_key_base for Redmine
