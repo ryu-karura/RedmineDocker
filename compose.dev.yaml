@@ -49,9 +49,9 @@ services:
     secrets:
       - db_password
     volumes:
-      - pgdata:/var/lib/postgresql
+      - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U redmine -d redmine -q"]
+      test: ["CMD-SHELL", "pg_isready -U redmine -h localhost -d redmine -q"]
       interval: 10s
       timeout: 5s
       retries: 5
