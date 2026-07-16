@@ -84,7 +84,7 @@ mounting a volume.
 bash scripts/generate-secrets.sh                    # creates ./secrets/*.txt (git-ignored)
 docker compose -f compose.dev.yaml up --build -d    # first build is slow: plugin gems + webpack
 docker compose -f compose.dev.yaml logs -f redmine-web   # watch migrations run
-# Open http://localhost:80/redmine/   (initial login: admin / admin)
+# Open http://localhost:8080/redmine/   (initial login: admin / admin)
 ```
 
 - `docker compose ... down` keeps data (named volumes `pgdata`, `redmine_files`);
@@ -133,12 +133,56 @@ Start/stop order is enforced by `Requires=`/`After=` in the units:
   whose `pg_config` lands under `/usr/lib/postgresql/<v>/bin` off the default PATH.
 - **Config is rendered from `*.tmpl` at container start** via `envsubst` in
   `entrypoint.sh` — edit the `.tmpl` files (`database.yml.tmpl`,
-  `configuration.yml.tmpl`), not any generated `.yml`.
+  `configuration.yml.tmpl`), not any generated `.yml`. After rendering,
+  `entrypoint.sh` `chown`s them to `redmine:redmine` before `chmod 640` —
+  Puma runs as the unprivileged `redmine` user (started via `runuser`/`su`),
+  so a root-owned 640 file it can't read makes `rails server` crash on boot
+  with `Permission denied @ rb_sysopen - config/database.yml`.
+- **`config.ru` is replaced (`containers/redmine-web/config.ru`), not left as
+  the stock one-liner.** `httpd-redmine.conf` proxies `/redmine` to Puma
+  *without* stripping the prefix (`ProxyPass /redmine
+  http://127.0.0.1:3000/redmine`), and the container healthcheck also curls
+  Puma directly at `/redmine/login`. `config.relative_url_root` (defaulted
+  from `RAILS_RELATIVE_URL_ROOT`) only affects URL *generation*, not request
+  dispatch, so with the stock `run Rails.application` config.ru, Puma 404s
+  on every request (`No route matches [GET] "/redmine/login"`). Our
+  `config.ru` wraps the app in `map ENV["RAILS_RELATIVE_URL_ROOT"] do ... end`
+  so Puma itself serves the sub-URI.
 - **The Apache frontend is built into `redmine-web`**. The separate
   `redmine-static` image is no longer part of the stack.
 - **Keep dev and prod in lockstep.** `compose.dev.yaml` and the `quadlets/`
   units deliberately use the same images, env vars, secrets, and healthchecks.
   A change to one tier's runtime contract should be mirrored in the other.
+  The one deliberate divergence: `compose.dev.yaml` publishes `redmine-web` on
+  host port **8080** (not 80), because rootless Podman/Docker cannot bind a
+  loopback listener to a privileged port (<1024) without host prep
+  (`CAP_NET_BIND_SERVICE` or `net.ipv4.ip_unprivileged_port_start`), and the
+  dev compose file is meant to run with **no host prep**. Production's Quadlet
+  unit keeps host port 80 and expects that prep to be done once during setup
+  (see `docs/Setup.md`).
+- **PostgreSQL 18+ images changed their data-directory layout.** They expect a
+  single volume mounted at `/var/lib/postgresql` (the image manages a
+  version-specific subdirectory under it, e.g. `/var/lib/postgresql/18/docker`)
+  instead of the older convention of mounting directly at
+  `/var/lib/postgresql/data`. Mounting at `.../data` makes the entrypoint
+  refuse to start (`in 18+, these Docker images are configured to store
+  database data in a format which is compatible with "pg_ctlcluster"...`).
+  Both `compose.dev.yaml` and `quadlets/redmine-db.container` mount the
+  volume at `/var/lib/postgresql` and leave `PGDATA` at the image default —
+  don't reintroduce a `.../data` mount or an explicit `PGDATA` override.
+- **`redmine-db`'s local (Unix-socket) Postgres auth must stay password-based
+  (`scram-sha-256`), never `peer`.** The upstream `postgres`/`postgis` image
+  entrypoint runs `initdb --username="$POSTGRES_USER"` (here, `redmine`, not
+  `postgres`) and then does its own setup — `CREATE DATABASE`, running
+  `containers/redmine-db/init-redmine.sh` — via `psql --username redmine` over
+  the local socket, while the OS process user inside the container is always
+  `postgres`. `peer` auth requires the OS user and the Postgres role name to
+  match, so with `--auth-local=peer` **every** local connection is rejected,
+  including the entrypoint's own bootstrap (`Peer authentication failed for
+  user "redmine"`) — `POSTGRES_DB` never gets created and `redmine-web` then
+  fails with `database "redmine" does not exist`. `scram-sha-256` works
+  locally too because the entrypoint exports `PGPASSWORD` before running any
+  setup SQL.
 - **Plugins/themes are pinned by git tag/branch at build time.** When adding or
   bumping one, edit `containers/redmine-web/Containerfile`, keep the numbered
   comment list accurate, and note that `view_customize`'s clone directory
@@ -189,7 +233,7 @@ the stack:
 shellcheck scripts/*.sh                                    # lint shell
 docker compose -f compose.dev.yaml config                 # validate compose syntax
 docker compose -f compose.dev.yaml up --build -d           # full build + boot
-curl -sf http://localhost:80/redmine/login && echo OK   # app reachable
+curl -sf http://localhost:8080/redmine/login && echo OK   # app reachable
 ```
 
 Healthchecks are defined for both services; `docker compose ps` /

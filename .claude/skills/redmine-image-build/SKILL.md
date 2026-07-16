@@ -99,5 +99,5 @@ docker compose -f compose.dev.yaml run --rm --entrypoint sh redmine-web \
 
 # Full boot + reachability
 docker compose -f compose.dev.yaml up --build -d
-curl -sf http://localhost:18080/redmine/login && echo OK
+curl -sf http://localhost:8080/redmine/login && echo OK
 ```

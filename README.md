@@ -81,7 +81,7 @@ RedmineDocker/
 bash scripts/generate-secrets.sh                 # ./secrets/*.txt を生成
 docker compose -f compose.dev.yaml up --build -d  # 初回ビルドは重めです（プラグインと webpack の構築）
 # その後、転送ポートを開きます:
-#   http://localhost/redmine/   (初期ログイン: admin / admin)
+#   http://localhost:8080/redmine/   (初期ログイン: admin / admin)
 ```
 
 `compose.dev.yaml` は名前付きボリュームを使うため、`docker compose down` してもデータは残ります。
@@ -93,8 +93,12 @@ docker compose -f compose.dev.yaml up --build -d  # 初回ビルドは重めで�
 
 1. AlmaLinux9 ホスト上の `/opt/redmine/containers` にこのリポジトリをクローンします。
 2. `bash scripts/generate-secrets.sh` を実行し、シークレットを登録します。
-   `podman secret create db_password secrets/db_password.txt` と
-   `podman secret create secret_key_base secrets/secret_key_base.txt` を実行します。
+```
+podman secret create db_password secrets/db_password.txt
+podman secret create secret_key_base secrets/secret_key_base.txt
+```
+登録確認
+> podman secret ls
 3. イメージをビルドし Quadlet ユニットを導入します。詳細は `docs/Setup.md` を参照してください。
 
 ---

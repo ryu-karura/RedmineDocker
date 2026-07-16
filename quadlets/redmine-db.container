@@ -26,11 +26,13 @@ Environment=POSTGRES_PASSWORD_FILE=/run/secrets/db_password
 Secret=db_password,type=mount,target=db_password
 
 # redmine データルート配下にデータディレクトリを永続化します (SELinux relabel は :Z)。
-Volume=/opt/redmine/data/postgres/18:/var/lib/postgresql/data:Z
+# PostgreSQL 18+ イメージはメジャーバージョン別サブディレクトリ形式を使うため、
+# /var/lib/postgresql/data ではなく /var/lib/postgresql 全体を単一マウントします
+# (PGDATA はイメージのデフォルト /var/lib/postgresql/18/docker のままにします)。
+Volume=/opt/redmine/data/postgres/18:/var/lib/postgresql:Z
 
 Timezone=Asia/Tokyo
 
-Environment=PGDATA=/var/lib/postgresql/data
 HealthCmd=pg_isready -U redmine -h localhost -d redmine -q
 HealthInterval=10s
 HealthTimeout=5s

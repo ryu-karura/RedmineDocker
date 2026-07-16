@@ -4,9 +4,9 @@
   "features": {
     "ghcr.io/devcontainers/features/docker-in-docker:2": {}
   },
-  "forwardPorts": [80],
+  "forwardPorts": [8080],
   "portsAttributes": {
-    "80": {
+    "8080": {
       "label": "Redmine (Apache + Puma in redmine-web)",
       "onAutoForward": "notify"
     }

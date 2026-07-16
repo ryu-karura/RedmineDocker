@@ -14,7 +14,16 @@ FROM docker.io/postgis/postgis:18-3.6
 
 ENV POSTGRES_DB=redmine
 ENV POSTGRES_USER=redmine
-ENV POSTGRES_INITDB_ARGS="--auth-host=scram-sha-256 --auth-local=peer --encoding=UTF8 --locale=C.UTF-8"
+# NOTE: local (Unix-socket) auth must stay password-based, not "peer". The
+# upstream docker-entrypoint.sh runs `initdb --username="$POSTGRES_USER"` and
+# then drives its own setup (CREATE DATABASE, our init-redmine.sh, etc.) via
+# `psql --username redmine` over the local socket while the OS process user is
+# always "postgres" — "peer" auth requires those to match, so it rejects every
+# local connection (including the entrypoint's own bootstrap) with "Peer
+# authentication failed for user \"redmine\"", and POSTGRES_DB never gets
+# created. scram-sha-256 works locally too because PGPASSWORD is exported by
+# the entrypoint before it runs any setup SQL.
+ENV POSTGRES_INITDB_ARGS="--auth-host=scram-sha-256 --auth-local=scram-sha-256 --encoding=UTF8 --locale=C.UTF-8"
 
 # Ensure the PostGIS extensions required by the redmine_gtt plugin are present
 # in the Redmine database. The upstream postgis image already enables them

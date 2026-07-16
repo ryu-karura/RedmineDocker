@@ -73,12 +73,14 @@ log "Rendering config/database.yml (postgis adapter) ..."
 # shellcheck disable=SC2016
 envsubst '${REDMINE_DB_HOST} ${REDMINE_DB_NAME} ${REDMINE_DB_USER} ${REDMINE_DB_PASSWORD}' \
     < config/database.yml.tmpl > config/database.yml
+chown redmine:redmine config/database.yml
 chmod 640 config/database.yml
 
 log "Rendering config/configuration.yml ..."
 # shellcheck disable=SC2016
 envsubst '${SMTP_HOST} ${SMTP_PORT} ${SMTP_USER} ${SMTP_PASSWORD}' \
     < config/configuration.yml.tmpl > config/configuration.yml
+chown redmine:redmine config/configuration.yml
 chmod 640 config/configuration.yml
 
 # ── 3. Wait for PostgreSQL ────────────────────────────────────────────────────

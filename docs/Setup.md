@@ -26,8 +26,13 @@ docker compose -f compose.dev.yaml up --build -d
 docker compose -f compose.dev.yaml logs -f redmine-web
 
 # 4. アプリケーションを開く
-#    http://localhost/redmine/     (初期ログイン: admin / admin)
+#    http://localhost:8080/redmine/     (初期ログイン: admin / admin)
 ```
+
+rootless Podman/Docker は特権ポート (<1024) への bind にホスト側の準備
+（`CAP_NET_BIND_SERVICE` の付与や `net.ipv4.ip_unprivileged_port_start` の変更）を
+要求するため、ホスト準備なしで動かせる開発環境ではホスト側ポートを 8080 にしています
+（本番の Quadlet ユニットはホスト側で 127.0.0.1:80 を使用します）。
 
 `docker compose -f compose.dev.yaml down` で停止できます（名前付きボリュームは保持されます）。`down -v` を指定するとデータも破棄されます。
 
