@@ -239,6 +239,10 @@ Start/stop order is enforced by `Requires=`/`After=` in the units:
   (`Design.md`, `Setup.md`, `Manual.md`), and the comment blocks inside the
   `quadlets/*.container` units. When editing those, keep them in Japanese and
   consistent with the existing tone.
+- **`.github/copilot-instructions.md` is a pointer, not a second source of
+  truth.** It exists only so GitHub Copilot picks up repo instructions; it
+  must keep referring here rather than restating guidance. If AI-assistant
+  guidance changes, edit this file — never fork content into that one.
 - When you change architecture, versions, ports, plugin lists, or workflows,
   update the affected docs in the same change: `docs/Design.md` (architecture),
   `docs/Setup.md` (install), `docs/Manual.md` (operations), `README.md`
