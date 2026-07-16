@@ -61,12 +61,12 @@ rootless Podman は特権ポート (<1024) への bind にホスト側の準備�
 # 1. シークレットファイルを生成
 bash scripts/generate-secrets.sh
 
-# 2. 2 コンテナをビルドして起動
-docker compose -f compose.dev.yaml up --build -d
+# 2. 2 コンテナをビルドして起動 (Codespaces 用 80 公開オーバーライドを併用)
+docker compose -f compose.dev.yaml -f compose.codespaces.yaml up --build -d
 
-# 3. ポート 8080 が自動フォワードされます (devcontainer.json の forwardPorts)。
-#    表示される通知、または "Ports" タブから開きます。
-#    http://localhost:8080/redmine/     (初期ログイン: admin / admin)
+# 3. ポート 80 が自動フォワードされます (devcontainer.json の forwardPorts)。
+#    "Ports" タブで Port 80 の Visibility を Public にすると外部公開できます。
+#    http://localhost/redmine/     (初期ログイン: admin / admin)
 ```
 
 開発環境 A (WSL) との違い: Codespaces は実 Docker Engine（docker-in-docker）で動作しますが、WSL 版は Podman 上で `docker` CLI をエミュレートして動作します。`compose.dev.yaml` はどちらでも同じファイルを使いますが、ビルド時間やヘルスチェックのタイミングがわずかに異なることがあります。

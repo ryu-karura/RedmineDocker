@@ -94,7 +94,7 @@ mounting a volume.
 
 ## Development workflow (Docker Compose: WSL or Codespaces)
 
-Same commands on both paths:
+WSL (Development A):
 
 ```bash
 bash scripts/generate-secrets.sh                    # creates ./secrets/*.txt (git-ignored)
@@ -103,14 +103,23 @@ docker compose -f compose.dev.yaml logs -f redmine-web   # watch migrations run
 # Open http://localhost:8080/redmine/   (initial login: admin / admin)
 ```
 
+Codespaces (Development B, external/public via port 80):
+
+```bash
+bash scripts/generate-secrets.sh
+docker compose -f compose.dev.yaml -f compose.codespaces.yaml up --build -d
+docker compose -f compose.dev.yaml -f compose.codespaces.yaml logs -f redmine-web
+# Open http://localhost/redmine/   (initial login: admin / admin)
+```
+
 - `docker compose ... down` keeps data (named volumes `pgdata`, `redmine_files`);
   `down -v` destroys it.
 - **Development A (WSL)**: requires `systemd=true` in `/etc/wsl.conf` (needed
   later if this box is also used to rehearse Production, below) and rootless
   Podman; `docker`/`docker compose` are an alias emulating Podman.
 - **Development B (Codespaces)**: the dev container (`.devcontainer/`)
-  provisions real docker-in-docker and installs `shellcheck`; port **8080**
-  (not 80) is auto-forwarded per `devcontainer.json`'s `forwardPorts`.
+  provisions real docker-in-docker and installs `shellcheck`; `compose.codespaces.yaml`
+  overrides the web publish to host port **80** (all interfaces) for forwarding/public access.
 
 ## Production workflow (rootless Podman + Quadlets)
 
@@ -179,7 +188,8 @@ Start/stop order is enforced by `Requires=`/`After=` in the units:
   (`CAP_NET_BIND_SERVICE` or `net.ipv4.ip_unprivileged_port_start`), and the
   dev compose file is meant to run with **no host prep**. Production's Quadlet
   unit keeps host port 80 and expects that prep to be done once during setup
-  (see `docs/Setup.md`).
+  (see `docs/Setup.md`). In Codespaces, use `compose.codespaces.yaml` as an
+  additional override when you need forwarded/public host port 80.
 - **PostgreSQL 18+ images changed their data-directory layout.** They expect a
   single volume mounted at `/var/lib/postgresql` (the image manages a
   version-specific subdirectory under it, e.g. `/var/lib/postgresql/18/docker`)
