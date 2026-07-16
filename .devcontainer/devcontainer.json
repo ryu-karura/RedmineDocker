@@ -1,13 +1,13 @@
 {
-  "name": "hwins RedmineDocker Development",
+  "name": "redmine RedmineDocker Development",
   "image": "mcr.microsoft.com/devcontainers/base:ubuntu-24.04",
   "features": {
     "ghcr.io/devcontainers/features/docker-in-docker:2": {}
   },
-  "forwardPorts": [18080],
+  "forwardPorts": [80],
   "portsAttributes": {
-    "18080": {
-      "label": "Redmine (Apache + Puma in hwins-redmine)",
+    "80": {
+      "label": "Redmine (Apache + Puma in redmine-web)",
       "onAutoForward": "notify"
     }
   },

@@ -1,23 +1,23 @@
-# quadlets/hwins-db.container
+# quadlets/redmine-db.container
 #
-# hwins-db 用の Podman Quadlet ユニットです: PostgreSQL 18 + PostGIS 3.6。
-# /etc/containers/systemd/hwins-db.container に配置し、次を実行します:
-#   systemctl daemon-reload && systemctl start hwins-db
+# redmine-db 用の Podman Quadlet ユニットです: PostgreSQL 18 + PostGIS 3.6。
+# /etc/containers/systemd/redmine-db.container に配置し、次を実行します:
+#   systemctl daemon-reload && systemctl start redmine-db
 #
 # データベースパスワードは Podman シークレットとして提供されます
-# （一度だけ: podman secret create db_password /opt/hwins/containers/secrets/db_password.txt）。
+# （一度だけ: podman secret create db_password /opt/redmine/containers/secrets/db_password.txt）。
 # ポート 5432 は意図的に公開しません。
 
 [Unit]
-Description=hwins Redmine データベース (PostgreSQL 18 + PostGIS 3.6)
-Documentation=file:///opt/hwins/containers/docs/Design.md
+Description=redmine Redmine データベース (PostgreSQL 18 + PostGIS 3.6)
+Documentation=file:///opt/redmine/containers/docs/Design.md
 After=network-online.target
 Wants=network-online.target
 
 [Container]
-Image=localhost/hwins-db:18-3.6
-ContainerName=hwins-db
-Network=hwins-net
+Image=localhost/redmine-db:18-3.6
+ContainerName=redmine-db
+Network=redmine-net
 
 # Redmine のロール / データベースはこれらの変数からイメージ側で作成されます。
 Environment=POSTGRES_DB=redmine
@@ -25,8 +25,8 @@ Environment=POSTGRES_USER=redmine
 Environment=POSTGRES_PASSWORD_FILE=/run/secrets/db_password
 Secret=db_password,type=mount,target=db_password
 
-# hwins データルート配下にデータディレクトリを永続化します (SELinux relabel は :Z)。
-Volume=/opt/hwins/data/postgres/18:/var/lib/postgresql:Z
+# redmine データルート配下にデータディレクトリを永続化します (SELinux relabel は :Z)。
+Volume=/opt/redmine/data/postgres/18:/var/lib/postgresql:Z
 
 Timezone=Asia/Tokyo
 

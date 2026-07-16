@@ -1,4 +1,4 @@
-# hwins-redmine: Redmine 6.1.3 (official image) + full plugin/theme stack
+# redmine-web: Redmine 6.1.3 (official image) + full plugin/theme stack
 #
 # Base image: docker.io/library/redmine:6.1.3 (bundles Ruby, Bundler, Puma and
 # all of Redmine's runtime gems — no rbenv build required).
@@ -11,7 +11,7 @@
 #
 # The application lives at /usr/src/redmine (official image layout). Apache
 # listens on TCP :80 in front of Puma (:3000) so the Redmine container can be
-# published directly on localhost:18080 while keeping Puma internal.
+# published directly on localhost:80 while keeping Puma internal.
 #
 # Sub-URI: /redmine (RAILS_RELATIVE_URL_ROOT)
 #
@@ -161,13 +161,13 @@ RUN cd ${REDMINE_HOME}/plugins/redmine_gtt \
 COPY database.yml.tmpl ${REDMINE_HOME}/config/database.yml.tmpl
 COPY configuration.yml.tmpl ${REDMINE_HOME}/config/configuration.yml.tmpl
 COPY httpd-redmine.conf /etc/apache2/conf-available/redmine-proxy.conf
-COPY entrypoint.sh /usr/local/bin/hwins-entrypoint.sh
+COPY entrypoint.sh /usr/local/bin/redmine-entrypoint.sh
 RUN a2enmod headers rewrite proxy proxy_http \
     && a2dissite 000-default || true \
     && a2enconf redmine-proxy \
-    && chmod 0755 /usr/local/bin/hwins-entrypoint.sh \
+    && chmod 0755 /usr/local/bin/redmine-entrypoint.sh \
     && chown -R redmine:redmine ${REDMINE_HOME}/config ${REDMINE_HOME}/plugins ${REDMINE_HOME}/public/themes
 
 EXPOSE 80
 
-ENTRYPOINT ["/usr/local/bin/hwins-entrypoint.sh"]
+ENTRYPOINT ["/usr/local/bin/redmine-entrypoint.sh"]

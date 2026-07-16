@@ -1,30 +1,30 @@
 #!/bin/bash
 # scripts/backup.sh
 #
-# Automated backup script for the hwins Redmine stack.
+# Automated backup script for the redmine Redmine stack.
 # Retains exactly 7 generations of backups.
 #
 # Backup scope:
 #   - PostgreSQL database: redmine (pg_dump custom format)
-#   - Uploaded files:      /opt/hwins/data/redmine/files/ (tar+gzip)
+#   - Uploaded files:      /opt/redmine/data/redmine/files/ (tar+gzip)
 #
 # Backup destinations:
-#   - DB dumps:      /opt/hwins/backup/db/
-#   - File archives: /opt/hwins/backup/files/
+#   - DB dumps:      /opt/redmine/backup/db/
+#   - File archives: /opt/redmine/backup/files/
 #
-# Runs rootless as the `hwins` user (no sudo — it drives rootless Podman).
-# Cron installation (daily at 02:00) via the hwins user's crontab (`crontab -e`):
-#   0 2 * * * /opt/hwins/containers/scripts/backup.sh >> /opt/hwins/backup/backup.log 2>&1
+# Runs rootless as the `redmine` user (no sudo — it drives rootless Podman).
+# Cron installation (daily at 02:00) via the redmine user's crontab (`crontab -e`):
+#   0 2 * * * /opt/redmine/containers/scripts/backup.sh >> /opt/redmine/backup/backup.log 2>&1
 
 set -euo pipefail
 
 # ── Configuration ──────────────────────────────────────────────────────────────
-SECRETS_DIR="${SECRETS_DIR:-/opt/hwins/containers/secrets}"
+SECRETS_DIR="${SECRETS_DIR:-/opt/redmine/containers/secrets}"
 DB_PASSWORD_FILE="${DB_PASSWORD_FILE:-${SECRETS_DIR}/db_password.txt}"
-BACKUP_DB_DIR="/opt/hwins/backup/db"
-BACKUP_FILES_DIR="/opt/hwins/backup/files"
-FILES_SOURCE_DIR="/opt/hwins/data/redmine/files"
-DB_CONTAINER="hwins-db"
+BACKUP_DB_DIR="/opt/redmine/backup/db"
+BACKUP_FILES_DIR="/opt/redmine/backup/files"
+FILES_SOURCE_DIR="/opt/redmine/data/redmine/files"
+DB_CONTAINER="redmine-db"
 DB_NAME="redmine"
 DB_USER="redmine"
 KEEP_GENERATIONS=7
@@ -67,10 +67,12 @@ backup_database() {
 
     # ── Rotate: keep only KEEP_GENERATIONS most recent backups ───────────────
     local COUNT
-    COUNT=$(ls -1 "${BACKUP_DB_DIR}/${DB_NAME}_"*.dump 2>/dev/null | wc -l)
+    COUNT=$(find "${BACKUP_DB_DIR}" -maxdepth 1 -type f -regex ".*/${DB_NAME}_[0-9]{8}_[0-9]{6}\.dump" 2>/dev/null | wc -l)
     if [ "${COUNT}" -gt "${KEEP_GENERATIONS}" ]; then
         log "  Rotating old backups (keeping ${KEEP_GENERATIONS}, found ${COUNT}) ..."
-        ls -1t "${BACKUP_DB_DIR}/${DB_NAME}_"*.dump \
+        find "${BACKUP_DB_DIR}" -maxdepth 1 -type f -regex ".*/${DB_NAME}_[0-9]{8}_[0-9]{6}\.dump" -printf '%T@ %p\n' 2>/dev/null \
+            | sort -nr \
+            | cut -d' ' -f2- \
             | tail -n +"$((KEEP_GENERATIONS + 1))" \
             | xargs rm -f
         log "  Rotation complete."
@@ -99,10 +101,12 @@ backup_files() {
 
     # ── Rotate ───────────────────────────────────────────────────────────────
     local COUNT
-    COUNT=$(ls -1 "${BACKUP_FILES_DIR}/redmine_"*.tar.gz 2>/dev/null | wc -l)
+    COUNT=$(find "${BACKUP_FILES_DIR}" -maxdepth 1 -type f -regex ".*/redmine_[0-9]{8}_[0-9]{6}\.tar\.gz" 2>/dev/null | wc -l)
     if [ "${COUNT}" -gt "${KEEP_GENERATIONS}" ]; then
         log "  Rotating old file backups (keeping ${KEEP_GENERATIONS}, found ${COUNT}) ..."
-        ls -1t "${BACKUP_FILES_DIR}/redmine_"*.tar.gz \
+        find "${BACKUP_FILES_DIR}" -maxdepth 1 -type f -regex ".*/redmine_[0-9]{8}_[0-9]{6}\.tar\.gz" -printf '%T@ %p\n' 2>/dev/null \
+            | sort -nr \
+            | cut -d' ' -f2- \
             | tail -n +"$((KEEP_GENERATIONS + 1))" \
             | xargs rm -f
         log "  Rotation complete."
@@ -115,5 +119,5 @@ backup_files
 
 # ── Summary ───────────────────────────────────────────────────────────────────
 log "Backup complete."
-log "DB backups:   $(ls -1 "${BACKUP_DB_DIR}"/*.dump 2>/dev/null | wc -l) files in ${BACKUP_DB_DIR}"
-log "File backups: $(ls -1 "${BACKUP_FILES_DIR}"/*.tar.gz 2>/dev/null | wc -l) files in ${BACKUP_FILES_DIR}"
+log "DB backups:   $(find "${BACKUP_DB_DIR}" -maxdepth 1 -type f -regex ".*/.*\.dump" 2>/dev/null | wc -l) files in ${BACKUP_DB_DIR}"
+log "File backups: $(find "${BACKUP_FILES_DIR}" -maxdepth 1 -type f -regex ".*/.*\.tar\.gz" 2>/dev/null | wc -l) files in ${BACKUP_FILES_DIR}"

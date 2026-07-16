@@ -1,19 +1,19 @@
-# /etc/logrotate.d/hwins-redmine
+# /etc/logrotate.d/redmine-web
 #
-# Log rotation configuration for the hwins Redmine stack.
+# Log rotation configuration for the redmine Redmine stack.
 # Retains logs for 60 days using daily rotation.
 #
-# Install with: sudo cp /opt/hwins/containers/logrotate/redmine /etc/logrotate.d/hwins-redmine
-# Test with:    sudo logrotate --debug /etc/logrotate.d/hwins-redmine
-# Force run:    sudo logrotate --force /etc/logrotate.d/hwins-redmine
+# Install with: sudo cp /opt/redmine/containers/logrotate/redmine /etc/logrotate.d/redmine-web
+# Test with:    sudo logrotate --debug /etc/logrotate.d/redmine-web
+# Force run:    sudo logrotate --force /etc/logrotate.d/redmine-web
 #
-# The Redmine application log is written inside the hwins-redmine container to
+# The Redmine application log is written inside the redmine-web container to
 # /usr/src/redmine/log, which is bind-mounted to the host path below. copytruncate
 # is used because the log file is held open by the Puma process in the container;
 # this avoids needing to signal the process or match its (namespaced) uid/gid.
 
 # ── Redmine application log ───────────────────────────────────────────────────
-/opt/hwins/data/redmine/log/production.log {
+/opt/redmine/data/redmine/log/production.log {
     daily
     rotate 60
     compress

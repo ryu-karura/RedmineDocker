@@ -1,4 +1,4 @@
-# containers/hwins-redmine/database.yml.tmpl
+# containers/redmine-web/database.yml.tmpl
 #
 # Redmine database configuration template, rendered by entrypoint.sh with
 # envsubst before Puma starts.
@@ -10,7 +10,7 @@
 # database.yml (that image only knows the 'postgresql' adapter).
 #
 # Substituted variables:
-#   ${REDMINE_DB_HOST}     → database container hostname (hwins-db)
+#   ${REDMINE_DB_HOST}     → database container hostname (redmine-db)
 #   ${REDMINE_DB_NAME}     → database name (redmine)
 #   ${REDMINE_DB_USER}     → database username (redmine)
 #   ${REDMINE_DB_PASSWORD} → database password (from a Docker/Podman secret)

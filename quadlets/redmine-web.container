@@ -1,29 +1,29 @@
-# quadlets/hwins-redmine.container
+# quadlets/redmine-web.container
 #
-# hwins-redmine 用の Podman Quadlet ユニットです: Redmine 6.1.3 + plugin stack (Puma :3000)。
-# /etc/containers/systemd/hwins-redmine.container に配置し、次を実行します:
-#   systemctl daemon-reload && systemctl start hwins-redmine
+# redmine-web 用の Podman Quadlet ユニットです: Redmine 6.1.3 + plugin stack (Puma :3000)。
+# /etc/containers/systemd/redmine-web.container に配置し、次を実行します:
+#   systemctl daemon-reload && systemctl start redmine-web
 #
 # DB パスワードと secret_key_base は Podman シークレットです（docs/Setup.md 参照）。
 # Apache フロントエンドが :80 で公開され、Puma はコンテナ内部の :3000 で動作します。
 # SMTP 設定（あれば）には下の EnvironmentFile を使います。
 
 [Unit]
-Description=hwins Redmine アプリケーション 6.1.3
-Documentation=file:///opt/hwins/containers/docs/Design.md
-After=network-online.target hwins-db.service
+Description=redmine Redmine アプリケーション 6.1.3
+Documentation=file:///opt/redmine/containers/docs/Design.md
+After=network-online.target redmine-db.service
 Wants=network-online.target
-Requires=hwins-db.service
+Requires=redmine-db.service
 
 [Container]
-Image=localhost/hwins-redmine:6.1.3
-ContainerName=hwins-redmine
-Network=hwins-net
-PublishPort=127.0.0.1:18080:80
+Image=localhost/redmine-web:6.1.3
+ContainerName=redmine-web
+Network=redmine-net
+PublishPort=127.0.0.1:80:80
 
 Environment=RAILS_ENV=production
 Environment=RAILS_RELATIVE_URL_ROOT=/redmine
-Environment=REDMINE_DB_HOST=hwins-db
+Environment=REDMINE_DB_HOST=redmine-db
 Environment=REDMINE_DB_NAME=redmine
 Environment=REDMINE_DB_USER=redmine
 Environment=REDMINE_DB_PASSWORD_FILE=/run/secrets/db_password
@@ -31,14 +31,14 @@ Environment=REDMINE_SECRET_KEY_BASE_FILE=/run/secrets/secret_key_base
 Environment=REDMINE_PLUGINS_MIGRATE=1
 # オプションの非シークレット設定（SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASSWORD）。
 # 先頭の '-' はファイルが存在しなくても無視するための指定です。
-EnvironmentFile=-/opt/hwins/containers/.env
+EnvironmentFile=-/opt/redmine/containers/.env
 
 Secret=db_password,type=mount,target=db_password
 Secret=secret_key_base,type=mount,target=secret_key_base
 
-# アップロードした添付ファイルとログを hwins データルート配下に永続化します。
-Volume=/opt/hwins/data/redmine/files:/usr/src/redmine/files:Z
-Volume=/opt/hwins/data/redmine/log:/usr/src/redmine/log:Z
+# アップロードした添付ファイルとログを redmine データルート配下に永続化します。
+Volume=/opt/redmine/data/redmine/files:/usr/src/redmine/files:Z
+Volume=/opt/redmine/data/redmine/log:/usr/src/redmine/log:Z
 
 Timezone=Asia/Tokyo
 
