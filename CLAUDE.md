@@ -278,10 +278,28 @@ Start/stop order is enforced by `Requires=`/`After=` in the units:
   `docs/Setup.md` (install), `docs/Manual.md` (operations), `README.md`
   (overview), and this file.
 
-## Verification (no CI / test suite)
+## Verification (no CI pipeline; one integration test script)
 
-There is no automated test suite or CI pipeline. Verify changes by exercising
-the stack:
+There is no CI pipeline, but `scripts/test-stack.sh` is a self-contained
+integration test for the dev (Compose) path — run it after any change to
+`compose.dev.yaml`, the Containerfiles, `entrypoint.sh`, or `config.ru`:
+
+```bash
+bash scripts/test-stack.sh                # build, boot, verify, tear down (destroys dev volumes)
+bash scripts/test-stack.sh --keep         # ... and leave the stack running
+bash scripts/test-stack.sh --skip-build   # reuse existing images for faster iteration
+```
+
+It rebuilds both images, boots them, and checks every boot-time bug this
+stack has actually hit once: `pg_config` on PATH, `redmine-db` creating the
+`redmine` database + PostGIS extensions without a "Peer authentication
+failed" regression, `redmine-web` free of plugin `LoadError`/permission/
+routing errors and not crash-looping, and the login page reachable both
+through Apache and directly on Puma. It only exercises **default** `.env`
+values — it does not verify that a `.env` override (`RAILS_RELATIVE_URL_ROOT`,
+`DB_NAME`, etc., see `docs/Design.md`) actually takes effect.
+
+For a quicker manual check, or when investigating a single failure:
 
 ```bash
 shellcheck scripts/*.sh                                    # lint shell
