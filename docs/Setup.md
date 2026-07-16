@@ -1,17 +1,28 @@
 # セットアップガイド — RedmineDocker (redmine スタック)
 
-このガイドでは、2 つの導入パスを説明します。
+このガイドでは、次の 3 つの環境の導入手順を説明します。
 
-- **開発環境** — Docker Compose（GitHub Codespaces または任意の Docker ホスト）。
-- **本番環境** — AlmaLinux9 / RHEL9 上の rootless Podman + systemd Quadlets。
+- **開発環境 A — WSL (AlmaLinux 9.5 以上)** — Docker Compose（rootless Podman 上で `docker` CLI をエミュレート）。
+- **開発環境 B — GitHub Codespaces** — Docker Compose（devcontainer の Docker-in-Docker）。
+- **本番環境 — RHEL 9.5 以上** — rootless Podman + systemd Quadlets。
 
-どちらも `containers/` から同じ 2 つのイメージをビルドし、オーケストレーションとデータ配置の違いだけで構成されています。
+いずれも `containers/` から同じ 2 つのイメージをビルドし、オーケストレーションとデータ配置の違いだけで構成されています。
+
+RHEL の実機がまだ用意できない場合は、本番環境と同じ Podman + Quadlets 手順を開発環境 A と同じ WSL (AlmaLinux 9.5 以上) 上でリハーサルできます。手順は本ガイド末尾の「本番相当の動作確認 (WSL)」の章を参照してください。
 
 ---
 
-## 開発環境 (Docker Compose)
+## 開発環境 A — WSL (AlmaLinux 9.5 以上)
 
-前提条件: Docker Engine + Docker Compose v2。
+前提条件:
+- WSL2 上に AlmaLinux 9.5 以上のディストリビューションを導入済みであること。
+- `/etc/wsl.conf` で systemd を有効化していること（Podman および `systemctl --user` が必要とします）。
+  ```ini
+  [boot]
+  systemd=true
+  ```
+  変更後は Windows 側で `wsl --shutdown` を実行し、ディストリビューションを再起動してください。
+- rootless Podman が導入済みであること。`docker` / `docker compose` コマンドは Podman を呼び出すエイリアスで、`docker compose` は内部で `podman-compose` を経由します。
 
 ```bash
 # 1. シークレットファイルを生成 (db_password.txt, secret_key_base.txt)
@@ -29,21 +40,44 @@ docker compose -f compose.dev.yaml logs -f redmine-web
 #    http://localhost:8080/redmine/     (初期ログイン: admin / admin)
 ```
 
-rootless Podman/Docker は特権ポート (<1024) への bind にホスト側の準備
-（`CAP_NET_BIND_SERVICE` の付与や `net.ipv4.ip_unprivileged_port_start` の変更）を
-要求するため、ホスト準備なしで動かせる開発環境ではホスト側ポートを 8080 にしています
-（本番の Quadlet ユニットはホスト側で 127.0.0.1:80 を使用します）。
+WSL2 は `localhost` へのアクセスを自動的に Windows 側へフォワードするため、追加設定なしで Windows のブラウザから `http://localhost:8080/redmine/` を開けます。
+
+rootless Podman は特権ポート (<1024) への bind にホスト側の準備（`CAP_NET_BIND_SERVICE` の付与や `net.ipv4.ip_unprivileged_port_start` の変更）を要求するため、ホスト準備なしで動かせる開発環境ではホスト側ポートを 8080 にしています（本番の Quadlet ユニットはホスト側で 127.0.0.1:80 を使用します）。
 
 `docker compose -f compose.dev.yaml down` で停止できます（名前付きボリュームは保持されます）。`down -v` を指定するとデータも破棄されます。
 
 オプション — 追加の静的プロキシコンテナは不要です。`redmine-web` イメージに組み込まれた Apache フロントエンドをそのまま使います。
+
 ---
 
-## 本番環境 (rootless Podman + Quadlets)
+## 開発環境 B — GitHub Codespaces
+
+前提条件: なし。`.devcontainer/devcontainer.json` が `docker-in-docker` フィーチャーを自動プロビジョニングするため、開発環境 A のような systemd 有効化や rootless Podman の準備は不要です。
+
+```bash
+# Codespace 起動時に .devcontainer/post-create.sh が自動実行され、
+# shellcheck の導入と docker / docker compose の疎通確認を行います。
+
+# 1. シークレットファイルを生成
+bash scripts/generate-secrets.sh
+
+# 2. 2 コンテナをビルドして起動
+docker compose -f compose.dev.yaml up --build -d
+
+# 3. ポート 8080 が自動フォワードされます (devcontainer.json の forwardPorts)。
+#    表示される通知、または "Ports" タブから開きます。
+#    http://localhost:8080/redmine/     (初期ログイン: admin / admin)
+```
+
+開発環境 A (WSL) との違い: Codespaces は実 Docker Engine（docker-in-docker）で動作しますが、WSL 版は Podman 上で `docker` CLI をエミュレートして動作します。`compose.dev.yaml` はどちらでも同じファイルを使いますが、ビルド時間やヘルスチェックのタイミングがわずかに異なることがあります。
+
+---
+
+## 本番環境 (RHEL 9.5 以上 / rootless Podman + Quadlets)
 
 このスタックは `redmine` という非特権ユーザーで **rootless** で動作します。Podman の状態、シークレット、Quadlet ユニットはすべてユーザー単位で管理し、TLS 終端用のホスト Apache のみシステムサービスです。以下の手順は `sudo` 付きでない限り `redmine` ユーザーで実行します。
 
-前提条件: AlmaLinux9 / RHEL9、Podman 4.9+、`redmine` ユーザー、TLS 終端用のホスト Apache。
+前提条件: RHEL 9.5 以上（同等の互換ディストリビューションでも同一手順で動作します）、Podman 4.9+、`redmine` ユーザー、TLS 終端用のホスト Apache。
 
 ### 1. データルートを用意する (初回のみ、root 権限が必要)
 
@@ -123,6 +157,36 @@ sudo systemctl reload httpd
 
 ---
 
+## 本番相当の動作確認 (WSL: AlmaLinux 9.5 以上 で本番手順を検証する)
+
+RHEL の実機がまだ用意できない場合、開発環境 A で使っているのと同じ WSL (AlmaLinux 9.5 以上) 上で、上の「本番環境」章の手順 1〜7 を **そのまま** 実行することで rootless Podman + systemd Quadlets 構成をリハーサルできます。イメージ・環境変数・シークレット・ヘルスチェックは開発/本番で共通なので、手順自体に変更はありません。ここでは WSL 特有の前提条件と、開発環境 A との切り替え手順のみを補足します。
+
+### WSL 特有の前提条件
+
+- 開発環境 A と同じく `/etc/wsl.conf` に `[boot] systemd=true` が必要です（`systemctl --user`、`loginctl enable-linger` が動作するため）。未設定の場合は本番環境の章の手順がすべて失敗します。
+- ホスト Apache (TLS 終端) の証明書は、実ドメインがなければ自己署名証明書で代用してください。動作確認が目的であれば `curl -k` で疎通確認できます。
+- WSL2 は `localhost` へのアクセスを自動的に Windows 側へフォワードするため、`redmine-web` がホスト側 `127.0.0.1:80` に公開されていれば、Windows から `https://localhost/redmine/`（ホスト Apache 経由）で到達できます。
+
+### 開発環境 A ⇄ 本番相当環境の切り替え
+
+同じ WSL ディストリビューション上で両方を試す場合、コンテナ名 (`redmine-db` / `redmine-web`) とネットワーク名 (`redmine-net`) が Compose と Quadlet の間で共通のため、**同時には起動できません**。切り替え前に必ず片方を停止してください。
+
+開発 (Compose) → 本番相当 (Quadlets):
+```bash
+docker compose -f compose.dev.yaml down   # 名前付きボリュームは保持されます
+# 続けて上の「本番環境」章の手順 1〜7 を実行します
+```
+
+本番相当 (Quadlets) → 開発 (Compose):
+```bash
+systemctl --user stop redmine-web redmine-db
+docker compose -f compose.dev.yaml up --build -d
+```
+
+データは共有されません。開発環境 A は名前付きボリューム (`pgdata`, `redmine_files`) を使い、本番相当環境は `/opt/redmine/data` 配下の bind mount を使うため、切り替えてもデータは引き継がれません。
+
+---
+
 ## トラブルシューティング
 
 | 症状 | 確認点 |
@@ -133,3 +197,5 @@ sudo systemctl reload httpd
 | Apache フロントエンドが起動しない | `redmine-web` コンテナのログと `apache2ctl -k start` の結果を確認する |
 | ビルドが `git clone ... <plugin>` で失敗する（`Remote branch ... not found`） | 固定したタグが upstream に存在するか `git ls-remote --tags <url>` で確認する（`v` 接頭辞はリポジトリごとに異なる）。フォールバックなしの `--branch` は、存在しないタグを指定するとビルドが即失敗する |
 | `bundle install` が `pg` のビルドで失敗する / `pg_config` が見つからない | redmine-web イメージに `libpq-dev`（`/usr/bin/pg_config` を提供）が入っているか確認する。`postgresql-client` だけでは `pg_config` は入らず、`postgis` アダプタが使う `pg` gem のネイティブ拡張をビルドできない |
+| `systemctl --user` が `Failed to connect to bus` 等で失敗する（WSL） | `/etc/wsl.conf` の `[boot] systemd=true` が設定されているか、設定後に `wsl --shutdown` で再起動したか確認する |
+| `docker compose up` や `systemctl --user start` が "name is already in use" 等で失敗する | 開発環境と本番相当環境を同じ WSL 上で併用しようとしていないか確認する（コンテナ名/ネットワーク名が衝突するため、片方を停止してから切り替える。上の「開発環境 A ⇄ 本番相当環境の切り替え」を参照） |

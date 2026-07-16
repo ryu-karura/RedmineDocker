@@ -1,6 +1,6 @@
 # RedmineDocker (redmine スタック)
 
-**RHEL9 / AlmaLinux9 上で rootless Podman を使う Redmine 6.1 のコンテナ基盤**
+**RHEL 9.5 以上（本番）/ WSL AlmaLinux 9.5 以上・GitHub Codespaces（開発）上で rootless Podman を使う Redmine 6.1 のコンテナ基盤**
 
 このリポジトリでは、運用時は systemd Quadlet で管理する 2 コンテナ構成の Redmine 基盤を構築・展開・運用し、開発時は Docker Compose で動かします。設計は [redmine.jp の Docker ガイド](https://blog.redmine.jp/articles/6_1/redmine-6_1-docker/) を踏襲し、公式 Redmine イメージと Docker/Podman シークレットを用いた 2 層構成へ拡張したものです。
 
@@ -36,7 +36,7 @@
 
 | コンポーネント | 値 |
 |---------------|----|
-| OS (ホスト/WSL) | AlmaLinux9 / RHEL9 |
+| OS | 本番: RHEL9.5+ / 開発 A: WSL上のAlmaLinux9.5+ / 開発 B: Codespaces |
 | Redmine | 6.1.3 (`docker.io/library/redmine:6.1.3`) |
 | PostgreSQL | 18 + PostGIS 3.6 (`postgis/postgis:18-3.6`) |
 | Web 層 | Apache httpd 2.4 (redmine-web 内蔵) |
@@ -75,7 +75,11 @@ RedmineDocker/
 
 ---
 
-## クイックスタート (開発 / Codespaces)
+## クイックスタート (開発)
+
+開発環境は 2 つあります。手順の細部（前提条件、systemd 設定など）は `docs/Setup.md` を参照してください。
+
+**開発環境 A — WSL (AlmaLinux 9.5 以上)**、**開発環境 B — GitHub Codespaces** のどちらも同じコマンドで起動します。
 
 ```bash
 bash scripts/generate-secrets.sh                 # ./secrets/*.txt を生成
@@ -86,12 +90,15 @@ docker compose -f compose.dev.yaml up --build -d  # 初回ビルドは重めで�
 
 `compose.dev.yaml` は名前付きボリュームを使うため、`docker compose down` してもデータは残ります。
 
-ネットワーク接続のあるホストでは、Apache フロントエンドが組み込まれた `redmine-web` イメージをそのままビルド・起動できます。
+WSL は Podman 上で `docker` CLI をエミュレートして動作し、Codespaces は devcontainer の docker-in-docker（実 Docker Engine）で動作します。コマンドは共通ですが、実行環境の違いは `docs/Setup.md` を参照してください。
+
 ---
 
 ## クイックスタート (本番 / Podman + Quadlets)
 
-1. AlmaLinux9 ホスト上の `/opt/redmine/containers` にこのリポジトリをクローンします。
+本番環境は RHEL 9.5 以上を想定しています。実機がまだ用意できない場合は、開発環境 A と同じ WSL (AlmaLinux 9.5 以上) 上で以下と同じ手順をリハーサルできます（`docs/Setup.md` の「本番相当の動作確認 (WSL)」を参照）。
+
+1. RHEL 9.5 以上のホスト上の `/opt/redmine/containers` にこのリポジトリをクローンします。
 2. `bash scripts/generate-secrets.sh` を実行し、シークレットを登録します。
 ```
 podman secret create db_password secrets/db_password.txt

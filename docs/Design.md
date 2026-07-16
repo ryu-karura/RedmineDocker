@@ -6,7 +6,9 @@ RedmineDocker は 2 つのコンテナが連携して Redmine 6.1.3 を動作さ
 
 | 項目 | 値 |
 |------|----|
-| WSL ディストリビューション | `AlmaLinux9` |
+| 本番 OS | RHEL 9.5 以上 |
+| 開発 A / 本番相当確認 OS | WSL ディストリビューション `AlmaLinux 9.5 以上` |
+| 開発 B OS | GitHub Codespaces（Ubuntu, devcontainer） |
 | Linux 管理ユーザー | `redmine` |
 | Linux ルートディレクトリ | `/opt/redmine` |
 | Rootless Podman ネットワーク | `redmine-net` |

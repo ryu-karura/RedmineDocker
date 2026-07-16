@@ -5,7 +5,8 @@ Guidance for AI assistants working in this repository.
 ## What this repository is
 
 RedmineDocker (the **redmine stack**) is container infrastructure for running
-**Redmine 6.1.3** on RHEL9 / AlmaLinux9. There is **no Redmine application
+**Redmine 6.1.3** on RHEL 9.5+ in production (rehearsable on WSL AlmaLinux
+9.5+; see the three paths below). There is **no Redmine application
 source code here** — Redmine, its Ruby/Puma runtime, and its gems come from the
 official `redmine:6.1.3` image. This repo is the *packaging and operations*
 layer around it: Containerfiles, rendered config templates, an entrypoint,
@@ -14,11 +15,23 @@ systemd Quadlet units, host Apache config, and operational shell scripts.
 The design follows the [redmine.jp 6.1 Docker guide](https://blog.redmine.jp/articles/6_1/redmine-6_1-docker/),
 extended into a **two-tier** stack with file-based secrets.
 
-Two orchestration paths share the **same two images** and only differ in
-orchestration + data placement:
-- **Development** — Docker Compose (`compose.dev.yaml`), named volumes.
-- **Production** — rootless Podman + systemd Quadlets (`quadlets/`), host bind
-  mounts under `/opt/redmine`.
+Three paths share the **same two images** and only differ in orchestration +
+data placement:
+- **Development A — WSL (AlmaLinux 9.5+)** — Docker Compose
+  (`compose.dev.yaml`), named volumes, Podman emulating `docker`.
+- **Development B — GitHub Codespaces** — Docker Compose
+  (`compose.dev.yaml`), named volumes, real Docker Engine via the devcontainer's
+  docker-in-docker feature.
+- **Production — RHEL 9.5+** — rootless Podman + systemd Quadlets
+  (`quadlets/`), host bind mounts under `/opt/redmine`.
+
+When no RHEL host is available, the production (Quadlets) path can be
+rehearsed on the same WSL (AlmaLinux 9.5+) box used for Development A — see
+`docs/Setup.md`, "本番相当の動作確認 (WSL)". It's the identical procedure, not
+a fourth variant; the only WSL-specific requirement is `systemd=true` in
+`/etc/wsl.conf`, and it cannot run at the same time as Development A on that
+box (both use the container names `redmine-db`/`redmine-web` and the network
+`redmine-net` — stop one before starting the other).
 
 ## Architecture (two tiers)
 
@@ -49,6 +62,7 @@ each other by name on the `redmine-net` bridge network. Public URL:
 RedmineDocker/
 ├── README.md                    # overview (Japanese)
 ├── docs/                        # Design.md / Setup.md / Manual.md (Japanese)
+├── .github/copilot-instructions.md # pointer to this file, no duplicated content
 ├── containers/
 │   ├── redmine-db/                # Containerfile + init-redmine.sh (PostGIS ext)
 │   └── redmine-web/           # Containerfile, entrypoint.sh, httpd-redmine.conf, *.yml.tmpl
@@ -66,10 +80,10 @@ RedmineDocker/
 
 | Component | Value |
 |-----------|-------|
-| Host OS | AlmaLinux9 / RHEL9 |
+| Host OS | Production: RHEL 9.5+ / Dev A: WSL AlmaLinux 9.5+ / Dev B: Codespaces |
 | Redmine | 6.1.3 (`docker.io/library/redmine:6.1.3`) |
 | PostgreSQL / PostGIS | 18 + 3.6 (`postgis/postgis:18-3.6`) |
-| Web tier | Apache httpd 2.4 (digest-pinned) |
+| Web tier | Apache httpd 2.4 (Debian `apt` package baked into `redmine-web`, not version-pinned) |
 | Node.js / Yarn | Debian `nodejs` + Yarn 1.22.22 (for `redmine_gtt` webpack build) |
 
 `redmine-web` bakes in 13 plugins (see the numbered list in
@@ -78,7 +92,9 @@ plugins/themes are `git clone`d **at build time** so they are reproducible in
 the image — update a plugin by editing the Containerfile and rebuilding, not by
 mounting a volume.
 
-## Development workflow (Docker Compose / Codespaces)
+## Development workflow (Docker Compose: WSL or Codespaces)
+
+Same commands on both paths:
 
 ```bash
 bash scripts/generate-secrets.sh                    # creates ./secrets/*.txt (git-ignored)
@@ -89,8 +105,12 @@ docker compose -f compose.dev.yaml logs -f redmine-web   # watch migrations run
 
 - `docker compose ... down` keeps data (named volumes `pgdata`, `redmine_files`);
   `down -v` destroys it.
-- The dev container (`.devcontainer/`) provisions docker-in-docker and installs
-  `shellcheck`; port 80 is auto-forwarded for the local development endpoint.
+- **Development A (WSL)**: requires `systemd=true` in `/etc/wsl.conf` (needed
+  later if this box is also used to rehearse Production, below) and rootless
+  Podman; `docker`/`docker compose` are an alias emulating Podman.
+- **Development B (Codespaces)**: the dev container (`.devcontainer/`)
+  provisions real docker-in-docker and installs `shellcheck`; port **8080**
+  (not 80) is auto-forwarded per `devcontainer.json`'s `forwardPorts`.
 
 ## Production workflow (rootless Podman + Quadlets)
 
