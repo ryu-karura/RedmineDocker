@@ -1,19 +1,19 @@
 #!/bin/bash
 # scripts/backup.sh
 #
-# Automated backup script for the redmine Redmine stack.
-# Retains exactly 7 generations of backups.
+# redmine スタック向け自動バックアップスクリプトです。
+# バックアップ世代は常に 7 世代保持します。
 #
-# Backup scope:
-#   - PostgreSQL database: redmine (pg_dump custom format)
-#   - Uploaded files:      /opt/redmine/data/redmine/files/ (tar+gzip)
+# バックアップ対象:
+#   - PostgreSQL データベース: redmine（pg_dump カスタム形式）
+#   - 添付ファイル: /opt/redmine/data/redmine/files/（tar+gzip）
 #
-# Backup destinations:
-#   - DB dumps:      /opt/redmine/backup/db/
-#   - File archives: /opt/redmine/backup/files/
+# 出力先:
+#   - DB ダンプ:      /opt/redmine/backup/db/
+#   - ファイルアーカイブ: /opt/redmine/backup/files/
 #
-# Runs rootless as the `redmine` user (no sudo — it drives rootless Podman).
-# Cron installation (daily at 02:00) via the redmine user's crontab (`crontab -e`):
+# rootless `redmine` ユーザーで実行します（sudo 不要、rootless Podman を直接利用）。
+# Cron 設定例（毎日 02:00、redmine ユーザーの crontab: `crontab -e`）:
 #   0 2 * * * /opt/redmine/containers/scripts/backup.sh >> /opt/redmine/backup/backup.log 2>&1
 
 set -euo pipefail
@@ -25,7 +25,7 @@ if [ -f "${ROOT_DIR}/.env" ]; then
     set -a; source "${ROOT_DIR}/.env"; set +a
 fi
 
-# ── Configuration ──────────────────────────────────────────────────────────────
+# ── 設定値 ─────────────────────────────────────────────────────────────────────
 SECRETS_DIR="${SECRETS_DIR:-/opt/redmine/containers/secrets}"
 DB_PASSWORD_FILE="${DB_PASSWORD_FILE:-${SECRETS_DIR}/db_password.txt}"
 BACKUP_DB_DIR="/opt/redmine/backup/db"
@@ -39,28 +39,28 @@ KEEP_GENERATIONS=7
 TIMESTAMP=$(date -u '+%Y%m%d_%H%M%S')
 LOG_PREFIX="[$(date -u '+%Y-%m-%dT%H:%M:%SZ')] [backup]"
 
-# ── Helper functions ───────────────────────────────────────────────────────────
+# ── ヘルパー関数 ────────────────────────────────────────────────────────────────
 log()  { echo "${LOG_PREFIX} $*"; }
 die()  { echo "${LOG_PREFIX} ERROR: $*" >&2; exit 1; }
 warn() { echo "${LOG_PREFIX} WARNING: $*" >&2; }
 
-# ── Load the database password (Podman/Docker secret file) ────────────────────
+# ── DB パスワード読込（Podman/Docker シークレットファイル） ─────────────────
 [ -r "${DB_PASSWORD_FILE}" ] || die "DB password file not readable: ${DB_PASSWORD_FILE}"
 DB_PASSWORD="$(cat "${DB_PASSWORD_FILE}")"
 [ -n "${DB_PASSWORD}" ] || die "DB password file is empty: ${DB_PASSWORD_FILE}"
 
-# ── Verify the database container is running ──────────────────────────────────
+# ── DB コンテナ稼働確認 ─────────────────────────────────────────────────────────
 if ! podman container inspect "${DB_CONTAINER}" --format '{{.State.Status}}' 2>/dev/null | grep -q 'running'; then
     die "Container '${DB_CONTAINER}' is not running. Cannot perform backup."
 fi
 
-# ── Create backup directories if needed ───────────────────────────────────────
+# ── 必要に応じてバックアップディレクトリ作成 ─────────────────────────────────
 mkdir -p "${BACKUP_DB_DIR}" "${BACKUP_FILES_DIR}"
 chmod 750 "${BACKUP_DB_DIR}" "${BACKUP_FILES_DIR}"
 
 log "Starting backup (timestamp: ${TIMESTAMP}) ..."
 
-# ── Function: backup the database ─────────────────────────────────────────────
+# ── 関数: DB バックアップ ───────────────────────────────────────────────────────
 backup_database() {
     local OUTFILE="${BACKUP_DB_DIR}/${DB_NAME}_${TIMESTAMP}.dump"
 
@@ -73,7 +73,7 @@ backup_database() {
     SIZE=$(du -sh "${OUTFILE}" | cut -f1)
     log "  Database backup complete: ${SIZE}"
 
-    # ── Rotate: keep only KEEP_GENERATIONS most recent backups ───────────────
+    # ── ローテーション: 新しい KEEP_GENERATIONS 件だけ保持 ───────────────────
     local COUNT
     COUNT=$(find "${BACKUP_DB_DIR}" -maxdepth 1 -type f -regex ".*/${DB_NAME}_[0-9]{8}_[0-9]{6}\.dump" 2>/dev/null | wc -l)
     if [ "${COUNT}" -gt "${KEEP_GENERATIONS}" ]; then
@@ -87,7 +87,7 @@ backup_database() {
     fi
 }
 
-# ── Function: backup uploaded files ───────────────────────────────────────────
+# ── 関数: 添付ファイルバックアップ ────────────────────────────────────────────
 backup_files() {
     local OUTFILE="${BACKUP_FILES_DIR}/${FILES_ARCHIVE_PREFIX}_${TIMESTAMP}.tar.gz"
 
@@ -107,7 +107,7 @@ backup_files() {
     SIZE=$(du -sh "${OUTFILE}" | cut -f1)
     log "  Files backup complete: ${SIZE}"
 
-    # ── Rotate ───────────────────────────────────────────────────────────────
+    # ── ローテーション ───────────────────────────────────────────────────────
     local COUNT
     COUNT=$(find "${BACKUP_FILES_DIR}" -maxdepth 1 -type f -regex ".*/${FILES_ARCHIVE_PREFIX}_[0-9]{8}_[0-9]{6}\.tar\.gz" 2>/dev/null | wc -l)
     if [ "${COUNT}" -gt "${KEEP_GENERATIONS}" ]; then
@@ -121,11 +121,11 @@ backup_files() {
     fi
 }
 
-# ── Perform backups ────────────────────────────────────────────────────────────
+# ── バックアップ実行 ───────────────────────────────────────────────────────────
 backup_database
 backup_files
 
-# ── Summary ───────────────────────────────────────────────────────────────────
+# ── サマリー ───────────────────────────────────────────────────────────────────
 log "Backup complete."
 log "DB backups:   $(find "${BACKUP_DB_DIR}" -maxdepth 1 -type f -regex ".*/.*\.dump" 2>/dev/null | wc -l) files in ${BACKUP_DB_DIR}"
 log "File backups: $(find "${BACKUP_FILES_DIR}" -maxdepth 1 -type f -regex ".*/.*\.tar\.gz" 2>/dev/null | wc -l) files in ${BACKUP_FILES_DIR}"

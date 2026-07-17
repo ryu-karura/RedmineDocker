@@ -1,19 +1,19 @@
 #!/bin/bash
 # scripts/restore.sh
 #
-# Disaster recovery restore script for the redmine Redmine stack.
+# redmine スタック向け災害復旧リストアスクリプトです。
 #
-# Runs rootless as the `redmine` user (no sudo — Podman and the systemd --user
-# units are per-user).
+# rootless `redmine` ユーザーで実行します（sudo 不要。Podman と
+# systemd --user ユニットはユーザー単位で管理）。
 #
-# Usage:
+# 使い方:
 #   bash /opt/redmine/containers/scripts/restore.sh <db_dump> <files_archive>
 #
-# Arguments:
-#   db_dump       — path to a .dump file created by backup.sh
-#   files_archive — path to a .tar.gz file created by backup.sh
+# 引数:
+#   db_dump       — backup.sh が作成した .dump ファイル
+#   files_archive — backup.sh が作成した .tar.gz ファイル
 #
-# Example:
+# 実行例:
 #   bash scripts/restore.sh \
 #       /opt/redmine/backup/db/redmine_20260620_020000.dump \
 #       /opt/redmine/backup/files/redmine_20260620_020000.tar.gz
@@ -49,7 +49,7 @@ usage() {
 DB_DUMP="$1"
 FILES_ARCHIVE="$2"
 
-# ── Validate inputs ───────────────────────────────────────────────────────────
+# ── 入力検証 ───────────────────────────────────────────────────────────────────
 [ -f "${DB_DUMP}" ]          || die "DB dump file not found: ${DB_DUMP}"
 [ -f "${FILES_ARCHIVE}" ]    || die "Files archive not found: ${FILES_ARCHIVE}"
 [ -r "${DB_PASSWORD_FILE}" ] || die "DB password file not readable: ${DB_PASSWORD_FILE}"
@@ -57,7 +57,7 @@ FILES_ARCHIVE="$2"
 DB_PASSWORD="$(cat "${DB_PASSWORD_FILE}")"
 [ -n "${DB_PASSWORD}" ] || die "DB password file is empty: ${DB_PASSWORD_FILE}"
 
-# ── Safety confirmation ───────────────────────────────────────────────────────
+# ── 安全確認 ───────────────────────────────────────────────────────────────────
 echo ""
 echo "  ╔══════════════════════════════════════════════════════════╗"
 echo "  ║           REDMINE DISASTER RECOVERY RESTORE         ║"
@@ -74,7 +74,7 @@ echo ""
 read -r -p "Type 'RESTORE' to confirm: " CONFIRM
 [ "${CONFIRM}" = "RESTORE" ] || { echo "Aborted."; exit 1; }
 
-# ── Step 1: Stop the Redmine service ──────────────────────────────────────────
+# ── 手順 1: Redmine サービス停止 ───────────────────────────────────────────────
 log "Step 1/6: Stopping ${SERVICE} ..."
 if systemctl --user is-active --quiet "${SERVICE}" 2>/dev/null; then
     systemctl --user stop "${SERVICE}"
@@ -83,16 +83,16 @@ else
     log "  ${SERVICE} was not running."
 fi
 
-# ── Step 2: Verify the database container is running ──────────────────────────
+# ── 手順 2: DB コンテナ稼働確認 ────────────────────────────────────────────────
 log "Step 2/6: Verifying database container ..."
 podman container inspect "${DB_CONTAINER}" --format '{{.State.Status}}' 2>/dev/null | grep -q 'running' \
     || die "Container '${DB_CONTAINER}' is not running."
 log "  ${DB_CONTAINER} is running."
 
-# psql/pg_restore inside the container authenticate with this password.
+# コンテナ内 psql / pg_restore はこのパスワードで認証します。
 PSQL() { podman exec -e PGPASSWORD="${DB_PASSWORD}" "${DB_CONTAINER}" psql -U "${DB_USER}" "$@"; }
 
-# ── Step 3: Drop and recreate the database ────────────────────────────────────
+# ── 手順 3: DB を削除して再作成 ──────────────────────────────────────────────
 log "Step 3/6: Recreating database ${DB_NAME} ..."
 PSQL -d postgres -c "DROP DATABASE IF EXISTS ${DB_NAME};" || true
 PSQL -d postgres -c "CREATE DATABASE ${DB_NAME} OWNER ${DB_USER} ENCODING 'UTF8' \
@@ -101,7 +101,7 @@ PSQL -d "${DB_NAME}" -c "CREATE EXTENSION IF NOT EXISTS postgis;"
 PSQL -d "${DB_NAME}" -c "CREATE EXTENSION IF NOT EXISTS postgis_topology;"
 log "  Database ${DB_NAME} recreated."
 
-# ── Step 4: Restore database from dump ────────────────────────────────────────
+# ── 手順 4: ダンプから DB 復元 ───────────────────────────────────────────────
 log "Step 4/6: Restoring database from $(basename "${DB_DUMP}") ..."
 DUMP_BASENAME=$(basename "${DB_DUMP}")
 podman cp "${DB_DUMP}" "${DB_CONTAINER}:/tmp/${DUMP_BASENAME}"
@@ -111,14 +111,14 @@ podman exec -e PGPASSWORD="${DB_PASSWORD}" "${DB_CONTAINER}" \
 podman exec "${DB_CONTAINER}" rm -f "/tmp/${DUMP_BASENAME}"
 log "  Database restore complete."
 
-# ── Step 5: Restore uploaded files ────────────────────────────────────────────
+# ── 手順 5: 添付ファイル復元 ─────────────────────────────────────────────────
 log "Step 5/6: Restoring files from $(basename "${FILES_ARCHIVE}") ..."
 mkdir -p "${FILES_DIR}"
 rm -rf "${FILES_DIR:?}"/*
 tar -xzf "${FILES_ARCHIVE}" -C "${DATA_DIR}/"
 log "  Files restore complete."
 
-# ── Step 6: Restart the service ───────────────────────────────────────────────
+# ── 手順 6: サービス再起動 ────────────────────────────────────────────────────
 log "Step 6/6: Restarting ${SERVICE} ..."
 systemctl --user start "${SERVICE}"
 log "  ${SERVICE} started."

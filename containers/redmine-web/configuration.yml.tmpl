@@ -1,16 +1,16 @@
 # containers/redmine-web/configuration.yml.tmpl
 #
-# Redmine application configuration template, rendered by entrypoint.sh with
-# envsubst before Puma starts.
+# entrypoint.sh が Puma 起動前に envsubst で描画する
+# Redmine アプリ設定テンプレートです。
 #
-# Substituted variables:
-#   ${SMTP_HOST}     → SMTP server hostname
-#   ${SMTP_PORT}     → SMTP server port
-#   ${SMTP_USER}     → SMTP username
-#   ${SMTP_PASSWORD} → SMTP password
+# 置換変数:
+#   ${SMTP_HOST}     → SMTP サーバーホスト名
+#   ${SMTP_PORT}     → SMTP サーバーポート
+#   ${SMTP_USER}     → SMTP ユーザー名
+#   ${SMTP_PASSWORD} → SMTP パスワード
 
 default:
-  # ── Email delivery ───────────────────────────────────────────────────────
+  # ── メール配信 ─────────────────────────────────────────────────────────────
   email_delivery:
     delivery_method: :smtp
     smtp_settings:
@@ -21,21 +21,21 @@ default:
       password: "${SMTP_PASSWORD}"
       enable_starttls_auto: true
 
-  # ── Attachments ──────────────────────────────────────────────────────────
-  # Storage path (relative to the Redmine root) and max size in kilobytes (50 MB).
+  # ── 添付ファイル ───────────────────────────────────────────────────────────
+  # 保存先（Redmine ルート相対）と最大サイズ（KB、50MB）
   attachments_storage_path: files
   max_attachment_size: 51200
 
-  # ── Session ──────────────────────────────────────────────────────────────
+  # ── セッション ─────────────────────────────────────────────────────────────
   session_store: :active_record_store
 
-  # ── Logging ──────────────────────────────────────────────────────────────
+  # ── ログ ───────────────────────────────────────────────────────────────────
   log_level: info
 
-  # ── SCM (version control) ────────────────────────────────────────────────
+  # ── SCM（バージョン管理） ─────────────────────────────────────────────────
   scm_git_command: /usr/bin/git
   scm_subversion_command: /usr/bin/svn
 
 production:
-  # Inherits all settings from default.
-  # Production-specific overrides can be added here if needed.
+  # default の設定を継承します。
+  # 必要に応じて本番専用上書きを追加してください。

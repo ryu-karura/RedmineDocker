@@ -1,34 +1,33 @@
 # redmine-db: PostgreSQL 18 + PostGIS 3.6
 #
-# Base image: docker.io/postgis/postgis:18-3.6 (Debian, PostgreSQL 18 + PostGIS 3.6)
+# ベースイメージ: docker.io/postgis/postgis:18-3.6
+# （Debian ベース、PostgreSQL 18 + PostGIS 3.6）
 #
-# The Redmine role and database are created by the upstream image from the
-# POSTGRES_USER / POSTGRES_DB / POSTGRES_PASSWORD_FILE variables. The single
-# `redmine` role owns the `redmine` database and is what redmine-web connects
-# with — this mirrors the redmine.jp blog's single-DB-user model.
+# Redmine 用ロール/DB は upstream イメージの
+# POSTGRES_USER / POSTGRES_DB / POSTGRES_PASSWORD_FILE から作成されます。
+# `redmine` ロールが `redmine` DB を所有し、redmine-web はその資格情報で接続します
+# （redmine.jp 記事の単一 DB ユーザーモデルに準拠）。
 #
-# The password is supplied as a Docker/Podman secret (POSTGRES_PASSWORD_FILE),
-# never as a plain environment variable.
+# パスワードは Docker/Podman シークレット（POSTGRES_PASSWORD_FILE）で渡し、
+# 平文の環境変数では扱いません。
 
 ARG DB_BASE_IMAGE=docker.io/postgis/postgis:18-3.6
 FROM ${DB_BASE_IMAGE}
 
 ENV POSTGRES_DB=redmine
 ENV POSTGRES_USER=redmine
-# NOTE: local (Unix-socket) auth must stay password-based, not "peer". The
-# upstream docker-entrypoint.sh runs `initdb --username="$POSTGRES_USER"` and
-# then drives its own setup (CREATE DATABASE, our init-redmine.sh, etc.) via
-# `psql --username redmine` over the local socket while the OS process user is
-# always "postgres" — "peer" auth requires those to match, so it rejects every
-# local connection (including the entrypoint's own bootstrap) with "Peer
-# authentication failed for user \"redmine\"", and POSTGRES_DB never gets
-# created. scram-sha-256 works locally too because PGPASSWORD is exported by
-# the entrypoint before it runs any setup SQL.
+# 注意: ローカル（Unix socket）認証は "peer" ではなくパスワード方式が必須です。
+# upstream docker-entrypoint.sh は `initdb --username="$POSTGRES_USER"` 実行後、
+# 一時サーバへ `psql --username redmine` で接続して初期セットアップ
+# （CREATE DATABASE、init-redmine.sh など）を行います。
+# その際 OS プロセスユーザーは常に "postgres" のため、"peer" だと
+# OS ユーザー名と DB ロール名不一致でローカル接続が拒否され、
+# POSTGRES_DB 作成まで失敗します。
+# scram-sha-256 なら entrypoint が PGPASSWORD を設定して実行するため問題ありません。
 ENV POSTGRES_INITDB_ARGS="--auth-host=scram-sha-256 --auth-local=scram-sha-256 --encoding=UTF8 --locale=C.UTF-8"
 
-# Ensure the PostGIS extensions required by the redmine_gtt plugin are present
-# in the Redmine database. The upstream postgis image already enables them
-# during first-time initialisation; this script is an idempotent safety net and
-# runs only on an empty data directory.
+# redmine_gtt が必要とする PostGIS 拡張を Redmine DB に確実に用意します。
+# upstream postgis イメージも初期化時に有効化しますが、
+# このスクリプトは冪等なセーフティネットとして空データディレクトリ時のみ実行されます。
 COPY init-redmine.sh /docker-entrypoint-initdb.d/30-init-redmine.sh
 RUN chmod 0755 /docker-entrypoint-initdb.d/30-init-redmine.sh

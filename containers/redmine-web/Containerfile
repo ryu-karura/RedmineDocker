@@ -1,21 +1,20 @@
-# redmine-web: Redmine 6.1.3 (official image) + full plugin/theme stack
+# redmine-web: Redmine 6.1.3（公式イメージ）+ プラグイン/テーマ一式
 #
-# Base image: docker.io/library/redmine:6.1.3 (bundles Ruby, Bundler, Puma and
-# all of Redmine's runtime gems — no rbenv build required).
+# ベースイメージ: docker.io/library/redmine:6.1.3
+# （Ruby / Bundler / Puma / Redmine 実行時 gem を同梱。rbenv ビルド不要）
 #
-# This image adds, on top of the official image:
-#   - Japanese CJK fonts (fonts-noto-cjk) so Gantt/PDF exports are not garbled
-#     (per the redmine.jp blog procedure).
-#   - The RedmineDocker plugin/theme stack (13 plugins + farend_fancy theme).
-#   - redmine_gtt frontend assets (yarn + webpack), which require PostGIS.
+# 公式イメージに対して次を追加します:
+#   - 日本語 CJK フォント（fonts-noto-cjk）
+#     （redmine.jp 記事の手順に準拠。Gantt/PDF 文字化け対策）
+#   - RedmineDocker のプラグイン/テーマ構成（13 plugins + farend_fancy）
+#   - redmine_gtt 用フロントエンド資産（yarn + webpack、PostGIS 前提）
 #
-# The application lives at /usr/src/redmine (official image layout). Apache
-# listens on TCP :80 in front of Puma (:3000) so the Redmine container can be
-# published directly on localhost:80 while keeping Puma internal.
+# アプリ配置は /usr/src/redmine（公式イメージ標準）です。
+# Apache は :80 で受け、内部の Puma（:3000）へ転送します。
 #
-# Sub-URI: /redmine (RAILS_RELATIVE_URL_ROOT)
+# サブ URI: /redmine（RAILS_RELATIVE_URL_ROOT）
 #
-# Plugins installed (13):
+# 導入プラグイン（13）:
 #   1.  redmine_wiki_lists        (tkusukawa, v0.0.11)
 #   2.  redmine_banner            (agileware-jp, v0.3.5)
 #   3.  redmine_issues_panel      (redmica, v1.2.1)
@@ -23,14 +22,14 @@
 #   5.  redmine_ip_filter         (redmica, v1.1.1)
 #   6.  redmine_message_customize (redmica/farend, v1.1.0)
 #   7.  redmine_issue_templates   (redmica, v1.2.2)
-#   8.  view_customize            (onozaty, MUST be named 'view_customize')
+#   8.  view_customize            (onozaty, ディレクトリ名は必ず 'view_customize')
 #   9.  redmine_logs              (haru, v0.4.0)
 #  10.  redmine_login_audit2      (seraph3000, v1.0.0)
 #  11.  redmine_wiki_extensions   (haru, v1.2.0)
 #  12.  redmine_solid_queue       (nishidayuya, v1.0.0)
-#  13.  redmine_gtt               (gtt-project, v6.0.3) ← requires yarn+webpack+PostGIS
+#  13.  redmine_gtt               (gtt-project, v6.0.3) ← yarn+webpack+PostGIS が必要
 #
-# Theme: farend_fancy (farend, default 'master' branch — the repo has no 'main')
+# テーマ: farend_fancy（farend、既定ブランチは master。main は存在しない）
 
 ARG WEB_BASE_IMAGE=docker.io/library/redmine:6.1.3
 FROM ${WEB_BASE_IMAGE}
@@ -39,136 +38,137 @@ ARG REDMINE_HOME=/usr/src/redmine
 ENV REDMINE_HOME=${REDMINE_HOME}
 ENV RAILS_ENV=production
 ENV RAILS_RELATIVE_URL_ROOT=/redmine
-# Redmine serves its own static assets on the app port; the Apache frontend
-# in this container forwards to it (mirrors the redmine.jp blog running redmine on :3000).
+# Redmine はアプリポートで静的資産も配信します。
+# このコンテナ内の Apache フロントはそこへ転送します
+# （redmine.jp 記事の :3000 運用に合わせた構成）。
 ENV RAILS_SERVE_STATIC_FILES=1
 
-# ── System packages (root) ────────────────────────────────────────────────────
+# ── システムパッケージ（root） ────────────────────────────────────────────────
 USER root
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
-        # Japanese fonts for PDF/Gantt output (blog procedure)
+                # PDF/Gantt 出力向け日本語フォント（記事手順）
         fonts-noto-cjk fontconfig \
-        # Plugin build/runtime tooling
+                # プラグインのビルド/実行ツール
         git \
-        # redmine_gtt frontend build (webpack)
+                # redmine_gtt のフロントビルド（webpack）
         nodejs npm \
-        # native gem build deps for the postgis adapter:
-        #   rgeo → GEOS/PROJ (libgeos-dev, libproj-dev)
-        #   pg   → libpq/pg_config (libpq-dev provides /usr/bin/pg_config, on PATH).
-        # postgresql-client alone does NOT ship pg_config, so the pg native gem
-        # fails to compile during `bundle install` without libpq-dev.
-        # Ruby native extensions also need a compiler toolchain.
+                # postgis アダプタ系 native gem のビルド依存:
+                #   rgeo → GEOS/PROJ（libgeos-dev, libproj-dev）
+                #   pg   → libpq/pg_config（libpq-dev が /usr/bin/pg_config を提供）
+                # postgresql-client 単体では pg_config が入らないため、
+                # libpq-dev がないと `bundle install` で pg のビルドが失敗します。
+                # Ruby native extension 用にコンパイラツールチェーンも必要です。
         libgeos-dev libproj-dev libpq-dev build-essential pkg-config \
-        # entrypoint helpers: envsubst (template rendering) + pg_isready (DB wait)
+                # entrypoint 補助: envsubst（テンプレート描画）+ pg_isready（DB待機）
         gettext-base postgresql-client \
-        # container healthcheck + Apache frontend
+                # コンテナヘルスチェック + Apache フロント
         curl apache2 \
     && rm -rf /var/lib/apt/lists/* \
     && fc-cache -fv
 
-# Yarn 1.22.22 (classic Yarn required by redmine_gtt's webpack build)
+# Yarn 1.22.22（redmine_gtt の webpack ビルドに classic Yarn が必要）
 RUN npm install -g yarn@1.22.22 \
     && yarn --version
 
-# ── Plugins and theme ─────────────────────────────────────────────────────────
-# All plugins are cloned at build time so the code is baked into the image for
-# reproducibility. Update a plugin by rebuilding the image.
+# ── プラグインとテーマ ─────────────────────────────────────────────────────────
+# 全プラグインはビルド時に clone してイメージへ焼き込みます（再現性確保）。
+# 更新時はイメージを再ビルドしてください。
 
-# Theme: farend_fancy — cloned from its default branch ('master'; the repo has
-# no 'main' branch). Redmine loads themes from public/themes/.
+# テーマ farend_fancy: 既定ブランチ（master）から clone
+# （このリポジトリに main はありません）。Redmine は public/themes/ を参照します。
 RUN git clone --depth 1 \
         https://github.com/farend/redmine_theme_farend_fancy.git \
         ${REDMINE_HOME}/public/themes/farend_fancy
 
 WORKDIR ${REDMINE_HOME}/plugins
 
-# 1. redmine_wiki_lists (0.0.11) — wiki macro plugin
-#    Compatibility with Redmine 6.x is unverified (last commit 2022). Test first.
+# 1. redmine_wiki_lists (0.0.11) — Wiki マクロプラグイン
+#    Redmine 6.x 互換は未検証（最終コミット 2022）。事前検証推奨。
 RUN git clone --depth 1 --branch 0.0.11 \
         https://github.com/tkusukawa/redmine_wiki_lists.git redmine_wiki_lists \
     || git clone --depth 1 \
         https://github.com/tkusukawa/redmine_wiki_lists.git redmine_wiki_lists
 
-# 2. redmine_banner (0.3.5) — site-wide banner messages
-#    0.3.4 uses a bare `require 'banners/application_hooks'` in init.rb, which
-#    relies on the plugin's lib/ being on $LOAD_PATH — Redmine 6.x/Rails 7.2's
-#    Zeitwerk-based boot no longer adds it, so the plugin fails to load
-#    (LoadError: cannot load such file -- banners/application_hooks). 0.3.5
-#    switched to a File.dirname(__FILE__)-relative require, which works
-#    regardless of $LOAD_PATH.
+# 2. redmine_banner (0.3.5) — サイト全体バナー
+#    0.3.4 は init.rb で `require 'banners/application_hooks'` を直接呼び、
+#    lib/ が $LOAD_PATH に載る前提でした。Redmine 6.x / Rails 7.2 の
+#    Zeitwerk 起動ではそれが満たされず、LoadError が発生します。
+#    0.3.5 は File.dirname(__FILE__) 相対 require に変更され、
+#    $LOAD_PATH に依存せず読み込み可能です。
 RUN git clone --depth 1 --branch 0.3.5 \
         https://github.com/agileware-jp/redmine_banner.git redmine_banner \
     || git clone --depth 1 \
         https://github.com/agileware-jp/redmine_banner.git redmine_banner
 
-# 3. redmine_issues_panel (1.2.1) — Kanban-style issues panel
+# 3. redmine_issues_panel (1.2.1) — かんばん風課題パネル
 RUN git clone --depth 1 --branch v1.2.1 \
         https://github.com/redmica/redmine_issues_panel.git redmine_issues_panel
 
-# 4. redmica_ui_extension (0.6.0) — UI improvements (Select2, mermaid, burndown)
+# 4. redmica_ui_extension (0.6.0) — UI 拡張（Select2, mermaid, burndown）
 RUN git clone --depth 1 --branch v0.6.0 \
         https://github.com/redmica/redmica_ui_extension.git redmica_ui_extension
 
-# 5. redmine_ip_filter (1.1.1) — IP-based access filtering
+# 5. redmine_ip_filter (1.1.1) — IP ベースアクセス制御
 RUN git clone --depth 1 --branch v1.1.1 \
         https://github.com/redmica/redmine_ip_filter.git redmine_ip_filter
 
-# 6. redmine_message_customize (1.1.0) — customise UI text strings
+# 6. redmine_message_customize (1.1.0) — UI 文字列カスタマイズ
 RUN git clone --depth 1 --branch v1.1.0 \
         https://github.com/redmica/redmine_message_customize.git redmine_message_customize
 
-# 7. redmine_issue_templates (master) — issue creation templates
+# 7. redmine_issue_templates (master) — 課題テンプレート
 RUN git clone --depth 1  \
         https://github.com/redmica/redmine_issue_templates.git redmine_issue_templates
 
-# 8. view_customize — DIRECTORY NAME MUST BE 'view_customize' (required by init.rb)
+# 8. view_customize — ディレクトリ名は必ず 'view_customize'（init.rb の要件）
 RUN git clone --depth 1 \
         https://github.com/onozaty/redmine-view-customize.git view_customize
 
-# 9. redmine_logs (0.4.0) — log browser in admin UI
+# 9. redmine_logs (0.4.0) — 管理画面ログビューア
 RUN git clone --depth 1 --branch 0.4.0 \
         https://github.com/haru/redmine_logs.git redmine_logs
 
-# 10. redmine_login_audit2 (1.0.0) — login/API access audit log
-#     Brand-new plugin (initial release April 2026). No CI. Validate before prod.
+# 10. redmine_login_audit2 (1.0.0) — ログイン/API 監査ログ
+#     新規プラグイン（初版 2026-04）。CI 未整備のため本番前検証推奨。
 RUN git clone --depth 1 --branch v1.0.0 \
         https://github.com/seraph3000/redmine_login_audit2.git redmine_login_audit2 \
     || git clone --depth 1 \
         https://github.com/seraph3000/redmine_login_audit2.git redmine_login_audit2
 
-# 11. redmine_wiki_extensions (1.2.0) — wiki macros, comments, tags, voting
+# 11. redmine_wiki_extensions (1.2.0) — Wiki 拡張（マクロ、コメント、タグ、投票）
 RUN git clone --depth 1 --branch 1.2.0 \
         https://github.com/haru/redmine_wiki_extensions.git redmine_wiki_extensions
 
-# 12. redmine_solid_queue (1.0.0) — Solid Queue as Redmine background job processor
+# 12. redmine_solid_queue (1.0.0) — Redmine バックグラウンドジョブに Solid Queue を利用
 RUN git clone --depth 1 --branch v1.0.0 \
         https://github.com/nishidayuya/redmine_solid_queue.git redmine_solid_queue \
     || git clone --depth 1 \
         https://github.com/nishidayuya/redmine_solid_queue.git redmine_solid_queue
 
-# 13. redmine_gtt (6.0.3) — Geo-Task-Tracker (requires PostGIS + webpack build)
+# 13. redmine_gtt (6.0.3) — Geo-Task-Tracker（PostGIS + webpack ビルドが必要）
 RUN git clone --depth 1 --branch v6.0.3 \
         https://github.com/gtt-project/redmine_gtt.git redmine_gtt
 
-# ── Install plugin gems ───────────────────────────────────────────────────────
-# Bake all plugin gem dependencies into the image's bundle (/usr/local/bundle).
+# ── プラグイン gem のインストール ─────────────────────────────────────────────
+# プラグイン依存 gem をイメージ内 bundle（/usr/local/bundle）へ焼き込みます。
 WORKDIR ${REDMINE_HOME}
 RUN bundle install --jobs 4 --retry 3 \
     && apt-get autoremove -y \
     && rm -rf /var/lib/apt/lists/*
 
-# ── Build redmine_gtt frontend assets (yarn + webpack) ───────────────────────
+# ── redmine_gtt フロントエンド資産のビルド（yarn + webpack） ─────────────────
 RUN cd ${REDMINE_HOME}/plugins/redmine_gtt \
     && yarn install --frozen-lockfile \
     && npx webpack --mode production
 
-# ── Configuration templates and entrypoint ────────────────────────────────────
+# ── 設定テンプレートと entrypoint ──────────────────────────────────────────────
 COPY database.yml.tmpl ${REDMINE_HOME}/config/database.yml.tmpl
 COPY configuration.yml.tmpl ${REDMINE_HOME}/config/configuration.yml.tmpl
-# Replaces the stock config.ru so Puma mounts the app under
-# RAILS_RELATIVE_URL_ROOT (/redmine) itself — see config.ru for why.
+# stock の config.ru を置き換え、Puma 側で
+# RAILS_RELATIVE_URL_ROOT (/redmine) を正しく mount させます。
+# 理由は config.ru のコメントを参照してください。
 COPY config.ru ${REDMINE_HOME}/config.ru
 COPY httpd-redmine.conf /etc/apache2/conf-available/redmine-proxy.conf
 COPY entrypoint.sh /usr/local/bin/redmine-entrypoint.sh
