@@ -288,3 +288,38 @@ diagnostics: `podman exec -it redmine-web bundle exec rails console -e productio
 - **Do not open a pull request unless explicitly asked.**
 - Commit messages: clear and descriptive, imperative mood, matching the concise
   style already in the history.
+
+## Recommended Claude Code plugins (optional)
+
+These are optional developer conveniences for anyone using **Claude Code** on
+this repo — they are unrelated to the redmine stack runtime and change nothing
+in the images, compose files, or quadlets. Install them with the interactive
+`/plugin` slash commands in your own Claude Code CLI (they cannot be run for
+you by an agent). Add a marketplace once, then install from it.
+
+- **genshijin** (原始人) — ultra-compressed JP/EN "caveman" communication
+  skill; trims redundant phrasing to cut token usage while keeping technical
+  content intact. Listed in the official plugin directory, so no marketplace
+  add is needed:
+
+  ```
+  /plugin install genshijin
+  ```
+
+- **superpowers** — a library of 20+ workflow skills (`/brainstorm`,
+  `/write-plan`, `/execute-plan`, skills search) for planning, debugging, and
+  collaboration:
+
+  ```
+  /plugin marketplace add obra/superpowers-marketplace
+  /plugin install superpowers@superpowers-marketplace
+  ```
+
+- **dig** — clarifies ambiguous plans by generating structured `AskUserQuestion`
+  prompts; the same marketplace also ships `/deslop`, `/fix-ci`, and
+  `/decomposition`:
+
+  ```
+  /plugin marketplace add fumiya-kume/claude-code
+  /plugin install dig@fumiya-kume/claude-code
+  ```
