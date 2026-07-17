@@ -18,15 +18,23 @@
 
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT_DIR="$(dirname "${SCRIPT_DIR}")"
+if [ -f "${ROOT_DIR}/.env" ]; then
+    # shellcheck disable=SC1091
+    set -a; source "${ROOT_DIR}/.env"; set +a
+fi
+
 # ── Configuration ──────────────────────────────────────────────────────────────
 SECRETS_DIR="${SECRETS_DIR:-/opt/redmine/containers/secrets}"
 DB_PASSWORD_FILE="${DB_PASSWORD_FILE:-${SECRETS_DIR}/db_password.txt}"
 BACKUP_DB_DIR="/opt/redmine/backup/db"
 BACKUP_FILES_DIR="/opt/redmine/backup/files"
 FILES_SOURCE_DIR="/opt/redmine/data/redmine/files"
-DB_CONTAINER="redmine-db"
-DB_NAME="redmine"
-DB_USER="redmine"
+DB_CONTAINER="${REDMINE_DB_CONTAINER:-redmine-db}"
+DB_NAME="${REDMINE_DB_NAME:-redmine}"
+DB_USER="${REDMINE_DB_USER:-redmine}"
+FILES_ARCHIVE_PREFIX="${REDMINE_FILES_ARCHIVE_PREFIX:-redmine}"
 KEEP_GENERATIONS=7
 TIMESTAMP=$(date -u '+%Y%m%d_%H%M%S')
 LOG_PREFIX="[$(date -u '+%Y-%m-%dT%H:%M:%SZ')] [backup]"
@@ -81,7 +89,7 @@ backup_database() {
 
 # ── Function: backup uploaded files ───────────────────────────────────────────
 backup_files() {
-    local OUTFILE="${BACKUP_FILES_DIR}/redmine_${TIMESTAMP}.tar.gz"
+    local OUTFILE="${BACKUP_FILES_DIR}/${FILES_ARCHIVE_PREFIX}_${TIMESTAMP}.tar.gz"
 
     if [ ! -d "${FILES_SOURCE_DIR}" ]; then
         warn "Files directory not found: ${FILES_SOURCE_DIR}. Skipping."
@@ -101,10 +109,10 @@ backup_files() {
 
     # ── Rotate ───────────────────────────────────────────────────────────────
     local COUNT
-    COUNT=$(find "${BACKUP_FILES_DIR}" -maxdepth 1 -type f -regex ".*/redmine_[0-9]{8}_[0-9]{6}\.tar\.gz" 2>/dev/null | wc -l)
+    COUNT=$(find "${BACKUP_FILES_DIR}" -maxdepth 1 -type f -regex ".*/${FILES_ARCHIVE_PREFIX}_[0-9]{8}_[0-9]{6}\.tar\.gz" 2>/dev/null | wc -l)
     if [ "${COUNT}" -gt "${KEEP_GENERATIONS}" ]; then
         log "  Rotating old file backups (keeping ${KEEP_GENERATIONS}, found ${COUNT}) ..."
-        find "${BACKUP_FILES_DIR}" -maxdepth 1 -type f -regex ".*/redmine_[0-9]{8}_[0-9]{6}\.tar\.gz" -printf '%T@ %p\n' 2>/dev/null \
+        find "${BACKUP_FILES_DIR}" -maxdepth 1 -type f -regex ".*/${FILES_ARCHIVE_PREFIX}_[0-9]{8}_[0-9]{6}\.tar\.gz" -printf '%T@ %p\n' 2>/dev/null \
             | sort -nr \
             | cut -d' ' -f2- \
             | tail -n +"$((KEEP_GENERATIONS + 1))" \

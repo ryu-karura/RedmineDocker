@@ -27,6 +27,8 @@ export RAILS_ENV RAILS_RELATIVE_URL_ROOT
 REDMINE_DB_HOST="${REDMINE_DB_HOST:-redmine-db}"
 REDMINE_DB_NAME="${REDMINE_DB_NAME:-redmine}"
 REDMINE_DB_USER="${REDMINE_DB_USER:-redmine}"
+REDMINE_DB_PORT="${REDMINE_DB_PORT:-5432}"
+REDMINE_PUMA_PORT="${REDMINE_PUMA_PORT:-3000}"
 SMTP_HOST="${SMTP_HOST:-localhost}"
 SMTP_PORT="${SMTP_PORT:-25}"
 SMTP_USER="${SMTP_USER:-}"
@@ -70,9 +72,9 @@ fi
 [[ -n "${SECRET_KEY_BASE}" ]] \
     || die "REDMINE_SECRET_KEY_BASE(_FILE) or REDMINE_SECRET_TOKEN(_FILE) is not set."
 
-export REDMINE_DB_HOST REDMINE_DB_NAME REDMINE_DB_USER REDMINE_DB_PASSWORD
+export REDMINE_DB_HOST REDMINE_DB_NAME REDMINE_DB_USER REDMINE_DB_PASSWORD REDMINE_DB_PORT
 export SMTP_HOST SMTP_PORT SMTP_USER SMTP_PASSWORD
-export SECRET_KEY_BASE
+export SECRET_KEY_BASE REDMINE_PUMA_PORT
 
 cd "${REDMINE_HOME}"
 
@@ -91,12 +93,17 @@ envsubst '${SMTP_HOST} ${SMTP_PORT} ${SMTP_USER} ${SMTP_PASSWORD}' \
 chown redmine:redmine config/configuration.yml
 chmod 640 config/configuration.yml
 
+log "Rendering Apache reverse-proxy config ..."
+# shellcheck disable=SC2016
+envsubst '${RAILS_RELATIVE_URL_ROOT} ${REDMINE_PUMA_PORT}' \
+    < /etc/apache2/conf-available/redmine-proxy.conf > /etc/apache2/conf-enabled/redmine-proxy.conf
+
 # ── 3. Wait for PostgreSQL ────────────────────────────────────────────────────
-log "Waiting for PostgreSQL at ${REDMINE_DB_HOST}:5432 ..."
+log "Waiting for PostgreSQL at ${REDMINE_DB_HOST}:${REDMINE_DB_PORT} ..."
 export PGPASSWORD="${REDMINE_DB_PASSWORD}"
 MAX_WAIT=120
 WAITED=0
-until pg_isready -h "${REDMINE_DB_HOST}" -p 5432 -U "${REDMINE_DB_USER}" \
+until pg_isready -h "${REDMINE_DB_HOST}" -p "${REDMINE_DB_PORT}" -U "${REDMINE_DB_USER}" \
         -d "${REDMINE_DB_NAME}" -q 2>/dev/null; do
     [[ ${WAITED} -ge ${MAX_WAIT} ]] && die "PostgreSQL not ready after ${MAX_WAIT}s."
     sleep 2
@@ -139,11 +146,11 @@ trap 'cleanup 143' TERM
 log "Starting Apache HTTPD on :80 ..."
 apache2ctl -k start
 
-log "Starting Puma via rails server on :3000 (sub-URI ${RAILS_RELATIVE_URL_ROOT}) ..."
+log "Starting Puma via rails server on :${REDMINE_PUMA_PORT} (sub-URI ${RAILS_RELATIVE_URL_ROOT}) ..."
 if command -v runuser >/dev/null 2>&1; then
-    runuser -u redmine -- /bin/bash -lc "cd '${REDMINE_HOME}' && exec env RAILS_RELATIVE_URL_ROOT='${RAILS_RELATIVE_URL_ROOT}' bundle exec rails server -b 0.0.0.0 -p 3000 -e '${RAILS_ENV}'" &
+    runuser -u redmine -- /bin/bash -lc "cd '${REDMINE_HOME}' && exec env RAILS_RELATIVE_URL_ROOT='${RAILS_RELATIVE_URL_ROOT}' bundle exec rails server -b 0.0.0.0 -p '${REDMINE_PUMA_PORT}' -e '${RAILS_ENV}'" &
 else
-    su -s /bin/bash redmine -c "cd '${REDMINE_HOME}' && exec env RAILS_RELATIVE_URL_ROOT='${RAILS_RELATIVE_URL_ROOT}' bundle exec rails server -b 0.0.0.0 -p 3000 -e '${RAILS_ENV}'" &
+    su -s /bin/bash redmine -c "cd '${REDMINE_HOME}' && exec env RAILS_RELATIVE_URL_ROOT='${RAILS_RELATIVE_URL_ROOT}' bundle exec rails server -b 0.0.0.0 -p '${REDMINE_PUMA_PORT}' -e '${RAILS_ENV}'" &
 fi
 puma_pid=$!
 wait "${puma_pid}"

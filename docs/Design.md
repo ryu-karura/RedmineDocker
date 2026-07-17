@@ -81,3 +81,26 @@ RedmineDocker は 2 つのコンテナが連携して Redmine 6.1.3 を動作さ
 
 - Apache フロントエンドは `redmine-web` イメージに組み込まれ、個別の `redmine-static` イメージは不要になりました。
 - 追加の Web プロキシコンテナを置かず、Redmine コンテナ内で Apache と Puma を運用しています。現状の設計では、堅牢性を優先して Redmine 側でアセット配信を行っています。
+
+## 8. 設定パラメータ (.env)
+
+非シークレット設定は `.env`（テンプレート: `.env.example`）で管理します。Compose は自動で `.env` を読み込み、運用スクリプト（`scripts/backup.sh` / `scripts/restore.sh`）も同じ値を参照します。
+
+主なパラメータ:
+
+| 用途 | 変数 | 既定値 |
+|------|------|--------|
+| Redmine バージョン | `REDMINE_VERSION` | `6.1.3` |
+| PostgreSQL メジャー | `REDMINE_DB_PG_MAJOR` | `18` |
+| PostGIS バージョン | `REDMINE_DB_POSTGIS_VERSION` | `3.6` |
+| Web イメージタグ | `REDMINE_WEB_IMAGE` | `localhost/redmine-web:${REDMINE_VERSION}` |
+| DB イメージタグ | `REDMINE_DB_IMAGE` | `localhost/redmine-db:${REDMINE_DB_PG_MAJOR}-${REDMINE_DB_POSTGIS_VERSION}` |
+| Web ベースイメージ | `REDMINE_WEB_BASE_IMAGE` | `docker.io/library/redmine:${REDMINE_VERSION}` |
+| DB ベースイメージ | `REDMINE_DB_BASE_IMAGE` | `docker.io/postgis/postgis:${REDMINE_DB_PG_MAJOR}-${REDMINE_DB_POSTGIS_VERSION}` |
+| SUBURI | `REDMINE_SUBURI` | `/redmine` |
+| 開発公開ポート | `REDMINE_WEB_HOST_PORT` | `8080` |
+
+補足:
+- `compose.dev.yaml` の build args で `REDMINE_WEB_BASE_IMAGE` / `REDMINE_DB_BASE_IMAGE` を `Containerfile` の `FROM` に渡します。
+- 同じバージョン変数から、ビルド済みローカルイメージタグ（`REDMINE_WEB_IMAGE` / `REDMINE_DB_IMAGE`）も構成されます。
+- 本番の `quadlets/redmine-web.container` は `EnvironmentFile=-/opt/redmine/containers/.env` を読むため、SMTP/TZ などは同一ファイルで管理できます。

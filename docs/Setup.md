@@ -25,6 +25,10 @@ RHEL の実機がまだ用意できない場合は、本番環境と同じ Podma
 - rootless Podman が導入済みであること。`docker` / `docker compose` コマンドは Podman を呼び出すエイリアスで、`docker compose` は内部で `podman-compose` を経由します。
 
 ```bash
+# 0. 非シークレット設定 (.env) を作成 (初回のみ)
+cp .env.example .env
+# 必要に応じて REDMINE_SUBURI / REDMINE_WEB_HOST_PORT / TZ / SMTP_* を編集
+
 # 1. シークレットファイルを生成 (db_password.txt, secret_key_base.txt)
 bash scripts/generate-secrets.sh
 
@@ -38,6 +42,12 @@ docker compose -f compose.dev.yaml logs -f redmine-web
 
 # 4. アプリケーションを開く
 #    http://localhost:8080/redmine/     (初期ログイン: admin / admin)
+```
+
+任意: `.env.example` の値で展開される実際の compose 設定を確認する場合:
+
+```bash
+docker compose --env-file .env.example -f compose.dev.yaml config
 ```
 
 WSL2 は `localhost` へのアクセスを自動的に Windows 側へフォワードするため、追加設定なしで Windows のブラウザから `http://localhost:8080/redmine/` を開けます。
@@ -57,6 +67,10 @@ rootless Podman は特権ポート (<1024) への bind にホスト側の準備�
 ```bash
 # Codespace 起動時に .devcontainer/post-create.sh が自動実行され、
 # shellcheck の導入と docker / docker compose の疎通確認を行います。
+
+# 0. 非シークレット設定 (.env) を作成 (初回のみ)
+cp .env.example .env
+# 必要に応じて CODESPACES_WEB_HOST_PORT / REDMINE_SUBURI / TZ / SMTP_* を編集
 
 # 1. シークレットファイルを生成
 bash scripts/generate-secrets.sh
@@ -103,19 +117,23 @@ mkdir -p /opt/redmine/data/postgres/18 \
 
 ```bash
 cd /opt/redmine/containers
+cp .env.example .env
+# 必要に応じて TZ / SMTP_* / REDMINE_SUBURI 等を編集
+
 bash scripts/generate-secrets.sh
 podman secret create db_password     secrets/db_password.txt
 podman secret create secret_key_base secrets/secret_key_base.txt
 ```
 
-必要に応じて `.env.example` から `/opt/redmine/containers/.env` を作成し、SMTP 設定を入れます。
+`.env` は主に `quadlets/redmine-web.container` の `EnvironmentFile` から読み込まれ、SMTP/TZ などの非シークレット設定に使われます。
 
 ### 4. イメージをビルドする (redmine ユーザーとして)
 
 ```bash
 cd /opt/redmine/containers
-podman build -t localhost/redmine-db:18-3.6      containers/redmine-db
-podman build -t localhost/redmine-web:6.1.3  containers/redmine-web
+set -a; source .env; set +a
+podman build -t "${REDMINE_DB_IMAGE}"  --build-arg DB_BASE_IMAGE="${REDMINE_DB_BASE_IMAGE}"   containers/redmine-db
+podman build -t "${REDMINE_WEB_IMAGE}" --build-arg WEB_BASE_IMAGE="${REDMINE_WEB_BASE_IMAGE}" containers/redmine-web
 ```
 
 ### 5. Quadlet ユニットを導入する (redmine ユーザーとして)

@@ -6,4 +6,4 @@
 services:
   redmine-web:
     ports:
-      - "0.0.0.0:80:80"
+      - "${CODESPACES_WEB_BIND_HOST:-0.0.0.0}:${CODESPACES_WEB_HOST_PORT:-80}:${REDMINE_WEB_CONTAINER_PORT:-80}"

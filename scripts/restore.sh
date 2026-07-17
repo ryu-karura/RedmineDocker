@@ -20,13 +20,20 @@
 
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT_DIR="$(dirname "${SCRIPT_DIR}")"
+if [ -f "${ROOT_DIR}/.env" ]; then
+    # shellcheck disable=SC1091
+    set -a; source "${ROOT_DIR}/.env"; set +a
+fi
+
 SECRETS_DIR="${SECRETS_DIR:-/opt/redmine/containers/secrets}"
 DB_PASSWORD_FILE="${DB_PASSWORD_FILE:-${SECRETS_DIR}/db_password.txt}"
-DB_CONTAINER="redmine-db"
-DB_NAME="redmine"
-DB_USER="redmine"
-SERVICE="redmine-web"
-DATA_DIR="/opt/redmine/data/redmine"
+DB_CONTAINER="${REDMINE_DB_CONTAINER:-redmine-db}"
+DB_NAME="${REDMINE_DB_NAME:-redmine}"
+DB_USER="${REDMINE_DB_USER:-redmine}"
+SERVICE="${REDMINE_WEB_CONTAINER:-redmine-web}"
+DATA_DIR="${REDMINE_DATA_DIR:-/opt/redmine/data/redmine}"
 FILES_DIR="${DATA_DIR}/files"
 LOG_PREFIX="[$(date -u '+%Y-%m-%dT%H:%M:%SZ')] [restore]"
 

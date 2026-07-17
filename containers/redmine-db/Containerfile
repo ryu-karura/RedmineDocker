@@ -10,7 +10,8 @@
 # The password is supplied as a Docker/Podman secret (POSTGRES_PASSWORD_FILE),
 # never as a plain environment variable.
 
-FROM docker.io/postgis/postgis:18-3.6
+ARG DB_BASE_IMAGE=docker.io/postgis/postgis:18-3.6
+FROM ${DB_BASE_IMAGE}
 
 ENV POSTGRES_DB=redmine
 ENV POSTGRES_USER=redmine
