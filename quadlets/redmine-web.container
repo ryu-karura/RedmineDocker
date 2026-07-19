@@ -33,6 +33,9 @@ Environment=REDMINE_PLUGINS_MIGRATE=1
 # 公式イメージ同様、値を設定するとコアの db:migrate をスキップします
 # （既定は未設定 = 起動時にマイグレーションを実行）。
 # Environment=REDMINE_NO_DB_MIGRATE=1
+# 初回起動時（roles テーブルが空）のみ、日本語の既定データを投入します。
+Environment=REDMINE_LOAD_DEFAULT_DATA=1
+Environment=REDMINE_DEFAULT_DATA_LANG=ja
 # オプションの非シークレット設定（SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASSWORD）。
 # 先頭の '-' はファイルが存在しなくても無視するための指定です。
 EnvironmentFile=-/opt/redmine/containers/.env

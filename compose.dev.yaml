@@ -102,6 +102,9 @@ services:
       # 公式イメージ同様、値を設定するとコアの db:migrate をスキップします
       # （既定は未設定 = 起動時にマイグレーションを実行）。
       # REDMINE_NO_DB_MIGRATE: "1"
+      # 初回起動時（roles テーブルが空）のみ、日本語の既定データを投入します。
+      REDMINE_LOAD_DEFAULT_DATA: "1"
+      REDMINE_DEFAULT_DATA_LANG: ja
     secrets:
       - db_password
       - secret_key_base

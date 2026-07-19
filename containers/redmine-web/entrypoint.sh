@@ -12,6 +12,8 @@
 #   3. PostgreSQL 接続待機
 #   4. コア/プラグインの DB マイグレーション実行
 #      （公式イメージ同様 REDMINE_NO_DB_MIGRATE / REDMINE_PLUGINS_MIGRATE で制御）
+#   4.5. 初回起動時のみ既定データ（日本語）を投入
+#      （REDMINE_LOAD_DEFAULT_DATA / REDMINE_DEFAULT_DATA_LANG で制御）
 #   5. Apache(:80) 起動後、`rails server` で Puma(:3000) 起動
 #      （サブ URI /redmine）
 #
@@ -43,6 +45,11 @@ SMTP_PASSWORD="${SMTP_PASSWORD:-}"
 # REDMINE_PLUGINS_MIGRATE=1 を既定にしています。
 REDMINE_NO_DB_MIGRATE="${REDMINE_NO_DB_MIGRATE:-}"
 REDMINE_PLUGINS_MIGRATE="${REDMINE_PLUGINS_MIGRATE:-1}"
+# 初回起動時（roles テーブルが空 = load_default_data 未実行）のみ、
+# 既定データ（トラッカー/ロール/ワークフロー等）を REDMINE_DEFAULT_DATA_LANG
+# 言語で読み込みます。REDMINE_LOAD_DEFAULT_DATA を空にすると無効化できます。
+REDMINE_LOAD_DEFAULT_DATA="${REDMINE_LOAD_DEFAULT_DATA:-1}"
+REDMINE_DEFAULT_DATA_LANG="${REDMINE_DEFAULT_DATA_LANG:-ja}"
 
 log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] [redmine-web] $*"; }
 die() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] [redmine-web] ERROR: $*" >&2; exit 1; }
@@ -133,6 +140,26 @@ if [[ -n "${REDMINE_PLUGINS_MIGRATE}" && "${REDMINE_PLUGINS_MIGRATE}" != "0" ]];
     bundle exec rake redmine:plugins:migrate
 else
     log "REDMINE_PLUGINS_MIGRATE unset/0 — skipping plugin migrations."
+fi
+
+# ── 4.5 初期データ投入（初回のみ） ───────────────────────────────────────────
+# load_default_data はトラッカー/ワークフロー/カスタムロール等を新規作成する
+# ため、既に投入済みの DB に対して再実行すると重複データを作ってしまいます。
+# trackers テーブルが空（= 未投入）かどうかで初回起動を判定します。
+# 注意: roles テーブルは使えません — コアマイグレーションが load_default_data
+# 実行前から "Non member"/"Anonymous" の 2 件を常に作成済みのため、
+# roles の有無では初回判定ができません。
+if [[ -n "${REDMINE_LOAD_DEFAULT_DATA}" && "${REDMINE_LOAD_DEFAULT_DATA}" != "0" ]]; then
+    TRACKER_COUNT="$(psql -h "${REDMINE_DB_HOST}" -p "${REDMINE_DB_PORT}" -U "${REDMINE_DB_USER}" \
+        -d "${REDMINE_DB_NAME}" -tAc 'SELECT count(*) FROM trackers;' 2>/dev/null || echo "")"
+    if [[ "${TRACKER_COUNT}" == "0" ]]; then
+        log "Loading default data (lang=${REDMINE_DEFAULT_DATA_LANG}) for first-time setup ..."
+        REDMINE_LANG="${REDMINE_DEFAULT_DATA_LANG}" bundle exec rake redmine:load_default_data RAILS_ENV="${RAILS_ENV}"
+    else
+        log "Default data already present (trackers=${TRACKER_COUNT:-unknown}) — skipping load_default_data."
+    fi
+else
+    log "REDMINE_LOAD_DEFAULT_DATA unset/0 — skipping default data load."
 fi
 
 # ── 5. Apache + Puma 起動（PID 1 が両プロセスを監視） ────────────────────────

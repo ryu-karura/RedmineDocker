@@ -169,11 +169,11 @@ sudo systemctl reload httpd
 ### 7. 導入後の作業
 
 - 公開 URL から `admin` / `admin` でログインし、パスワードを変更します。
-- 必要に応じて日本語の初期データを読み込みます。
-  ```bash
-  podman exec -e RAILS_ENV=production redmine-web \
-      bundle exec rake redmine:load_default_data REDMINE_LANG=ja
-  ```
+- 日本語の初期データ（トラッカー/ロール/ワークフロー等）は `redmine-web` の
+  `entrypoint.sh` が初回起動時（roles テーブルが空のとき）に自動投入します
+  （`REDMINE_LOAD_DEFAULT_DATA=1` / `REDMINE_DEFAULT_DATA_LANG=ja` が既定）。
+  2 回目以降の起動では既存データがあるためスキップされ、無効化したい場合は
+  `quadlets/redmine-web.container` の `REDMINE_LOAD_DEFAULT_DATA` を `0` にします。
 - ログローテーションを有効化します: `sudo cp logrotate/redmine /etc/logrotate.d/redmine-web`。
 - バックアップのスケジュールは `docs/Manual.md` を参照してください。
 

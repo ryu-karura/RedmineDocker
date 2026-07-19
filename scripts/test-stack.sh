@@ -18,15 +18,19 @@
 #   - both containers report `healthy` and stay up (no restart loop)
 #
 # This is a destructive test against compose.dev.yaml ONLY: it tears down and
-# recreates the redmine-db/redmine-web containers and their named volumes
-# (pgdata, redmine_files). It never touches production (quadlets/,
-# /opt/redmine). Any existing dev data in those volumes is discarded.
+# recreates the redmine-db/redmine-web containers under a dedicated compose
+# project (redmine_test) with their own dedicated named volumes
+# (redmine_test_pgdata, redmine_test_web_files — see REDMINE_DB_VOLUME /
+# REDMINE_FILES_VOLUME overrides below). It never touches production
+# (quadlets/, /opt/redmine) or a real dev stack's data.
 #
-# The Postgres database itself is created under a dedicated name
-# (REDMINE_DB_NAME=redmine_test by default, see TEST_DB_NAME below) instead of
-# the "redmine" name dev/production use, so this test can never be mistaken
-# for, or collide with, a real dev database inside the same redmine-db
-# container/volume.
+# Both the Postgres database name (REDMINE_DB_NAME=redmine_test by default,
+# see TEST_DB_NAME below) AND the underlying volumes are isolated from the
+# "redmine"-named dev/production database and its "redmine_pgdata"/
+# "redmine_web_files" volumes — compose.dev.yaml pins volumes to fixed
+# external names via `name:`, which are NOT project-namespaced, so without
+# this override a test run would silently attach to (and tear down) whatever
+# volume a real dev stack on the same host already created.
 #
 # Usage:
 #   bash scripts/test-stack.sh            # build, boot, verify, tear down
@@ -43,6 +47,14 @@ COMPOSE_FILE="${REPO_ROOT}/compose.dev.yaml"
 HOST_PORT="${TEST_STACK_HOST_PORT:-8080}"
 TEST_DB_NAME="${TEST_STACK_DB_NAME:-redmine_test}"
 export REDMINE_DB_NAME="${TEST_DB_NAME}"
+# compose.dev.yaml pins its volumes to fixed external names via `name:`
+# (REDMINE_DB_VOLUME/REDMINE_FILES_VOLUME), which are NOT project-namespaced —
+# so without overriding them here, a test run would silently attach to
+# whatever "redmine_pgdata"/"redmine_web_files" volume a real dev stack on
+# this host already created (possibly with a differently-named database
+# already initialized inside it), rather than getting its own fresh volume.
+export REDMINE_DB_VOLUME="${TEST_STACK_DB_VOLUME:-redmine_test_pgdata}"
+export REDMINE_FILES_VOLUME="${TEST_STACK_FILES_VOLUME:-redmine_test_web_files}"
 # Pin the compose project name explicitly: this podman-compose install
 # mis-resolves the implicit project name on `up` (observed producing the
 # invalid volume name "_-redmine_pgdata" and failing outright), and pinning
