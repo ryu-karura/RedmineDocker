@@ -258,6 +258,14 @@ Start/stop order is enforced by `Requires=`/`After=` in the units:
   via `--env-file`) as long as `COMPOSE_PROJECT_NAME`, `REDMINE_NETWORK`,
   `REDMINE_DB_CONTAINER`/`REDMINE_WEB_CONTAINER`, `REDMINE_DB_VOLUME`/`REDMINE_FILES_VOLUME`,
   and `REDMINE_WEB_HOST_PORT` all differ — see `docs/Design.md`, "設定パラメータ (.env)".
+- **`redmine:6.1.3`'s Ruby 3.4 ships YJIT compiled in but disabled by default**, and Redmine's
+  own `config/environments/production.rb` never sets `config.yjit`, so JIT never turns on
+  unless something asks for it (verified: `ruby -e "puts RubyVM::YJIT.enabled?"` prints
+  `false` with no flags, `true` with `RUBY_YJIT_ENABLE=1`, including through `bundle exec`).
+  `RUBY_YJIT_ENABLE` is a Ruby-native env var — no entrypoint.sh or Containerfile change is
+  needed, it just has to reach the Puma process env. Set to `1` by default in both
+  `compose.dev.yaml` and `quadlets/redmine-web.container` (override via `.env`'s
+  `RUBY_YJIT_ENABLE`); a container restart picks it up, no rebuild required.
 - **Plugins/themes are pinned by git tag/branch at build time.** When adding or
   bumping one, edit `containers/redmine-web/Containerfile`, keep the numbered
   comment list accurate, and note that `view_customize`'s clone directory

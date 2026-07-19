@@ -107,11 +107,15 @@ RedmineDocker は 2 つのコンテナが連携して Redmine 6.1.3 を動作さ
 | データルート | `REDMINE_DATA_DIR` | `/opt/redmine/data/redmine` |
 | SUBURI | `REDMINE_SUBURI` | `/redmine` |
 | 開発公開ポート | `REDMINE_WEB_HOST_PORT` | `8080` |
+| YJIT 有効化 | `RUBY_YJIT_ENABLE` | `1` |
 
 補足:
 - `compose.dev.yaml` の build args で `REDMINE_WEB_BASE_IMAGE` / `REDMINE_DB_BASE_IMAGE` を `Containerfile` の `FROM` に渡します。
 - 同じバージョン変数から、ビルド済みローカルイメージタグ（`REDMINE_WEB_IMAGE` / `REDMINE_DB_IMAGE`）も構成されます。
 - 本番の `quadlets/redmine-web.container` は `EnvironmentFile=-/opt/redmine/containers/.env` を読むため、SMTP/TZ などは同一ファイルで管理できます。
+- `RUBY_YJIT_ENABLE` は Ruby 本体が直接読む環境変数で、Puma (`bundle exec rails server`) に
+  そのまま渡って有効化されます。Redmine のコードや Containerfile には手を入れないため、
+  イメージ再ビルド不要でコンテナ再起動のみで反映されます。
 - **同一チェックアウトから 2 つ目の開発スタックを並行起動する場合**は、`COMPOSE_PROJECT_NAME` /
   `REDMINE_NETWORK` / `REDMINE_DB_CONTAINER` / `REDMINE_WEB_CONTAINER` / `REDMINE_DB_VOLUME` /
   `REDMINE_FILES_VOLUME` / `REDMINE_WEB_HOST_PORT` をすべて別値にした 2 つ目の `.env` を用意し、

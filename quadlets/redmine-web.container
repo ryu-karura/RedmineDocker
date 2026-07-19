@@ -23,6 +23,7 @@ PublishPort=127.0.0.1:80:80
 
 Environment=RAILS_ENV=production
 Environment=RAILS_RELATIVE_URL_ROOT=/redmine
+Environment=RUBY_YJIT_ENABLE=1
 Environment=REDMINE_DB_HOST=redmine-db
 Environment=REDMINE_DB_NAME=redmine
 Environment=REDMINE_DB_USER=redmine
