@@ -10,7 +10,7 @@
 
 RHEL の実機がまだ用意できない場合は、本番環境と同じ Podman + Quadlets 手順を開発環境 A と同じ WSL (AlmaLinux 9.5 以上) 上でリハーサルできます。手順は本ガイド末尾の「本番相当の動作確認 (WSL)」の章を参照してください。
 
-コンテナ名・DB 名・ユーザー名・SUB URI・ポートなどの設定値の一覧、および `.env` に集約できるもの/できないもの（本番の Quadlet はなぜ `.env` を読めないか）は `docs/Design.md` の「設定項目 (Configuration)」章を参照してください。
+コンテナ名・DB 名・ユーザー名・SUB URI・ポートなどの設定値の一覧、および `.env` に集約できるもの/できないもの（本番の Quadlet はなぜ `.env` を読めないか）は `docs/Design.md` の「設定パラメータ (.env)」章を参照してください。
 
 ---
 
@@ -27,6 +27,10 @@ RHEL の実機がまだ用意できない場合は、本番環境と同じ Podma
 - rootless Podman が導入済みであること。`docker` / `docker compose` コマンドは Podman を呼び出すエイリアスで、`docker compose` は内部で `podman-compose` を経由します。
 
 ```bash
+# 0. 非シークレット設定 (.env) を作成 (初回のみ)
+cp .env.example .env
+# 必要に応じて REDMINE_SUBURI / REDMINE_WEB_HOST_PORT / TZ / SMTP_* を編集
+
 # 1. シークレットファイルを生成 (db_password.txt, secret_key_base.txt)
 bash scripts/generate-secrets.sh
 
@@ -42,6 +46,12 @@ docker compose -f compose.dev.yaml logs -f redmine-web
 #    http://localhost:8080/redmine/     (初期ログイン: admin / admin)
 ```
 
+任意: `.env.example` の値で展開される実際の compose 設定を確認する場合:
+
+```bash
+docker compose --env-file .env.example -f compose.dev.yaml config
+```
+
 WSL2 は `localhost` へのアクセスを自動的に Windows 側へフォワードするため、追加設定なしで Windows のブラウザから `http://localhost:8080/redmine/` を開けます。
 
 rootless Podman は特権ポート (<1024) への bind にホスト側の準備（`CAP_NET_BIND_SERVICE` の付与や `net.ipv4.ip_unprivileged_port_start` の変更）を要求するため、ホスト準備なしで動かせる開発環境ではホスト側ポートを 8080 にしています（本番の Quadlet ユニットはホスト側で 127.0.0.1:80 を使用します）。
@@ -50,7 +60,7 @@ rootless Podman は特権ポート (<1024) への bind にホスト側の準備�
 
 オプション — 追加の静的プロキシコンテナは不要です。`redmine-web` イメージに組み込まれた Apache フロントエンドをそのまま使います。
 
-オプション — コンテナ名・DB 名・ユーザー名・SUB URI・ポートなどを既定値から変更したい場合は `cp .env.example .env` としてから編集してください（`docker compose` が自動で読み込みます）。何もしなければ `.env.example` に書かれた既定値がそのまま使われます。詳細は `docs/Design.md` の「設定項目」章を参照してください。この手順は開発環境 A・B のどちらでも共通です。
+オプション — コンテナ名・DB 名・ユーザー名・SUB URI・ポートなどを既定値から変更したい場合は `cp .env.example .env` としてから編集してください（`docker compose` が自動で読み込みます）。何もしなければ `.env.example` に書かれた既定値がそのまま使われます。詳細は `docs/Design.md` の「設定パラメータ」章を参照してください。この手順は開発環境 A・B のどちらでも共通です。
 
 ---
 
@@ -62,15 +72,19 @@ rootless Podman は特権ポート (<1024) への bind にホスト側の準備�
 # Codespace 起動時に .devcontainer/post-create.sh が自動実行され、
 # shellcheck の導入と docker / docker compose の疎通確認を行います。
 
+# 0. 非シークレット設定 (.env) を作成 (初回のみ)
+cp .env.example .env
+# 必要に応じて CODESPACES_WEB_HOST_PORT / REDMINE_SUBURI / TZ / SMTP_* を編集
+
 # 1. シークレットファイルを生成
 bash scripts/generate-secrets.sh
 
-# 2. 2 コンテナをビルドして起動
-docker compose -f compose.dev.yaml up --build -d
+# 2. 2 コンテナをビルドして起動 (Codespaces 用 80 公開オーバーライドを併用)
+docker compose -f compose.dev.yaml -f compose.codespaces.yaml up --build -d
 
-# 3. ポート 8080 が自動フォワードされます (devcontainer.json の forwardPorts)。
-#    表示される通知、または "Ports" タブから開きます。
-#    http://localhost:8080/redmine/     (初期ログイン: admin / admin)
+# 3. ポート 80 が自動フォワードされます (devcontainer.json の forwardPorts)。
+#    "Ports" タブで Port 80 の Visibility を Public にすると外部公開できます。
+#    http://localhost/redmine/     (初期ログイン: admin / admin)
 ```
 
 開発環境 A (WSL) との違い: Codespaces は実 Docker Engine（docker-in-docker）で動作しますが、WSL 版は Podman 上で `docker` CLI をエミュレートして動作します。`compose.dev.yaml` はどちらでも同じファイルを使いますが、ビルド時間やヘルスチェックのタイミングがわずかに異なることがあります。
@@ -107,19 +121,23 @@ mkdir -p /opt/redmine/data/postgres/18 \
 
 ```bash
 cd /opt/redmine/containers
+cp .env.example .env
+# 必要に応じて TZ / SMTP_* / REDMINE_SUBURI 等を編集
+
 bash scripts/generate-secrets.sh
 podman secret create db_password     secrets/db_password.txt
 podman secret create secret_key_base secrets/secret_key_base.txt
 ```
 
-必要に応じて `.env.example` から `/opt/redmine/containers/.env` を作成し、SMTP 設定を入れます。この `.env` は `scripts/backup.sh`/`scripts/restore.sh` の DB 名・ユーザー名・データルートの既定値も上書きできますが、`quadlets/*.container` 自体のコンテナ名・DB 名・SUB URI 等はここでは変更できません（`docs/Design.md` の「設定項目」章に理由と一覧があります）。
+この `.env` は `scripts/backup.sh`/`scripts/restore.sh` の DB 名・ユーザー名・データルートの既定値も上書きできますが、`quadlets/*.container` 自体のコンテナ名・DB 名・SUB URI 等はここでは変更できません（`docs/Design.md` の「設定パラメータ」章に理由と一覧があります）。`.env` は主に `quadlets/redmine-web.container` の `EnvironmentFile` からも読み込まれ、SMTP/TZ などの非シークレット設定に使われます。
 
 ### 4. イメージをビルドする (redmine ユーザーとして)
 
 ```bash
 cd /opt/redmine/containers
-podman build -t localhost/redmine-db:18-3.6      containers/redmine-db
-podman build -t localhost/redmine-web:6.1.3  containers/redmine-web
+set -a; source .env; set +a
+podman build -t "${REDMINE_DB_IMAGE}"  --build-arg DB_BASE_IMAGE="${REDMINE_DB_BASE_IMAGE}"   containers/redmine-db
+podman build -t "${REDMINE_WEB_IMAGE}" --build-arg WEB_BASE_IMAGE="${REDMINE_WEB_BASE_IMAGE}" containers/redmine-web
 ```
 
 ### 5. Quadlet ユニットを導入する (redmine ユーザーとして)

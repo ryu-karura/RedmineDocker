@@ -1,14 +1,13 @@
 #!/bin/bash
 # containers/redmine-db/init-redmine.sh
 #
-# Runs once, from the upstream postgis/postgis entrypoint's
-# /docker-entrypoint-initdb.d/ hook, during first-time initialisation of an
-# empty data directory (while a temporary PostgreSQL server is running).
+# upstream postgis/postgis entrypoint の
+# /docker-entrypoint-initdb.d/ フックから、初回初期化時に 1 回だけ実行されます
+# （空データディレクトリで、一時 PostgreSQL サーバ起動中）。
 #
-# The `redmine` role and `redmine` database are already created by the image
-# from POSTGRES_USER / POSTGRES_DB. Here we only make sure the PostGIS
-# extensions that the redmine_gtt plugin depends on exist in the Redmine
-# database. All statements are idempotent.
+# `redmine` ロールと `redmine` DB は POSTGRES_USER / POSTGRES_DB から
+# 既に作成済みです。このスクリプトは redmine_gtt が依存する PostGIS 拡張が
+# Redmine DB に存在することだけを保証します。SQL はすべて冪等です。
 
 set -euo pipefail
 

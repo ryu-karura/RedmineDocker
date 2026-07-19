@@ -1,19 +1,19 @@
 #!/bin/bash
 # scripts/generate-secrets.sh
 #
-# Generates the secret files consumed by the redmine stack:
-#   - secrets/db_password.txt      : PostgreSQL password for the `redmine` role
-#                                    (also the app DB password — single user model)
-#   - secrets/secret_key_base.txt  : Rails secret_key_base for Redmine
+# redmine スタックで使うシークレットファイルを生成します:
+#   - secrets/db_password.txt      : `redmine` ロール用 PostgreSQL パスワード
+#                                    （単一ユーザーモデルのためアプリ DB パスワードも兼用）
+#   - secrets/secret_key_base.txt  : Redmine 用 Rails secret_key_base
 #
-# These files are referenced by compose.dev.yaml (`secrets:`) in development and
-# are the source for `podman secret create` in production (see docs/Setup.md).
-# They are git-ignored; keep a secure backup outside the repository.
+# これらは開発時は compose.dev.yaml の `secrets:` から参照され、
+# 本番時は `podman secret create` の入力ファイルになります（docs/Setup.md 参照）。
+# git には含めないため、リポジトリ外へ安全にバックアップしてください。
 #
-# Usage:
+# 使い方:
 #   bash scripts/generate-secrets.sh
 #
-# Set SECRETS_DIR to override the output directory.
+# 出力先を変更する場合は SECRETS_DIR を設定します。
 
 set -euo pipefail
 
@@ -35,15 +35,15 @@ fi
 mkdir -p "${SECRETS_DIR}"
 chmod 700 "${SECRETS_DIR}"
 
-# Read a finite chunk of /dev/urandom (not an endless stream) so `tr` does not
-# die from SIGPIPE under `set -o pipefail` after `head` exits.
+# /dev/urandom は有限サイズだけ読み込みます（無限ストリームを避ける）。
+# `set -o pipefail` 下で `head` 終了後に `tr` が SIGPIPE で落ちないようにするためです。
 
-# 24-character alphanumeric password (no special chars → no shell-quoting issues)
+# 英数字 24 文字パスワード（記号なしでシェルクオート事故を回避）
 gen_password() {
     head -c 4096 /dev/urandom | LC_ALL=C tr -dc 'A-Za-z0-9' | head -c 24
 }
 
-# 128 hex characters — standard length for a Rails secret_key_base
+# 16進 128 文字（Rails secret_key_base の標準長）
 gen_secret() {
     head -c 65536 /dev/urandom | LC_ALL=C tr -dc 'a-f0-9' | head -c 128
 }
@@ -58,7 +58,7 @@ if [ "${#DB_PASSWORD}" -ne 24 ] || [ "${#SECRET_KEY_BASE}" -ne 128 ]; then
     exit 1
 fi
 
-# No trailing newline: the value IS the whole file (Postgres/Redmine read it verbatim).
+# 改行は付けない: ファイル全体を値としてそのまま読み取るため。
 printf '%s' "${DB_PASSWORD}"     > "${DB_PASSWORD_FILE}"
 printf '%s' "${SECRET_KEY_BASE}" > "${SECRET_KEY_BASE_FILE}"
 chmod 600 "${DB_PASSWORD_FILE}" "${SECRET_KEY_BASE_FILE}"

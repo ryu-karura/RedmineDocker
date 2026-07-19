@@ -1,19 +1,20 @@
 # containers/redmine-web/database.yml.tmpl
 #
-# Redmine database configuration template, rendered by entrypoint.sh with
-# envsubst before Puma starts.
+# entrypoint.sh が Puma 起動前に envsubst で描画する
+# Redmine DB 設定テンプレートです。
 #
-# IMPORTANT: the adapter is 'postgis' (not 'postgresql'). This is REQUIRED by
-# the redmine_gtt (Geo-Task-Tracker) plugin. Using 'postgresql' with redmine_gtt
-# installed causes ActiveRecord adapter errors at startup — which is why we
-# render this ourselves instead of relying on the official image's env-driven
-# database.yml (that image only knows the 'postgresql' adapter).
+# 重要: adapter は 'postgresql' ではなく 'postgis' です。
+# これは redmine_gtt（Geo-Task-Tracker）で必須です。
+# redmine_gtt 導入環境で 'postgresql' を使うと起動時に
+# ActiveRecord アダプタエラーになるため、公式イメージの
+# 環境変数駆動 database.yml（postgresql 前提）を使わず
+# 本テンプレートを描画しています。
 #
-# Substituted variables:
-#   ${REDMINE_DB_HOST}     → database container hostname (redmine-db)
-#   ${REDMINE_DB_NAME}     → database name (redmine)
-#   ${REDMINE_DB_USER}     → database username (redmine)
-#   ${REDMINE_DB_PASSWORD} → database password (from a Docker/Podman secret)
+# 置換変数:
+#   ${REDMINE_DB_HOST}     → DB コンテナホスト名（redmine-db）
+#   ${REDMINE_DB_NAME}     → DB 名（redmine）
+#   ${REDMINE_DB_USER}     → DB ユーザー名（redmine）
+#   ${REDMINE_DB_PASSWORD} → DB パスワード（Docker/Podman シークレット）
 
 production:
   adapter: postgis
@@ -24,9 +25,9 @@ production:
   password: ${REDMINE_DB_PASSWORD}
   encoding: utf8
   pool: 10
-  # PostGIS schema search path
+  # PostGIS スキーマ検索パス
   schema_search_path: public,topology
-  # Connection behaviour
+  # 接続関連パラメータ
   checkout_timeout: 5
   connect_timeout: 5
   idle_timeout: 300

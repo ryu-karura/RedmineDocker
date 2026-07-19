@@ -29,6 +29,9 @@ Environment=REDMINE_DB_USER=redmine
 Environment=REDMINE_DB_PASSWORD_FILE=/run/secrets/db_password
 Environment=REDMINE_SECRET_KEY_BASE_FILE=/run/secrets/secret_key_base
 Environment=REDMINE_PLUGINS_MIGRATE=1
+# 公式イメージ同様、値を設定するとコアの db:migrate をスキップします
+# （既定は未設定 = 起動時にマイグレーションを実行）。
+# Environment=REDMINE_NO_DB_MIGRATE=1
 # オプションの非シークレット設定（SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASSWORD）。
 # 先頭の '-' はファイルが存在しなくても無視するための指定です。
 EnvironmentFile=-/opt/redmine/containers/.env

@@ -82,6 +82,10 @@ RedmineDocker/
 **開発環境 A — WSL (AlmaLinux 9.5 以上)**、**開発環境 B — GitHub Codespaces** のどちらも同じコマンドで起動します。
 
 ```bash
+# 0. 非シークレット設定 (.env) を作成（初回のみ）
+cp .env.example .env
+# 必要に応じて REDMINE_SUBURI / REDMINE_WEB_HOST_PORT / TZ / SMTP_* を編集
+
 bash scripts/generate-secrets.sh                 # ./secrets/*.txt を生成
 docker compose -f compose.dev.yaml up --build -d  # 初回ビルドは重めです（プラグインと webpack の構築）
 # その後、転送ポートを開きます:
@@ -92,6 +96,8 @@ docker compose -f compose.dev.yaml up --build -d  # 初回ビルドは重めで�
 
 WSL は Podman 上で `docker` CLI をエミュレートして動作し、Codespaces は devcontainer の docker-in-docker（実 Docker Engine）で動作します。コマンドは共通ですが、実行環境の違いは `docs/Setup.md` を参照してください。
 
+`.env.example` には、コンテナ名・ネットワーク名・SUBURI・公開ポート・イメージタグ・ベースイメージタグの既定値が含まれます。通常は `cp .env.example .env` で開始し、必要項目だけ変更してください。
+
 ---
 
 ## クイックスタート (本番 / Podman + Quadlets)
@@ -99,14 +105,18 @@ WSL は Podman 上で `docker` CLI をエミュレートして動作し、Codesp
 本番環境は RHEL 9.5 以上を想定しています。実機がまだ用意できない場合は、開発環境 A と同じ WSL (AlmaLinux 9.5 以上) 上で以下と同じ手順をリハーサルできます（`docs/Setup.md` の「本番相当の動作確認 (WSL)」を参照）。
 
 1. RHEL 9.5 以上のホスト上の `/opt/redmine/containers` にこのリポジトリをクローンします。
-2. `bash scripts/generate-secrets.sh` を実行し、シークレットを登録します。
+2. `.env` を作成して必要な値を編集します（最低限、SMTP/TZ の確認を推奨）。
+```
+cp .env.example .env
+```
+3. `bash scripts/generate-secrets.sh` を実行し、シークレットを登録します。
 ```
 podman secret create db_password secrets/db_password.txt
 podman secret create secret_key_base secrets/secret_key_base.txt
 ```
 登録確認
 > podman secret ls
-3. イメージをビルドし Quadlet ユニットを導入します。詳細は `docs/Setup.md` を参照してください。
+4. イメージをビルドし Quadlet ユニットを導入します。詳細は `docs/Setup.md` を参照してください。
 
 ---
 

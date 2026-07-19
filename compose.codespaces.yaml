@@ -1,0 +1,9 @@
+# compose.codespaces.yaml — GitHub Codespaces 用オーバーライド
+#
+# compose.dev.yaml の設定に重ねて、redmine-web を host 側 80 番で公開します。
+# Codespaces の Ports タブで 80 を Public にすると、外部 URL から到達できます。
+
+services:
+  redmine-web:
+    ports:
+      - "${CODESPACES_WEB_BIND_HOST:-0.0.0.0}:${CODESPACES_WEB_HOST_PORT:-80}:${REDMINE_WEB_CONTAINER_PORT:-80}"

@@ -94,7 +94,7 @@ mounting a volume.
 
 ## Development workflow (Docker Compose: WSL or Codespaces)
 
-Same commands on both paths:
+WSL (Development A):
 
 ```bash
 bash scripts/generate-secrets.sh                    # creates ./secrets/*.txt (git-ignored)
@@ -103,14 +103,23 @@ docker compose -f compose.dev.yaml logs -f redmine-web   # watch migrations run
 # Open http://localhost:8080/redmine/   (initial login: admin / admin)
 ```
 
+Codespaces (Development B, external/public via port 80):
+
+```bash
+bash scripts/generate-secrets.sh
+docker compose -f compose.dev.yaml -f compose.codespaces.yaml up --build -d
+docker compose -f compose.dev.yaml -f compose.codespaces.yaml logs -f redmine-web
+# Open http://localhost/redmine/   (initial login: admin / admin)
+```
+
 - `docker compose ... down` keeps data (named volumes `pgdata`, `redmine_files`);
   `down -v` destroys it.
 - **Development A (WSL)**: requires `systemd=true` in `/etc/wsl.conf` (needed
   later if this box is also used to rehearse Production, below) and rootless
   Podman; `docker`/`docker compose` are an alias emulating Podman.
 - **Development B (Codespaces)**: the dev container (`.devcontainer/`)
-  provisions real docker-in-docker and installs `shellcheck`; port **8080**
-  (not 80) is auto-forwarded per `devcontainer.json`'s `forwardPorts`.
+  provisions real docker-in-docker and installs `shellcheck`; `compose.codespaces.yaml`
+  overrides the web publish to host port **80** (all interfaces) for forwarding/public access.
 
 ## Production workflow (rootless Podman + Quadlets)
 
@@ -139,9 +148,10 @@ Start/stop order is enforced by `Requires=`/`After=` in the units:
   password into a Containerfile, compose file, quadlet, or committed `.env`.
   `.env` holds only NON-secret overrides — see `.env.example`.
 - **`.env` is the single reference for non-secret config** (container/network
-  naming, `DB_NAME`/`DB_USER`, `RAILS_RELATIVE_URL_ROOT`, `WEB_HOST_PORT`,
-  `DATA_ROOT`, `TZ`, SMTP) — full table and rationale in `docs/Design.md`,
-  "設定項目 (Configuration)". Three different things read it: `compose.dev.yaml`
+  naming, `REDMINE_DB_NAME`/`REDMINE_DB_USER`, `REDMINE_SUBURI`
+  (`RAILS_RELATIVE_URL_ROOT`), `REDMINE_WEB_HOST_PORT`,
+  `REDMINE_DATA_DIR`, `TZ`, SMTP) — full table and rationale in `docs/Design.md`,
+  "設定パラメータ (.env)". Three different things read it: `compose.dev.yaml`
   (Compose's built-in `.env` autoload, used by every `${VAR:-default}` in that
   file), `quadlets/redmine-web.container`'s `EnvironmentFile=` (container
   process env only — `SMTP_*`/`TZ`), and `scripts/backup.sh`/`restore.sh`
@@ -209,7 +219,8 @@ Start/stop order is enforced by `Requires=`/`After=` in the units:
   (`CAP_NET_BIND_SERVICE` or `net.ipv4.ip_unprivileged_port_start`), and the
   dev compose file is meant to run with **no host prep**. Production's Quadlet
   unit keeps host port 80 and expects that prep to be done once during setup
-  (see `docs/Setup.md`).
+  (see `docs/Setup.md`). In Codespaces, use `compose.codespaces.yaml` as an
+  additional override when you need forwarded/public host port 80.
 - **PostgreSQL 18+ images changed their data-directory layout.** They expect a
   single volume mounted at `/var/lib/postgresql` (the image manages a
   version-specific subdirectory under it, e.g. `/var/lib/postgresql/18/docker`)
@@ -243,10 +254,16 @@ Start/stop order is enforced by `Requires=`/`After=` in the units:
   nonexistent tag with no `|| git clone` fallback fails the whole build. The four
   clones carrying a `|| git clone <url>` fallback degrade to the default branch if
   the tag is missing; add one when unsure of a tag.
-- **Migrations run automatically on start.** `entrypoint.sh` runs
-  `rake db:migrate` and (when `REDMINE_PLUGINS_MIGRATE=1`)
-  `rake redmine:plugins:migrate`. Restarting `redmine-web` re-applies them
-  idempotently — that is the intended upgrade path.
+- **Migrations run automatically on start, gated by the same switches as the
+  official image.** `entrypoint.sh` runs `rake db:migrate` **unless**
+  `REDMINE_NO_DB_MIGRATE` is set (non-empty), and runs
+  `rake redmine:plugins:migrate` when `REDMINE_PLUGINS_MIGRATE` is set
+  (non-empty, `!= 0`) — both mirroring `docker-entrypoint.sh` upstream. The one
+  deliberate divergence is the default: upstream leaves both unset (plugins do
+  not migrate), while this stack bakes in 13 plugins and so defaults
+  `REDMINE_PLUGINS_MIGRATE=1`. Restarting `redmine-web` re-applies migrations
+  idempotently — that is the intended upgrade path; set `REDMINE_NO_DB_MIGRATE=1`
+  to boot without migrating (e.g. to inspect a DB before an upgrade).
 
 ## Shell script conventions
 
@@ -296,8 +313,8 @@ stack has actually hit once: `pg_config` on PATH, `redmine-db` creating the
 failed" regression, `redmine-web` free of plugin `LoadError`/permission/
 routing errors and not crash-looping, and the login page reachable both
 through Apache and directly on Puma. It only exercises **default** `.env`
-values — it does not verify that a `.env` override (`RAILS_RELATIVE_URL_ROOT`,
-`DB_NAME`, etc., see `docs/Design.md`) actually takes effect.
+values — it does not verify that a `.env` override (`REDMINE_SUBURI`,
+`REDMINE_DB_NAME`, etc., see `docs/Design.md`) actually takes effect.
 
 For a quicker manual check, or when investigating a single failure:
 

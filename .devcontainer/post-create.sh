@@ -20,5 +20,5 @@ docker compose version
 echo ""
 echo "Next steps (see docs/Setup.md, '開発環境 B — GitHub Codespaces'):"
 echo "  1. bash scripts/generate-secrets.sh    # creates ./secrets/*.txt"
-echo "  2. docker compose -f compose.dev.yaml up --build -d"
-echo "  3. Open http://localhost:8080/redmine/ (forwarded port 8080)"
+echo "  2. docker compose -f compose.dev.yaml -f compose.codespaces.yaml up --build -d"
+echo "  3. Open http://localhost/redmine/ (forwarded port 80)"
