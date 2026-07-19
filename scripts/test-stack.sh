@@ -9,7 +9,7 @@
 #   - compose.dev.yaml parses (`podman compose config`)
 #   - both images build (plugin clones + `bundle install` + webpack)
 #   - pg_config is present and on PATH inside the redmine-web image
-#   - redmine-db actually creates the `redmine` database + PostGIS extensions
+#   - redmine-db actually creates the test database + PostGIS extensions
 #     (regresses if POSTGRES_INITDB_ARGS ever reintroduces --auth-local=peer)
 #   - redmine-web's entrypoint doesn't crash-loop (plugin LoadError, or Puma
 #     unable to read config/database.yml because of file ownership)
@@ -21,6 +21,12 @@
 # recreates the redmine-db/redmine-web containers and their named volumes
 # (pgdata, redmine_files). It never touches production (quadlets/,
 # /opt/redmine). Any existing dev data in those volumes is discarded.
+#
+# The Postgres database itself is created under a dedicated name
+# (REDMINE_DB_NAME=redmine_test by default, see TEST_DB_NAME below) instead of
+# the "redmine" name dev/production use, so this test can never be mistaken
+# for, or collide with, a real dev database inside the same redmine-db
+# container/volume.
 #
 # Usage:
 #   bash scripts/test-stack.sh            # build, boot, verify, tear down
@@ -35,6 +41,14 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(dirname "${SCRIPT_DIR}")"
 COMPOSE_FILE="${REPO_ROOT}/compose.dev.yaml"
 HOST_PORT="${TEST_STACK_HOST_PORT:-8080}"
+TEST_DB_NAME="${TEST_STACK_DB_NAME:-redmine_test}"
+export REDMINE_DB_NAME="${TEST_DB_NAME}"
+# Pin the compose project name explicitly: this podman-compose install
+# mis-resolves the implicit project name on `up` (observed producing the
+# invalid volume name "_-redmine_pgdata" and failing outright), and pinning
+# it also gives the test run volumes fully separate from any real dev stack.
+PROJECT_NAME="${TEST_STACK_PROJECT_NAME:-redmine_test}"
+pc() { podman compose -p "${PROJECT_NAME}" -f "${COMPOSE_FILE}" "$@"; }
 
 KEEP=0
 SKIP_BUILD=0
@@ -73,11 +87,11 @@ cd "${REPO_ROOT}"
 cleanup() {
     if [ "${KEEP}" -eq 1 ]; then
         log "Leaving the stack running (--keep). Tear down later with:"
-        log "  podman compose -f ${COMPOSE_FILE} down -v"
+        log "  podman compose -p ${PROJECT_NAME} -f ${COMPOSE_FILE} down -v"
         return
     fi
     log "Tearing down test stack ..."
-    podman compose -f "${COMPOSE_FILE}" down -v >/dev/null 2>&1 || true
+    pc down -v >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
 
@@ -91,7 +105,7 @@ fi
 
 # ── 1. Static checks ────────────────────────────────────────────────────────
 log "Validating compose.dev.yaml syntax ..."
-podman compose -f "${COMPOSE_FILE}" config >/dev/null \
+pc config >/dev/null \
     || die "compose.dev.yaml failed to parse. Fix syntax before continuing."
 
 if command -v shellcheck >/dev/null 2>&1; then
@@ -104,7 +118,7 @@ fi
 
 # ── 2. Clear residue: previous test/dev containers and volumes ─────────────
 log "Clearing any residue from a previous run ..."
-podman compose -f "${COMPOSE_FILE}" down -v >/dev/null 2>&1 || true
+pc down -v >/dev/null 2>&1 || true
 podman rm -f redmine-db redmine-web >/dev/null 2>&1 || true
 
 # ── 3. Build ─────────────────────────────────────────────────────────────────
@@ -112,7 +126,7 @@ if [ "${SKIP_BUILD}" -eq 1 ]; then
     log "Skipping build (--skip-build); using existing images."
 else
     log "Building redmine-db and redmine-web images ..."
-    podman compose -f "${COMPOSE_FILE}" build \
+    pc build \
         || die "Image build failed."
 fi
 
@@ -122,7 +136,7 @@ check "pg_config present on PATH in redmine-web image" \
 
 # ── 4. Boot redmine-db and verify database bootstrap ───────────────────────
 log "Starting redmine-db ..."
-podman compose -f "${COMPOSE_FILE}" up -d --force-recreate redmine-db >/dev/null
+pc up -d --force-recreate redmine-db >/dev/null
 
 wait_healthy() {
     local name="$1" timeout="$2" waited=0 status
@@ -155,22 +169,22 @@ check "redmine-db logs have no 'Peer authentication failed'" \
 db_exists() {
     podman exec -e PGPASSWORD="${DB_PASSWORD}" redmine-db \
         psql -h 127.0.0.1 -U redmine -d postgres -tAc \
-        "SELECT 1 FROM pg_database WHERE datname = 'redmine'" 2>/dev/null | grep -q '^1$'
+        "SELECT 1 FROM pg_database WHERE datname = '${TEST_DB_NAME}'" 2>/dev/null | grep -q '^1$'
 }
-check "redmine-db created the 'redmine' database" db_exists
+check "redmine-db created the '${TEST_DB_NAME}' database" db_exists
 
 extension_installed() {
     local ext="$1"
     podman exec -e PGPASSWORD="${DB_PASSWORD}" redmine-db \
-        psql -h 127.0.0.1 -U redmine -d redmine -tAc \
+        psql -h 127.0.0.1 -U redmine -d "${TEST_DB_NAME}" -tAc \
         "SELECT 1 FROM pg_extension WHERE extname = '${ext}'" 2>/dev/null | grep -q '^1$'
 }
-check "postgis extension installed in 'redmine' db" extension_installed postgis
-check "postgis_topology extension installed in 'redmine' db" extension_installed postgis_topology
+check "postgis extension installed in '${TEST_DB_NAME}' db" extension_installed postgis
+check "postgis_topology extension installed in '${TEST_DB_NAME}' db" extension_installed postgis_topology
 
 # ── 5. Boot redmine-web and verify the app actually serves the sub-URI ─────
 log "Starting redmine-web ..."
-podman compose -f "${COMPOSE_FILE}" up -d --force-recreate redmine-web >/dev/null
+pc up -d --force-recreate redmine-web >/dev/null
 
 check "redmine-web becomes healthy" wait_healthy redmine-web 400
 

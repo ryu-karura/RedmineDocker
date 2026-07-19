@@ -99,9 +99,13 @@ chown redmine:redmine config/configuration.yml
 chmod 640 config/configuration.yml
 
 log "Rendering Apache reverse-proxy config ..."
+# Render from the .tmpl source, not the previously-rendered .conf — conf-enabled/
+# is a symlink to conf-available/redmine-proxy.conf (via a2enconf), so reading
+# and writing that same .conf here would truncate it to empty before envsubst
+# ever reads it.
 # shellcheck disable=SC2016
 envsubst '${RAILS_RELATIVE_URL_ROOT} ${REDMINE_PUMA_PORT}' \
-    < /etc/apache2/conf-available/redmine-proxy.conf > /etc/apache2/conf-enabled/redmine-proxy.conf
+    < /etc/apache2/conf-available/redmine-proxy.conf.tmpl > /etc/apache2/conf-available/redmine-proxy.conf
 
 # ── 3. PostgreSQL 待機 ────────────────────────────────────────────────────────
 log "Waiting for PostgreSQL at ${REDMINE_DB_HOST}:${REDMINE_DB_PORT} ..."
