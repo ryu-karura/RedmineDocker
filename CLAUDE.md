@@ -244,6 +244,20 @@ Start/stop order is enforced by `Requires=`/`After=` in the units:
   fails with `database "redmine" does not exist`. `scram-sha-256` works
   locally too because the entrypoint exports `PGPASSWORD` before running any
   setup SQL.
+- **`compose.dev.yaml`'s project name comes from `COMPOSE_PROJECT_NAME` in `.env`, not a
+  `name:` field with variable substitution.** `podman-compose` 1.5.0 resolves the top-level
+  `name:` attribute *before* substituting `.env` variables into it, so `name:
+  ${STACK_NAME:-redmine}` got normalized as a literal string and produced the invalid project
+  name `_-redmine` (stripped `$`, `{`, `}`, `:`, and every uppercase letter, since its
+  normalization regex only keeps `[-_a-z0-9]`) — which then made `podman volume create` fail
+  outright. `COMPOSE_PROJECT_NAME` is a Compose-spec special variable that both real Docker
+  Compose and podman-compose read directly out of `.env`, taking precedence over `name:` and
+  never touching the buggy substitution path, so `compose.dev.yaml` keeps a static `name:
+  redmine` fallback and relies on `.env`'s `COMPOSE_PROJECT_NAME` for overrides. Two
+  independent dev stacks can be run from one checkout with two separate `.env` files (passed
+  via `--env-file`) as long as `COMPOSE_PROJECT_NAME`, `REDMINE_NETWORK`,
+  `REDMINE_DB_CONTAINER`/`REDMINE_WEB_CONTAINER`, `REDMINE_DB_VOLUME`/`REDMINE_FILES_VOLUME`,
+  and `REDMINE_WEB_HOST_PORT` all differ — see `docs/Design.md`, "設定パラメータ (.env)".
 - **Plugins/themes are pinned by git tag/branch at build time.** When adding or
   bumping one, edit `containers/redmine-web/Containerfile`, keep the numbered
   comment list accurate, and note that `view_customize`'s clone directory

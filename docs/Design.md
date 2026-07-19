@@ -97,9 +97,12 @@ RedmineDocker は 2 つのコンテナが連携して Redmine 6.1.3 を動作さ
 | DB イメージタグ | `REDMINE_DB_IMAGE` | `localhost/redmine-db:${REDMINE_DB_PG_MAJOR}-${REDMINE_DB_POSTGIS_VERSION}` |
 | Web ベースイメージ | `REDMINE_WEB_BASE_IMAGE` | `docker.io/library/redmine:${REDMINE_VERSION}` |
 | DB ベースイメージ | `REDMINE_DB_BASE_IMAGE` | `docker.io/postgis/postgis:${REDMINE_DB_PG_MAJOR}-${REDMINE_DB_POSTGIS_VERSION}` |
+| Compose プロジェクト名 | `COMPOSE_PROJECT_NAME` | `redmine` |
 | DB コンテナ表示名 | `REDMINE_DB_CONTAINER` | `redmine-db` |
 | Web コンテナ表示名 | `REDMINE_WEB_CONTAINER` | `redmine-web` |
 | ネットワーク名 | `REDMINE_NETWORK` | `redmine-net` |
+| DB ボリューム名 | `REDMINE_DB_VOLUME` | `redmine_pgdata` |
+| 添付ファイルボリューム名 | `REDMINE_FILES_VOLUME` | `redmine_web_files` |
 | DB 名 / ユーザー | `REDMINE_DB_NAME` / `REDMINE_DB_USER` | `redmine` / `redmine` |
 | データルート | `REDMINE_DATA_DIR` | `/opt/redmine/data/redmine` |
 | SUBURI | `REDMINE_SUBURI` | `/redmine` |
@@ -109,6 +112,14 @@ RedmineDocker は 2 つのコンテナが連携して Redmine 6.1.3 を動作さ
 - `compose.dev.yaml` の build args で `REDMINE_WEB_BASE_IMAGE` / `REDMINE_DB_BASE_IMAGE` を `Containerfile` の `FROM` に渡します。
 - 同じバージョン変数から、ビルド済みローカルイメージタグ（`REDMINE_WEB_IMAGE` / `REDMINE_DB_IMAGE`）も構成されます。
 - 本番の `quadlets/redmine-web.container` は `EnvironmentFile=-/opt/redmine/containers/.env` を読むため、SMTP/TZ などは同一ファイルで管理できます。
+- **同一チェックアウトから 2 つ目の開発スタックを並行起動する場合**は、`COMPOSE_PROJECT_NAME` /
+  `REDMINE_NETWORK` / `REDMINE_DB_CONTAINER` / `REDMINE_WEB_CONTAINER` / `REDMINE_DB_VOLUME` /
+  `REDMINE_FILES_VOLUME` / `REDMINE_WEB_HOST_PORT` をすべて別値にした 2 つ目の `.env` を用意し、
+  `docker compose --env-file .env.stack2 -f compose.dev.yaml up --build -d` のように
+  `--env-file` で明示してください（Compose は既定でカレントディレクトリの `.env` しか自動読込
+  しないため）。`secrets/db_password.txt` / `secrets/secret_key_base.txt` は両スタックで共有
+  されますが、開発用途では問題ありません（DB コンテナ・データが分離されていれば同じパスワード
+  を使っても支障はない）。
 
 ### なぜ Quadlet 側は一部の変数しか `.env` から読めないのか
 

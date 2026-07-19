@@ -13,7 +13,12 @@
 #   docker compose -f compose.dev.yaml up --build -d
 #   http://localhost:8080/redmine/ を開く
 
-name: ${STACK_NAME:-redmine}
+# プロジェクト名は COMPOSE_PROJECT_NAME (.env) で上書きしてください。COMPOSE_PROJECT_NAME
+# は Compose 仕様上 name: よりも優先され、.env から直接読まれるため、ここでの変数展開は
+# 使いません — podman-compose 1.5.0 はこの name: フィールドをプロジェクト名解決より前に
+# (env 未展開のまま) 正規化してしまい、"${STACK_NAME:-redmine}" が不正なプロジェクト名
+# "_-redmine" になって volume 作成が失敗するバグがあります (scripts/test-stack.sh 参照)。
+name: redmine
 
 networks:
   redmine-net:
@@ -22,7 +27,9 @@ networks:
 
 volumes:
   pgdata:
+    name: ${REDMINE_DB_VOLUME:-redmine_pgdata}
   redmine_files:
+    name: ${REDMINE_FILES_VOLUME:-redmine_web_files}
 
 secrets:
   db_password:
