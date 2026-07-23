@@ -77,10 +77,10 @@ RUN npm install -g yarn@1.22.22 \
 # 更新時はイメージを再ビルドしてください。
 
 # テーマ farend_fancy: 既定ブランチ（master）から clone
-# （このリポジトリに main はありません）。Redmine は public/themes/ を参照します。
+# （このリポジトリに main はありません）。Redmine は /themes/ を参照します。
 RUN git clone --depth 1 \
         https://github.com/farend/redmine_theme_farend_fancy.git \
-        ${REDMINE_HOME}/public/themes/farend_fancy
+        ${REDMINE_HOME}/themes/farend_fancy
 
 WORKDIR ${REDMINE_HOME}/plugins
 
@@ -183,7 +183,8 @@ RUN a2enmod headers rewrite proxy proxy_http \
         > /etc/apache2/conf-available/redmine-proxy.conf \
     && a2enconf redmine-proxy \
     && chmod 0755 /usr/local/bin/redmine-entrypoint.sh \
-    && chown -R redmine:redmine ${REDMINE_HOME}/config ${REDMINE_HOME}/plugins ${REDMINE_HOME}/public/themes
+    && chown -R redmine:redmine ${REDMINE_HOME}/config ${REDMINE_HOME}/plugins \
+    && chown -R redmine:redmine ${REDMINE_HOME}/public ${REDMINE_HOME}/themes
 
 EXPOSE 80
 
