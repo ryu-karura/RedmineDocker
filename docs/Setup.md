@@ -29,7 +29,7 @@ RHEL の実機がまだ用意できない場合は、本番環境と同じ Podma
 ```bash
 # 0. 非シークレット設定 (.env) を作成 (初回のみ)
 cp .env.example .env
-# 必要に応じて REDMINE_SUBURI / REDMINE_WEB_HOST_PORT / TZ / SMTP_* を編集
+# 必要に応じて REDMINE_SUBURI / REDMINE_WEB_HOST_PORT / REDMINE_WEB_SERVER / TZ / SMTP_* を編集
 
 # 1. シークレットファイルを生成 (db_password.txt, secret_key_base.txt)
 bash scripts/generate-secrets.sh
@@ -154,6 +154,15 @@ systemctl --user start redmine-db redmine-web
 起動順序はユニットの `Requires=` / `After=` 依存関係で制御されます。
 起動順: `redmine-db` → `redmine-web`、停止順は逆です。
 `systemctl --user status redmine-web` と `podman healthcheck run redmine-web` で状態を確認できます。
+
+アプリサーバーに Passenger（Apache + mod_passenger）を使う場合は、コピーした
+`~/.config/containers/systemd/redmine-web.container` の
+`Environment=REDMINE_WEB_SERVER=puma` を `passenger` に書き換えてから
+`systemctl --user daemon-reload && systemctl --user restart redmine-web` を実行します
+（イメージには両方式が入っているため再ビルドは不要です）。
+`EnvironmentFile` で読み込まれる `/opt/redmine/containers/.env` に
+`REDMINE_WEB_SERVER=passenger` と書く方法でも同じです。切り替え後の確認方法と
+トラブルシューティングは `docs/Manual.md` を参照してください。
 
 ### 6. ホスト Apache を設定する (TLS)
 

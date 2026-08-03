@@ -17,6 +17,13 @@
 #     (regresses if config.ru is ever reverted to the stock `run Rails.application`)
 #   - both containers report `healthy` and stay up (no restart loop)
 #
+# The app server under test is selected with --web-server (REDMINE_WEB_SERVER):
+#   puma      (default) Apache -> ProxyPass -> Puma :3000
+#   passenger           Apache + mod_passenger, no Puma and no :3000
+# The two modes share one image, so a full run of both is:
+#   bash scripts/test-stack.sh
+#   bash scripts/test-stack.sh --web-server passenger --skip-build
+#
 # This is a destructive test against compose.dev.yaml ONLY: it tears down and
 # recreates the redmine-db/redmine-web containers under a dedicated compose
 # project (redmine_test) with their own dedicated named volumes
@@ -36,6 +43,7 @@
 #   bash scripts/test-stack.sh            # build, boot, verify, tear down
 #   bash scripts/test-stack.sh --keep     # ... and leave the stack running
 #   bash scripts/test-stack.sh --skip-build   # reuse existing images (faster iteration)
+#   bash scripts/test-stack.sh --web-server passenger   # test the Passenger mode
 #
 # Runs with podman (podman compose / the podman-compose external provider).
 
@@ -64,20 +72,36 @@ pc() { podman compose -p "${PROJECT_NAME}" -f "${COMPOSE_FILE}" "$@"; }
 
 KEEP=0
 SKIP_BUILD=0
-for arg in "$@"; do
-    case "${arg}" in
+WEB_SERVER="${TEST_STACK_WEB_SERVER:-puma}"
+while [ "$#" -gt 0 ]; do
+    case "$1" in
         --keep) KEEP=1 ;;
         --skip-build) SKIP_BUILD=1 ;;
+        --web-server)
+            [ "$#" -ge 2 ] || { echo "--web-server requires an argument" >&2; exit 2; }
+            WEB_SERVER="$2"
+            shift
+            ;;
+        --web-server=*) WEB_SERVER="${1#--web-server=}" ;;
         -h|--help)
-            sed -n '2,30p' "${BASH_SOURCE[0]}"
+            sed -n '2,48p' "${BASH_SOURCE[0]}"
             exit 0
             ;;
         *)
-            echo "Unknown option: ${arg}" >&2
+            echo "Unknown option: $1" >&2
             exit 2
             ;;
     esac
+    shift
 done
+
+case "${WEB_SERVER}" in
+    puma|passenger) ;;
+    *) echo "--web-server must be 'puma' or 'passenger' (got '${WEB_SERVER}')" >&2; exit 2 ;;
+esac
+# redmine-web の entrypoint / healthcheck が読む値。compose.dev.yaml の
+# `REDMINE_WEB_SERVER: ${REDMINE_WEB_SERVER:-puma}` 経由でコンテナへ渡ります。
+export REDMINE_WEB_SERVER="${WEB_SERVER}"
 
 log()  { echo "[$(date -u '+%Y-%m-%dT%H:%M:%SZ')] [test-stack] $*"; }
 warn() { echo "[$(date -u '+%Y-%m-%dT%H:%M:%SZ')] [test-stack] WARNING: $*" >&2; }
@@ -195,7 +219,7 @@ check "postgis extension installed in '${TEST_DB_NAME}' db" extension_installed 
 check "postgis_topology extension installed in '${TEST_DB_NAME}' db" extension_installed postgis_topology
 
 # ── 5. Boot redmine-web and verify the app actually serves the sub-URI ─────
-log "Starting redmine-web ..."
+log "Starting redmine-web (REDMINE_WEB_SERVER=${WEB_SERVER}) ..."
 pc up -d --force-recreate redmine-web >/dev/null
 
 check "redmine-web becomes healthy" wait_healthy redmine-web 400
@@ -219,12 +243,34 @@ http_200() {
 check "login page reachable via Apache (:${HOST_PORT})" \
     http_200 "http://localhost:${HOST_PORT}/redmine/login"
 
-puma_direct_200() {
-    podman exec redmine-web curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:3000/redmine/login \
-        | grep -q '^200$'
-}
-check "login page reachable directly on Puma :3000 (sub-URI mounted in config.ru)" \
-    puma_direct_200
+if [ "${WEB_SERVER}" = "puma" ]; then
+    puma_direct_200() {
+        podman exec redmine-web curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:3000/redmine/login \
+            | grep -q '^200$'
+    }
+    check "login page reachable directly on Puma :3000 (sub-URI mounted in config.ru)" \
+        puma_direct_200
+else
+    # Passenger モードでは Puma を起動しないので :3000 は listen していないこと、
+    # そのぶん mod_passenger が実際に読み込まれていることを確認します。
+    puma_absent() {
+        ! podman exec redmine-web curl -sS -o /dev/null --max-time 5 \
+            http://127.0.0.1:3000/redmine/login 2>/dev/null
+    }
+    check "no Puma listening on :3000 (Passenger mode)" puma_absent
+
+    passenger_module_loaded() {
+        podman exec redmine-web apache2ctl -M 2>/dev/null | grep -q 'passenger_module'
+    }
+    check "mod_passenger is loaded in Apache" passenger_module_loaded
+
+    passenger_static_200() {
+        # Apache が public/ を Alias 経由で配信できていること（<Directory> 許可漏れ検知）。
+        http_200 "http://localhost:${HOST_PORT}/redmine/stylesheets/application.css"
+    }
+    check "static asset served by Apache from public/ (Alias + <Directory>)" \
+        passenger_static_200
+fi
 
 check "podman healthcheck run redmine-web exits 0" \
     podman healthcheck run redmine-web

@@ -230,6 +230,43 @@ docker compose -f compose.dev.yaml up -d --build --force-recreate
 - SUBURI 変更時は `host-apache/redmine-proxy.conf` の転送先パスも合わせて更新してください。
 - コンテナ名変更時は、既存コンテナとの衝突回避のため `down` 後の再作成が安全です。
 
+### ケース E: アプリサーバー切り替え（Puma ⇄ Passenger）
+
+対象: `REDMINE_WEB_SERVER` を `puma`（既定: Apache → ProxyPass → Puma :3000）と
+`passenger`（Apache + mod_passenger が Redmine を直接起動、:3000 なし）で切り替える場合。
+イメージには両方式が同梱されているため **再ビルドは不要** で、コンテナ再起動のみで反映されます。
+
+開発 (Compose):
+
+```bash
+# .env の REDMINE_WEB_SERVER を puma / passenger に変更してから
+docker compose -f compose.dev.yaml up -d --force-recreate redmine-web
+docker compose -f compose.dev.yaml logs -f redmine-web
+```
+
+本番 (Quadlet):
+
+```bash
+# ~/.config/containers/systemd/redmine-web.container の
+#   Environment=REDMINE_WEB_SERVER=puma
+# を passenger に書き換える（または /opt/redmine/containers/.env に記述する）
+systemctl --user daemon-reload
+systemctl --user restart redmine-web
+```
+
+切り替え後の確認:
+
+```bash
+podman exec redmine-web apache2ctl -M | grep passenger   # passenger のときだけ passenger_module が出る
+podman exec redmine-web passenger-status                 # passenger のときのみ成功（アプリのプロセス一覧）
+podman exec redmine-web curl -sf http://127.0.0.1:3000/redmine/login >/dev/null \
+  && echo "puma listening" || echo "no puma (passenger mode)"
+podman healthcheck run redmine-web                       # どちらのモードでも 0 で終了すること
+```
+
+ヘルスチェックはイメージ内の `/usr/local/bin/redmine-healthcheck.sh` が担当し、
+モードに応じて Puma 直叩きの検証を自動で省きます。
+
 ---
 
 ## 更新
@@ -250,7 +287,11 @@ systemctl --user restart redmine-web     # entrypoint でマイグレーショ�
 再びコアの `db:migrate` を実行します。
 
 ### Apache フロントエンド
-`redmine-web` イメージに Apache の設定を入れたため、個別の `redmine-static` イメージは不要です。変更後は Redmine イメージを再ビルドして再起動します。
+`redmine-web` イメージに Apache の設定を入れたため、個別の `redmine-static` イメージは不要です。変更後は Redmine イメージを再ビルドして再起動します。設定は
+`containers/redmine-web/httpd-redmine.conf.tmpl`（`puma` 用）と
+`containers/redmine-web/httpd-redmine-passenger.conf.tmpl`（`passenger` 用）の
+テンプレートから `entrypoint.sh` が起動時に描画します。生成後の `.conf` ではなく
+`.tmpl` を編集してください。
 
 ---
 
@@ -316,4 +357,21 @@ curl -sf http://127.0.0.1:80/redmine/login >/dev/null && echo OK
 
 ```bash
 podman exec -it redmine-web bundle exec rails console -e production
+```
+
+### Passenger モード特有のトラブルシューティング
+
+| 症状 | 原因と対処 |
+|------|------------|
+| どの URL も 404（ログに `No route matches [GET] "/login"`） | `config.ru` が Passenger 配下でも `map` してしまっています。`mod_passenger` は `PassengerBaseURI` で `PATH_INFO` からプレフィックスを除去済みのため、`map` を挟むとマッチしません。`containers/redmine-web/config.ru` の `defined?(PhusionPassenger)` 分岐が消えていないか確認してください。 |
+| 添付ファイルのアップロードやログ出力が権限エラーになる | Passenger がアプリを `nobody` で起動しています。`config.ru` の所有者が `redmine` であること（`podman exec redmine-web ls -l /usr/src/redmine/config.ru`）と、`redmine-passenger.conf` に `PassengerUser redmine` があることを確認してください。 |
+| gem が見つからない / bundler エラーで起動しない | `PassengerRuby` が Debian のシステム Ruby (`/usr/bin/ruby`) を向いています。`redmine-passenger.conf` の `PassengerRuby /usr/local/bin/ruby` を確認してください。 |
+| CSS/JS/テーマだけ 404 になる | Apache が `public/` を配信できていません。`redmine-passenger.conf` の `Alias` と `<Directory>` の `Require all granted` を確認してください。 |
+| error log に native support のコンパイル警告が出る | 想定内です。Passenger は pure-Ruby 実装へフォールバックして動作を継続します（わずかに遅くなるのみ）。 |
+
+現在有効な Apache 設定は次で確認できます:
+
+```bash
+podman exec redmine-web ls -l /etc/apache2/conf-enabled/
+podman exec redmine-web apache2ctl -S      # VirtualHost の解決結果
 ```

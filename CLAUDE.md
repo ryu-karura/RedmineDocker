@@ -37,12 +37,14 @@ box (both use the container names `redmine-db`/`redmine-web` and the network
 
 ```
 client ──443──► Host Apache ──/redmine──► redmine-web (Apache 2.4 + Redmine 6.1.3)
-                (TLS, HSTS)   127.0.0.1:80  │  ProxyPass /redmine
-                                               ▼
-                                        Puma :3000 (sub-URI /redmine)
-                                               │  postgis adapter
-                                               ▼
-                                        redmine-db (PostgreSQL 18 + PostGIS 3.6, :5432)
+                (TLS, HSTS)   127.0.0.1:80  │  REDMINE_WEB_SERVER selects one of:
+                                            │    puma      → ProxyPass to Puma :3000
+                                            │    passenger → mod_passenger spawns the app
+                                            ▼
+                                     Redmine (sub-URI /redmine)
+                                            │  postgis adapter
+                                            ▼
+                                     redmine-db (PostgreSQL 18 + PostGIS 3.6, :5432)
 ```
 
 | Container | Build context | Base image | Role | Exposed |
@@ -65,7 +67,7 @@ RedmineDocker/
 ├── .github/copilot-instructions.md # pointer to this file, no duplicated content
 ├── containers/
 │   ├── redmine-db/                # Containerfile + init-redmine.sh (PostGIS ext)
-│   └── redmine-web/           # Containerfile, entrypoint.sh, *.tmpl (db/config/httpd)
+│   └── redmine-web/           # Containerfile, entrypoint.sh, healthcheck.sh, *.tmpl (db/config/httpd)
 ├── quadlets/                    # production Podman Quadlet units (*.container, *.network)
 ├── host-apache/                 # host-side TLS reverse proxy vhost
 ├── scripts/                     # generate-secrets, backup, restore
@@ -84,6 +86,7 @@ RedmineDocker/
 | Redmine | 6.1.3 (`docker.io/library/redmine:6.1.3`) |
 | PostgreSQL / PostGIS | 18 + 3.6 (`postgis/postgis:18-3.6`) |
 | Web tier | Apache httpd 2.4 (Debian `apt` package baked into `redmine-web`, not version-pinned) |
+| App server | Puma (default) or Passenger 6.0.26 (`libapache2-mod-passenger`), selected by `REDMINE_WEB_SERVER` |
 | Node.js / Yarn | Debian `nodejs` + Yarn 1.22.22 (for `redmine_gtt` webpack build) |
 
 `redmine-web` bakes in 13 plugins (see the numbered list in
@@ -165,13 +168,52 @@ Start/stop order is enforced by `Requires=`/`After=` in the units:
   directly, in lockstep, if you ever need to. Don't try to make Quadlet units
   read `.env` for these; that requires a template-render step that doesn't
   exist yet and is a bigger change than a config tweak.
-- **The Apache sub-URI proxy config is templated, like `database.yml`.**
-  `containers/redmine-web/httpd-redmine.conf.tmpl` is rendered by
-  `entrypoint.sh` via `envsubst` (substituting `RAILS_RELATIVE_URL_ROOT`) into
-  `/etc/apache2/conf-available/redmine-proxy.conf` on every container start —
-  the Containerfile also pre-renders a build-time default so `a2enconf` has a
-  file to enable, but that copy is never actually served as-is. Edit the
-  `.tmpl`, not a generated `.conf`.
+- **The Apache sub-URI config is templated, like `database.yml`.** There are two
+  templates in `containers/redmine-web/`, one per app-server mode, and
+  `entrypoint.sh` renders exactly one of them via `envsubst` on every container
+  start: `httpd-redmine.conf.tmpl` → `/etc/apache2/conf-available/redmine-proxy.conf`
+  (mode `puma`) and `httpd-redmine-passenger.conf.tmpl` →
+  `.../redmine-passenger.conf` (mode `passenger`). Both define a `*:80`
+  VirtualHost, so only one may be `a2enconf`'d at a time — the entrypoint also
+  `a2disconf`s the other one (with `|| true`, since a fresh container may never
+  have rendered it). The Containerfile pre-renders a build-time default of the
+  proxy variant so `a2enconf` has a file to enable, but that copy is never
+  actually served as-is. Edit the `.tmpl`, not a generated `.conf`.
+- **`REDMINE_WEB_SERVER` picks the app server at *runtime*: `puma` (default) or
+  `passenger`.** The image bakes in *both* — the official image's Puma plus
+  Debian trixie's `libapache2-mod-passenger` (Passenger 6.0.26; the base image is
+  `ruby:3.4-slim-trixie`, and Ruby 3.4 support landed in Passenger 6.0.25, so no
+  third-party APT repo is needed). Switching is an env change plus a container
+  restart, never a rebuild — that is deliberate, because Quadlet units can pass
+  `Environment=` but cannot template `Image=`, so a build-arg switch would be
+  unusable in production. The Containerfile `a2dismod -f passenger`s at build
+  time (the Debian postinst enables it) and `entrypoint.sh` does the
+  `a2enmod`/`a2dismod` per mode. In `passenger` mode there is no Puma and no
+  `:3000`; the entrypoint `source`s `/etc/apache2/envvars` and
+  `exec apache2 -DFOREGROUND` so Apache is PID 1. Passenger's native-support
+  extension is not built at image build time — it self-compiles on first spawn
+  and falls back to pure Ruby with a log warning if that fails, which is fine.
+- **`config.ru` must NOT `map` the sub-URI under Passenger.** `mod_passenger`
+  with `PassengerBaseURI` sets `SCRIPT_NAME` and hands the app a `PATH_INFO`
+  that already has the prefix stripped, so a `Rack::URLMap` (`map "/redmine"`)
+  never matches `/login` and every request 404s — the mirror image of the Puma
+  bug described below. `config.ru` branches on `defined?(PhusionPassenger)`
+  (Passenger `require`s it before evaluating `config.ru`; this is the upstream
+  idiom). Also: Passenger's user switching would otherwise run the app as the
+  owner of `config.ru`, so the Containerfile `chown`s it to `redmine` *and* the
+  template sets `PassengerUser`/`PassengerGroup` — a root-owned `config.ru`
+  silently demotes the app to `nobody`, which then can't write `files/` or `log/`.
+  `PassengerRuby` must point at `/usr/local/bin/ruby` (the official image's Ruby
+  3.4), not Debian's `/usr/bin/ruby`, which has none of Redmine's gems.
+- **The container healthcheck lives in the image
+  (`containers/redmine-web/healthcheck.sh` → `/usr/local/bin/redmine-healthcheck.sh`),
+  not inline in compose/quadlet.** Quadlet's `HealthCmd=` gets no variable
+  substitution, so an inline command cannot honour `REDMINE_SUBURI` or
+  `REDMINE_WEB_SERVER` — and duplicating the same shell one-liner in
+  `compose.dev.yaml` and `quadlets/redmine-web.container` broke lockstep. Both
+  now just invoke the script; it curls Apache always, and Puma directly only in
+  `puma` mode (that direct curl is the regression test for the `config.ru`
+  sub-URI mount, so keep it).
 - **The database adapter is `postgis`, not `postgresql`.** Required by the
   `redmine_gtt` plugin; using `postgresql` breaks startup. This is why
   `entrypoint.sh` renders `config/database.yml` from
@@ -203,7 +245,8 @@ Start/stop order is enforced by `Requires=`/`After=` in the units:
   dispatch, so with the stock `run Rails.application` config.ru, Puma 404s
   on every request (`No route matches [GET] "/redmine/login"`). Our
   `config.ru` wraps the app in `map ENV["RAILS_RELATIVE_URL_ROOT"] do ... end`
-  so Puma itself serves the sub-URI.
+  so Puma itself serves the sub-URI. (Under `REDMINE_WEB_SERVER=passenger` that
+  `map` is skipped — see the Passenger note above.)
 - **The Apache frontend is built into `redmine-web`**. The separate
   `redmine-static` image is no longer part of the stack.
 - **Keep dev and prod in lockstep.** `compose.dev.yaml` and the `quadlets/`
@@ -327,6 +370,7 @@ integration test for the dev (Compose) path — run it after any change to
 bash scripts/test-stack.sh                # build, boot, verify, tear down (destroys dev volumes)
 bash scripts/test-stack.sh --keep         # ... and leave the stack running
 bash scripts/test-stack.sh --skip-build   # reuse existing images for faster iteration
+bash scripts/test-stack.sh --web-server passenger --skip-build   # same image, Passenger mode
 ```
 
 It rebuilds both images, boots them, and checks every boot-time bug this
@@ -334,9 +378,14 @@ stack has actually hit once: `pg_config` on PATH, `redmine-db` creating the
 `redmine` database + PostGIS extensions without a "Peer authentication
 failed" regression, `redmine-web` free of plugin `LoadError`/permission/
 routing errors and not crash-looping, and the login page reachable both
-through Apache and directly on Puma. It only exercises **default** `.env`
-values — it does not verify that a `.env` override (`REDMINE_SUBURI`,
-`REDMINE_DB_NAME`, etc., see `docs/Design.md`) actually takes effect.
+through Apache and directly on Puma. `--web-server passenger` runs the same
+boot sequence against `REDMINE_WEB_SERVER=passenger` and swaps the Puma-direct
+check for "nothing is listening on `:3000`", "`passenger_module` is loaded",
+and "Apache serves a static asset out of `public/`" — both modes share one
+image, so run it with `--skip-build` right after the default run. It only
+exercises **default** `.env` values otherwise — it does not verify that a
+`.env` override (`REDMINE_SUBURI`, `REDMINE_DB_NAME`, etc., see
+`docs/Design.md`) actually takes effect.
 
 For a quicker manual check, or when investigating a single failure:
 

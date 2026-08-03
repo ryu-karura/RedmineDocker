@@ -14,8 +14,10 @@
 #      （公式イメージ同様 REDMINE_NO_DB_MIGRATE / REDMINE_PLUGINS_MIGRATE で制御）
 #   4.5. 初回起動時のみ既定データ（日本語）を投入
 #      （REDMINE_LOAD_DEFAULT_DATA / REDMINE_DEFAULT_DATA_LANG で制御）
-#   5. Apache(:80) 起動後、`rails server` で Puma(:3000) 起動
-#      （サブ URI /redmine）
+#   5. アプリサーバー起動（REDMINE_WEB_SERVER で切り替え、サブ URI /redmine）
+#      puma      (既定) Apache(:80) 起動後、`rails server` で Puma(:3000) 起動
+#      passenger Apache(:80) を foreground 起動。mod_passenger が Redmine を
+#                直接起動するため Puma は起動しません。
 #
 # パスワードはイメージへ焼き込まず、平文環境変数でも渡しません。
 # *_FILE で参照されるシークレットファイルから読み込みます。
@@ -25,13 +27,21 @@ set -euo pipefail
 REDMINE_HOME="${REDMINE_HOME:-/usr/src/redmine}"
 RAILS_ENV="${RAILS_ENV:-production}"
 RAILS_RELATIVE_URL_ROOT="${RAILS_RELATIVE_URL_ROOT:-/redmine}"
-export RAILS_ENV RAILS_RELATIVE_URL_ROOT
+# REDMINE_HOME は passenger 用 Apache テンプレート（PassengerAppRoot /
+# DocumentRoot / Alias）の envsubst でも参照するため export します。
+export REDMINE_HOME RAILS_ENV RAILS_RELATIVE_URL_ROOT
 
 REDMINE_DB_HOST="${REDMINE_DB_HOST:-redmine-db}"
 REDMINE_DB_NAME="${REDMINE_DB_NAME:-redmine}"
 REDMINE_DB_USER="${REDMINE_DB_USER:-redmine}"
 REDMINE_DB_PORT="${REDMINE_DB_PORT:-5432}"
 REDMINE_PUMA_PORT="${REDMINE_PUMA_PORT:-3000}"
+# アプリサーバーの選択。イメージにはどちらも同梱してあるため、
+# .env / Environment= の変更とコンテナ再起動だけで切り替わります
+# （イメージ再ビルドは不要）。
+#   puma      Apache -> ProxyPass -> Puma(:${REDMINE_PUMA_PORT})
+#   passenger Apache + mod_passenger が Redmine を直接起動（:3000 なし）
+REDMINE_WEB_SERVER="${REDMINE_WEB_SERVER:-puma}"
 SMTP_HOST="${SMTP_HOST:-localhost}"
 SMTP_PORT="${SMTP_PORT:-25}"
 SMTP_USER="${SMTP_USER:-}"
@@ -53,6 +63,12 @@ REDMINE_DEFAULT_DATA_LANG="${REDMINE_DEFAULT_DATA_LANG:-ja}"
 
 log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] [redmine-web] $*"; }
 die() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] [redmine-web] ERROR: $*" >&2; exit 1; }
+
+case "${REDMINE_WEB_SERVER}" in
+    puma|passenger) ;;
+    *) die "REDMINE_WEB_SERVER must be 'puma' or 'passenger' (got '${REDMINE_WEB_SERVER}')." ;;
+esac
+export REDMINE_WEB_SERVER
 
 # ── 1. シークレット解決 ────────────────────────────────────────────────────────
 # resolve_secret VAR:
@@ -105,14 +121,34 @@ envsubst '${SMTP_HOST} ${SMTP_PORT} ${SMTP_USER} ${SMTP_PASSWORD}' \
 chown redmine:redmine config/configuration.yml
 chmod 640 config/configuration.yml
 
-log "Rendering Apache reverse-proxy config ..."
 # Render from the .tmpl source, not the previously-rendered .conf — conf-enabled/
-# is a symlink to conf-available/redmine-proxy.conf (via a2enconf), so reading
+# is a symlink to conf-available/<name>.conf (via a2enconf), so reading
 # and writing that same .conf here would truncate it to empty before envsubst
 # ever reads it.
-# shellcheck disable=SC2016
-envsubst '${RAILS_RELATIVE_URL_ROOT} ${REDMINE_PUMA_PORT}' \
-    < /etc/apache2/conf-available/redmine-proxy.conf.tmpl > /etc/apache2/conf-available/redmine-proxy.conf
+# Both configs render a *:80 VirtualHost, so exactly one of them may be enabled.
+if [[ "${REDMINE_WEB_SERVER}" == "passenger" ]]; then
+    log "Rendering Apache + mod_passenger config ..."
+    # shellcheck disable=SC2016
+    envsubst '${RAILS_RELATIVE_URL_ROOT} ${REDMINE_HOME} ${RAILS_ENV}' \
+        < /etc/apache2/conf-available/redmine-passenger.conf.tmpl \
+        > /etc/apache2/conf-available/redmine-passenger.conf
+    a2enmod passenger >/dev/null
+    # a2disconf は conf-available に該当ファイルが無いと非 0 で終了するため、
+    # 反対モードの conf が未描画のケースを握りつぶします。
+    a2disconf redmine-proxy >/dev/null 2>&1 || true
+    a2enconf redmine-passenger >/dev/null
+else
+    log "Rendering Apache reverse-proxy config ..."
+    # shellcheck disable=SC2016
+    envsubst '${RAILS_RELATIVE_URL_ROOT} ${REDMINE_PUMA_PORT}' \
+        < /etc/apache2/conf-available/redmine-proxy.conf.tmpl \
+        > /etc/apache2/conf-available/redmine-proxy.conf
+    a2dismod -f passenger >/dev/null
+    # a2disconf は conf-available に該当ファイルが無いと非 0 で終了するため、
+    # 反対モードの conf が未描画のケースを握りつぶします。
+    a2disconf redmine-passenger >/dev/null 2>&1 || true
+    a2enconf redmine-proxy >/dev/null
+fi
 
 # ── 3. PostgreSQL 待機 ────────────────────────────────────────────────────────
 log "Waiting for PostgreSQL at ${REDMINE_DB_HOST}:${REDMINE_DB_PORT} ..."
@@ -162,7 +198,30 @@ else
     log "REDMINE_LOAD_DEFAULT_DATA unset/0 — skipping default data load."
 fi
 
-# ── 5. Apache + Puma 起動（PID 1 が両プロセスを監視） ────────────────────────
+# ── 5. アプリサーバー起動 ─────────────────────────────────────────────────────
+# passenger モードでは Puma を起動しません。mod_passenger が Apache の
+# 子プロセスとして Redmine を起動するため、Apache を foreground で exec して
+# PID 1 にします（SIGTERM がそのまま Apache に届き、停止が素直になります）。
+#
+# Passenger の native support 拡張はビルド時に用意していません。初回 spawn 時に
+# 自動コンパイルが試みられ、失敗しても pure-Ruby 実装へフォールバックします
+# （error log に警告が出るだけで致命的ではありません）。
+if [[ "${REDMINE_WEB_SERVER}" == "passenger" ]]; then
+    log "Starting Apache HTTPD on :80 with mod_passenger (sub-URI ${RAILS_RELATIVE_URL_ROOT}) ..."
+    # APACHE_RUN_USER / APACHE_PID_FILE 等の Debian 既定値を読み込みます。
+    # shellcheck source=/dev/null
+    source /etc/apache2/envvars
+    # envvars はパスを export するだけでディレクトリは作りません（作るのは
+    # apache2ctl 側）。Podman は /run に tmpfs をマウントするため、イメージに
+    # 含まれる /run/apache2 は起動時に消えています。ここで作り直します。
+    mkdir -p "${APACHE_RUN_DIR:-/var/run/apache2}" "${APACHE_LOCK_DIR:-/var/lock/apache2}"
+    if [[ -n "${APACHE_PID_FILE:-}" ]]; then
+        rm -f "${APACHE_PID_FILE}"
+    fi
+    exec apache2 -DFOREGROUND
+fi
+
+# ── puma モード: Apache + Puma 起動（PID 1 が両プロセスを監視） ──────────────
 cleanup() {
     local status="${1:-0}"
     trap - EXIT INT TERM
