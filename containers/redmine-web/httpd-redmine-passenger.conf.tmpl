@@ -1,0 +1,72 @@
+# containers/redmine-web/httpd-redmine-passenger.conf
+#
+# 統合 redmine-web コンテナ用の Passenger VirtualHost テンプレートです。
+# REDMINE_WEB_SERVER=passenger のとき、Apache 起動前に entrypoint.sh が
+# envsubst で描画します（puma のときは httpd-redmine.conf.tmpl を使用）。
+#
+# Puma(:3000) と ProxyPass は使いません。mod_passenger が Redmine を
+# Apache の子プロセスとして直接起動し、静的資産（CSS/JS/テーマ）は
+# Apache が ${REDMINE_HOME}/public から直接配信します。
+
+# "could not reliably determine the server's fully qualified domain name"
+# 警告を抑止し、バージョン情報露出を抑えます。
+ServerName localhost
+ServerTokens Prod
+ServerSignature Off
+
+# 公式イメージの Ruby 3.4（/usr/local/bin/ruby）を使います。
+# Debian の libapache2-mod-passenger は既定で /usr/bin/ruby（システム Ruby）を
+# 指すため、明示しないと Redmine の gem が入っていない Ruby でアプリが起動します。
+PassengerRuby /usr/local/bin/ruby
+
+# アプリは非特権 redmine ユーザーで動かします（Puma モードの runuser 相当）。
+# Passenger の user switching は既定で config.ru の所有者を見ますが、
+# 取りこぼすと PassengerDefaultUser（nobody）へフォールバックし、
+# files/ や log/ への書き込みが失敗するため明示します。
+PassengerUser  redmine
+PassengerGroup redmine
+
+<VirtualHost *:80>
+    ServerName localhost
+
+    DocumentRoot ${REDMINE_HOME}/public
+
+    # 手前の host Apache が設定したスキーム（X-Forwarded-Proto: https）を保持します。
+    # 値が無い場合のみ http を補完（例: 開発でコンテナ :80 へ直接アクセス）し、
+    # 実際の https 値を上書きしないようにします
+    # （絶対 URL や secure cookie の破損防止）。
+    RequestHeader setifempty X-Forwarded-Proto "http"
+
+    # 利便性のため、/ へ来たアクセスを Redmine サブ URI へリダイレクトします。
+    RedirectMatch ^/$ ${RAILS_RELATIVE_URL_ROOT}/
+
+    # サブ URI（${RAILS_RELATIVE_URL_ROOT}）配下を Passenger が処理します。
+    # Alias は静的資産の実体、PassengerBaseURI はアプリのマウント位置です。
+    Alias ${RAILS_RELATIVE_URL_ROOT} ${REDMINE_HOME}/public
+
+    <Location ${RAILS_RELATIVE_URL_ROOT}>
+        PassengerBaseURI ${RAILS_RELATIVE_URL_ROOT}
+        PassengerAppRoot ${REDMINE_HOME}
+        PassengerAppEnv  ${RAILS_ENV}
+        # mods-enabled/passenger.conf の PassengerDefaultRuby (/usr/bin/ruby) に
+        # 取られないよう、アプリ単位でも明示します。
+        PassengerRuby    /usr/local/bin/ruby
+    </Location>
+
+    <Directory ${REDMINE_HOME}/public>
+        # MultiViews は拡張子省略の名前解決を行い、Rails のルーティングと衝突します。
+        Options -MultiViews
+        Require all granted
+        AllowOverride None
+    </Directory>
+
+    # ── セキュリティヘッダー ───────────────────────────────────────────────────
+    Header always set X-Content-Type-Options "nosniff"
+    Header always set X-Frame-Options        "SAMEORIGIN"
+    Header always set Referrer-Policy         "strict-origin-when-cross-origin"
+
+    # ── ログ出力先（container stdout/stderr） ─────────────────────────────────
+    # Passenger が起動したアプリの stdout/stderr も ErrorLog に流れます。
+    ErrorLog  /proc/self/fd/2
+    CustomLog /proc/self/fd/1 combined
+</VirtualHost>

@@ -10,7 +10,9 @@
 #   - redmine_gtt 用フロントエンド資産（yarn + webpack、PostGIS 前提）
 #
 # アプリ配置は /usr/src/redmine（公式イメージ標準）です。
-# Apache は :80 で受け、内部の Puma（:3000）へ転送します。
+# Apache が :80 で受け、REDMINE_WEB_SERVER に応じて次のどちらかで処理します:
+#   puma      (既定) 内部の Puma（:3000）へ ProxyPass
+#   passenger mod_passenger が Redmine を直接起動（:3000 は使わない）
 #
 # サブ URI: /redmine（RAILS_RELATIVE_URL_ROOT）
 #
@@ -42,6 +44,11 @@ ENV RAILS_RELATIVE_URL_ROOT=/redmine
 # このコンテナ内の Apache フロントはそこへ転送します
 # （redmine.jp 記事の :3000 運用に合わせた構成）。
 ENV RAILS_SERVE_STATIC_FILES=1
+# アプリサーバーの既定は puma（Apache -> ProxyPass -> Puma :3000）。
+# passenger にすると Apache + mod_passenger が Redmine を直接起動します。
+# compose / quadlet 側で上書きでき、コンテナ再起動のみで反映されます
+# （イメージ再ビルドは不要）。
+ENV REDMINE_WEB_SERVER=puma
 
 # ── システムパッケージ（root） ────────────────────────────────────────────────
 USER root
@@ -65,6 +72,11 @@ RUN apt-get update \
         gettext-base postgresql-client \
                 # コンテナヘルスチェック + Apache フロント
         curl apache2 \
+                # REDMINE_WEB_SERVER=passenger 用の mod_passenger。
+                # ベースは ruby:3.4-slim-trixie (Debian 13) で、trixie は
+                # Passenger 6.0.26 を提供します。Ruby 3.4 対応は 6.0.25 以降
+                # なので、Phusion の APT リポジトリを足さずに素の apt で足ります。
+        libapache2-mod-passenger \
     && rm -rf /var/lib/apt/lists/* \
     && fc-cache -fv
 
@@ -171,8 +183,14 @@ COPY configuration.yml.tmpl ${REDMINE_HOME}/config/configuration.yml.tmpl
 # 理由は config.ru のコメントを参照してください。
 COPY config.ru ${REDMINE_HOME}/config.ru
 COPY httpd-redmine.conf.tmpl /etc/apache2/conf-available/redmine-proxy.conf.tmpl
+COPY httpd-redmine-passenger.conf.tmpl /etc/apache2/conf-available/redmine-passenger.conf.tmpl
 COPY entrypoint.sh /usr/local/bin/redmine-entrypoint.sh
+COPY healthcheck.sh /usr/local/bin/redmine-healthcheck.sh
 RUN a2enmod headers rewrite proxy proxy_http \
+    # mod_passenger は Debian パッケージの postinst が有効化しますが、
+    # 既定モード (puma) では不要なのでここで無効化しておきます。
+    # entrypoint.sh が REDMINE_WEB_SERVER に応じて起動時に切り替えます。
+    && a2dismod -f passenger \
     && a2dissite 000-default || true \
     # Build-time default render, purely so a2enconf has a file to enable;
     # entrypoint.sh re-renders this from the .tmpl at container start in case
@@ -182,9 +200,13 @@ RUN a2enmod headers rewrite proxy proxy_http \
         < /etc/apache2/conf-available/redmine-proxy.conf.tmpl \
         > /etc/apache2/conf-available/redmine-proxy.conf \
     && a2enconf redmine-proxy \
-    && chmod 0755 /usr/local/bin/redmine-entrypoint.sh \
+    && chmod 0755 /usr/local/bin/redmine-entrypoint.sh /usr/local/bin/redmine-healthcheck.sh \
     && chown -R redmine:redmine ${REDMINE_HOME}/config ${REDMINE_HOME}/plugins \
-    && chown -R redmine:redmine ${REDMINE_HOME}/public ${REDMINE_HOME}/themes
+    && chown -R redmine:redmine ${REDMINE_HOME}/public ${REDMINE_HOME}/themes \
+    # Passenger の user switching は config.ru の所有者でアプリを起動しようと
+    # します。root 所有のままだと PassengerDefaultUser (nobody) へフォールバック
+    # し、files/ や log/ に書けなくなります（conf 側の PassengerUser と併用）。
+    && chown redmine:redmine ${REDMINE_HOME}/config.ru
 
 EXPOSE 80
 

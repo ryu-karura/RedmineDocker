@@ -19,12 +19,15 @@ RedmineDocker は 2 つのコンテナが連携して Redmine 6.1.3 を動作さ
 | DB コンテナ | `redmine-db` |
 | Redmine / Puma コンテナ | `redmine-web` |
 | Web フロントコンテナ | `redmine-web` |
-| Puma 内部ポート | `3000`（ホスト公開なし） |
+| アプリサーバー | `puma`（既定）または `passenger`（`REDMINE_WEB_SERVER`） |
+| Puma 内部ポート | `3000`（ホスト公開なし。`passenger` では未使用） |
 | PostgreSQL 内部ポート | `5432`（ホスト公開なし） |
 | Web ホストポート | `127.0.0.1:80` |
 | 公開 URL | `http://localhost/redmine/` |
 
 ## 2. トポロジー
+
+`REDMINE_WEB_SERVER=puma`（既定）:
 
 ```
   client ──443──► Host Apache ──/redmine──► redmine-web (Apache 2.4 + Puma :3000, :80)
@@ -33,7 +36,17 @@ RedmineDocker は 2 つのコンテナが連携して Redmine 6.1.3 を動作さ
                                              redmine-db (PostgreSQL 18 + PostGIS 3.6, :5432)
 ```
 
-- `redmine-web` が `127.0.0.1:80` にバインドされ、Apache フロントエンドが `/redmine` を Puma に転送します。ホスト側 Apache (`host-apache/redmine-proxy.conf`) が TLS を終端し、`/redmine` を転送します。
+`REDMINE_WEB_SERVER=passenger`:
+
+```
+  client ──443──► Host Apache ──/redmine──► redmine-web (Apache 2.4 + mod_passenger, :80)
+                                                    │ Passenger が Redmine を直接起動（:3000 なし）
+                                                    ▼
+                                             redmine-db (PostgreSQL 18 + PostGIS 3.6, :5432)
+```
+
+- `redmine-web` が `127.0.0.1:80` にバインドされます。ホスト側 Apache (`host-apache/redmine-proxy.conf`) が TLS を終端し、`/redmine` を転送します。ホスト側の設定はどちらのモードでも同じです。
+- コンテナ内 Apache から先は `REDMINE_WEB_SERVER` で切り替わります。`puma` は `/redmine` を Puma (`:3000`) に `ProxyPass` し、静的資産も Rails (`RAILS_SERVE_STATIC_FILES`) が配信します。`passenger` は `mod_passenger` が Redmine を Apache の子プロセスとして直接起動し、静的資産は Apache が `public/` から配信します。
 - PostgreSQL (5432) と Puma (3000) はホストには公開されません。
 - コンテナは `redmine-net` ブリッジ上で通信し、`redmine-db` と `redmine-web` という名前で相互解決します。
 
@@ -46,8 +59,29 @@ RedmineDocker は 2 つのコンテナが連携して Redmine 6.1.3 を動作さ
 ### redmine-web (`containers/redmine-web/`)
 - ベースイメージは `redmine:6.1.3`（公式、Ruby / Bundler / Puma / gem も含む）です。
 - 日本語 CJK フォント（PDF / Gantt 用）、13 プラグイン + `farend_fancy` テーマ、`redmine_gtt` の webpack ビルド（yarn）を追加します。プラグイン gem は `bundle install` でイメージに焼き込みます。
-- Apache フロントエンドを組み込み、`127.0.0.1:80` で受けた `/redmine` リクエストを Puma の `:3000` に転送します。Puma は `/redmine`（`RAILS_RELATIVE_URL_ROOT`）配下で `:3000` を Listen します。
-- `entrypoint.sh` はシークレット解決（`*_FILE` 対応）、`config/database.yml` の描画（**`postgis`** アダプタ使用、redmine_gtt 必須）、`config/configuration.yml`（SMTP）の描画、DB 待機、コア / プラグインのマイグレーション実行、Apache の起動と `rails server`（Puma）起動を行います。マイグレーションの実行可否は公式イメージと同じ環境変数で制御します（`REDMINE_NO_DB_MIGRATE` に値を設定するとコアの `db:migrate` をスキップ、`REDMINE_PLUGINS_MIGRATE` が非空なら `redmine:plugins:migrate` を実行。本スタックは 13 プラグインを内蔵するため既定で `REDMINE_PLUGINS_MIGRATE=1`）。
+- Apache フロントエンドを組み込み、`127.0.0.1:80` で `/redmine` リクエストを受けます。その先の処理は `REDMINE_WEB_SERVER` で切り替わります（下記「アプリサーバーの切り替え」）。
+- `entrypoint.sh` はシークレット解決（`*_FILE` 対応）、`config/database.yml` の描画（**`postgis`** アダプタ使用、redmine_gtt 必須）、`config/configuration.yml`（SMTP）の描画、Apache 設定の描画、DB 待機、コア / プラグインのマイグレーション実行、アプリサーバーの起動を行います。マイグレーションの実行可否は公式イメージと同じ環境変数で制御します（`REDMINE_NO_DB_MIGRATE` に値を設定するとコアの `db:migrate` をスキップ、`REDMINE_PLUGINS_MIGRATE` が非空なら `redmine:plugins:migrate` を実行。本スタックは 13 プラグインを内蔵するため既定で `REDMINE_PLUGINS_MIGRATE=1`）。
+
+#### アプリサーバーの切り替え（`REDMINE_WEB_SERVER`）
+
+イメージには Puma（公式イメージ同梱）と `mod_passenger`（Debian trixie の `libapache2-mod-passenger` = Passenger 6.0.26）の **両方** が入っています。切り替えは環境変数の変更とコンテナ再起動のみで、イメージの再ビルドは不要です。
+
+| | `puma`（既定） | `passenger` |
+|---|---|---|
+| リクエスト処理 | Apache → `ProxyPass` → Puma `:3000` | Apache + `mod_passenger` が直接起動 |
+| Apache 設定 | `httpd-redmine.conf.tmpl` → `redmine-proxy.conf` | `httpd-redmine-passenger.conf.tmpl` → `redmine-passenger.conf` |
+| 静的資産 | Rails（`RAILS_SERVE_STATIC_FILES=1`） | Apache が `Alias` で `public/` を配信 |
+| コンテナの PID 1 | `entrypoint.sh`（Apache 起動後 Puma を監視） | `apache2 -DFOREGROUND` |
+| 実行ユーザー | `runuser -u redmine` で Puma | `PassengerUser redmine` |
+| `:3000` | あり | なし |
+
+`entrypoint.sh` が起動時にテンプレートを描画し、`a2enmod passenger` / `a2dismod -f passenger` と `a2enconf` / `a2disconf` で該当する設定だけを有効化します（どちらも `*:80` の VirtualHost を定義するため、同時に有効化はできません）。
+
+実装上の注意点:
+
+- `config.ru` は Passenger 配下では `map` を **行いません**。`mod_passenger` は `PassengerBaseURI` によって `SCRIPT_NAME` を `/redmine` に設定し、`PATH_INFO` からはプレフィックスを除去して渡すため、`Rack::URLMap`（`map`）を挟むと `/login` が `/redmine` にマッチせず全リクエストが 404 になります。`defined?(PhusionPassenger)` で判定して分岐しています。
+- `PassengerRuby` は公式イメージの `/usr/local/bin/ruby` を指します（Debian パッケージの既定である `/usr/bin/ruby` には Redmine の gem が入っていません）。
+- Passenger の native support 拡張はビルド時に用意していません。初回起動時に自動コンパイルが試みられ、失敗しても pure-Ruby 実装へフォールバックします（error log に警告が出るのみ）。
 
 
 ## 4. データと永続化
@@ -80,7 +114,7 @@ RedmineDocker は 2 つのコンテナが連携して Redmine 6.1.3 を動作さ
 ## 7. 補足 / 注意点
 
 - Apache フロントエンドは `redmine-web` イメージに組み込まれ、個別の `redmine-static` イメージは不要になりました。
-- 追加の Web プロキシコンテナを置かず、Redmine コンテナ内で Apache と Puma を運用しています。現状の設計では、堅牢性を優先して Redmine 側でアセット配信を行っています。
+- 追加の Web プロキシコンテナを置かず、Redmine コンテナ内で Apache とアプリサーバーを運用しています。既定の `puma` モードでは、堅牢性を優先して Redmine 側でアセット配信を行っています（`passenger` モードでは Apache が `public/` を直接配信します）。
 
 ## 8. 設定パラメータ (.env)
 
@@ -107,6 +141,8 @@ RedmineDocker は 2 つのコンテナが連携して Redmine 6.1.3 を動作さ
 | データルート | `REDMINE_DATA_DIR` | `/opt/redmine/data/redmine` |
 | SUBURI | `REDMINE_SUBURI` | `/redmine` |
 | 開発公開ポート | `REDMINE_WEB_HOST_PORT` | `8080` |
+| アプリサーバー | `REDMINE_WEB_SERVER` | `puma`（`passenger` も可） |
+| Puma 内部ポート | `REDMINE_PUMA_PORT` | `3000`（`passenger` では未使用） |
 | YJIT 有効化 | `RUBY_YJIT_ENABLE` | `1` |
 
 補足:
@@ -115,7 +151,11 @@ RedmineDocker は 2 つのコンテナが連携して Redmine 6.1.3 を動作さ
 - 本番の `quadlets/redmine-web.container` は `EnvironmentFile=-/opt/redmine/containers/.env` を読むため、SMTP/TZ などは同一ファイルで管理できます。
 - `RUBY_YJIT_ENABLE` は Ruby 本体が直接読む環境変数で、Puma (`bundle exec rails server`) に
   そのまま渡って有効化されます。Redmine のコードや Containerfile には手を入れないため、
-  イメージ再ビルド不要でコンテナ再起動のみで反映されます。
+  イメージ再ビルド不要でコンテナ再起動のみで反映されます。`passenger` モードでも、Apache の
+  プロセス環境から Passenger が起動するアプリへそのまま継承されます。
+- `REDMINE_WEB_SERVER` はイメージに両方式が同梱されているため、値の変更とコンテナ再起動のみで
+  反映されます（イメージ再ビルド不要）。本番 (Quadlet) では `Environment=REDMINE_WEB_SERVER=`
+  を書き換えるか、`EnvironmentFile` の `.env` に記述してください。
 - **同一チェックアウトから 2 つ目の開発スタックを並行起動する場合**は、`COMPOSE_PROJECT_NAME` /
   `REDMINE_NETWORK` / `REDMINE_DB_CONTAINER` / `REDMINE_WEB_CONTAINER` / `REDMINE_DB_VOLUME` /
   `REDMINE_FILES_VOLUME` / `REDMINE_WEB_HOST_PORT` をすべて別値にした 2 つ目の `.env` を用意し、
@@ -131,7 +171,8 @@ Podman Quadlet の `*.container` ユニットファイルは、systemd 起動時
 
 - コンテナ名・ネットワーク名・DB 名/ユーザー名・データパスは `quadlets/*.container` に直接ハードコードされたままです。
 - 本番の systemd ユニット名 (`redmine-db.service`/`redmine-web.service`) は Quadlet ファイルの **ファイル名** に由来します。`ContainerName=` を変えても `systemctl --user`・`Requires=`/`After=`・`journalctl` が参照するユニット名は変わりません。
-- `HealthCmd=` の `/redmine/login` や [`host-apache/redmine-proxy.conf`](../host-apache/redmine-proxy.conf) の `ProxyPass /redmine ...` も同様に静的です。本番で `REDMINE_SUBURI`（`RAILS_RELATIVE_URL_ROOT`）を変える場合は、`quadlets/redmine-web.container` の `Environment=`・`HealthCmd=` と `host-apache/redmine-proxy.conf` を手動で揃えて編集してください。
+- `HealthCmd=` は変数展開されないため、ヘルスチェックの判定ロジックはイメージ内の `/usr/local/bin/redmine-healthcheck.sh`（`containers/redmine-web/healthcheck.sh`）に置いています。ユニット側もこのスクリプトを呼ぶだけなので、サブ URI や `REDMINE_WEB_SERVER` はスクリプトがコンテナの環境変数から解決します（`compose.dev.yaml` と同一コマンド）。
+- [`host-apache/redmine-proxy.conf`](../host-apache/redmine-proxy.conf) の `ProxyPass /redmine ...` は静的です。本番で `REDMINE_SUBURI`（`RAILS_RELATIVE_URL_ROOT`）を変える場合は、`quadlets/redmine-web.container` の `Environment=` と `host-apache/redmine-proxy.conf` を手動で揃えて編集してください。
 
 ### なぜイメージ / バージョンは `.env` の値を変えただけでは反映しないのか
 

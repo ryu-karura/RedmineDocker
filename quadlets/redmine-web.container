@@ -1,11 +1,15 @@
 # quadlets/redmine-web.container
 #
-# redmine-web 用の Podman Quadlet ユニットです: Redmine 6.1.3 + plugin stack (Puma :3000)。
+# redmine-web 用の Podman Quadlet ユニットです: Redmine 6.1.3 + plugin stack。
 # /etc/containers/systemd/redmine-web.container に配置し、次を実行します:
 #   systemctl daemon-reload && systemctl start redmine-web
 #
 # DB パスワードと secret_key_base は Podman シークレットです（docs/Setup.md 参照）。
-# Apache フロントエンドが :80 で公開され、Puma はコンテナ内部の :3000 で動作します。
+# Apache フロントエンドが :80 で公開されます。その先のアプリサーバーは
+# REDMINE_WEB_SERVER で切り替えます:
+#   puma      (既定) Apache -> ProxyPass -> コンテナ内部の Puma :3000
+#   passenger        Apache + mod_passenger が Redmine を直接起動（:3000 なし）
+# 切り替えは下の Environment= を書き換えて再起動するだけです（イメージ再ビルド不要）。
 # SMTP 設定（あれば）には下の EnvironmentFile を使います。
 
 [Unit]
@@ -24,6 +28,9 @@ PublishPort=127.0.0.1:80:80
 Environment=RAILS_ENV=production
 Environment=RAILS_RELATIVE_URL_ROOT=/redmine
 Environment=RUBY_YJIT_ENABLE=1
+# アプリサーバー: puma（既定）または passenger。
+Environment=REDMINE_WEB_SERVER=puma
+Environment=REDMINE_PUMA_PORT=3000
 Environment=REDMINE_DB_HOST=redmine-db
 Environment=REDMINE_DB_NAME=redmine
 Environment=REDMINE_DB_USER=redmine
@@ -49,7 +56,10 @@ Volume=/opt/redmine/data/redmine/log:/usr/src/redmine/log:Z
 
 Timezone=Asia/Tokyo
 
-HealthCmd=apache_ok=0; puma_ok=0; curl -f -s http://localhost/redmine/login > /dev/null && apache_ok=1 || echo 'Apache healthcheck failed'; curl -f -s http://127.0.0.1:3000/redmine/login > /dev/null && puma_ok=1 || echo 'Puma healthcheck failed'; [ "$apache_ok" -eq 1 ] && [ "$puma_ok" -eq 1 ]
+# 判定ロジックはイメージ内のスクリプトに置いています。HealthCmd= は Quadlet 側で
+# 変数展開されないため、サブ URI や REDMINE_WEB_SERVER はスクリプトが
+# コンテナの環境変数から解決します（compose.dev.yaml と同じコマンド）。
+HealthCmd=/usr/local/bin/redmine-healthcheck.sh
 HealthInterval=30s
 HealthTimeout=10s
 HealthRetries=5

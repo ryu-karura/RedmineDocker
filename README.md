@@ -10,10 +10,14 @@
 
 ```
   client ──443──► Host Apache ──/redmine──► redmine-web (Apache 2.4 + Redmine 6.1.3)
-                  (TLS, HSTS)   127.0.0.1:80   │  ProxyPass /redmine
-                                                  ▼
-                                           Puma :3000 (sub-URI /redmine)
+                  (TLS, HSTS)   127.0.0.1:80   │  REDMINE_WEB_SERVER で分岐
                                                   │
+                                    puma (既定) ──┴── passenger
+                                        │                │
+                                        ▼                ▼
+                            Puma :3000            mod_passenger が
+                            (ProxyPass /redmine)   Redmine を直接起動
+                                        └────────┬───────┘
                                                   ▼
                                            redmine-db (PostgreSQL 18 + PostGIS 3.6)
                                            :5432   DB=redmine / owner=redmine
@@ -26,6 +30,7 @@
 
 `redmine-web` だけがループバックに公開されます。ホスト側 Apache が 443 で TLS を終端し、`/redmine` をその先へ転送します。PostgreSQL (5432) と Puma (3000) はホストからは到達できません。
 
+- **アプリサーバー:** `.env` の `REDMINE_WEB_SERVER` で `puma`（既定: Apache → ProxyPass → Puma :3000）と `passenger`（Apache + mod_passenger が直接起動、:3000 なし）を切り替えられます。イメージには両方が同梱されているため、値の変更とコンテナ再起動のみで反映されます（再ビルド不要）。詳細は [docs/Design.md](docs/Design.md) を参照してください。
 - **ネットワーク:** `redmine-net`（Podman Quadlet のネットワーク / Compose のブリッジ）。コンテナは名前で相互に解決します。
 - **公開 URL:** `http://localhost/redmine/`（サブ URI `/redmine`）。
 - **シークレット:** `db_password` と `secret_key_base` はファイルベースのシークレットです（開発では Docker シークレット、本番では Podman シークレット）。プレーンな環境変数ではなく、`scripts/generate-secrets.sh` で生成します。
@@ -41,6 +46,7 @@
 | PostgreSQL | 18 + PostGIS 3.6 (`postgis/postgis:18-3.6`) |
 | Web 層 | Apache httpd 2.4 (redmine-web 内蔵) |
 | Ruby / Puma | 公式 Redmine イメージに同梱 |
+| Passenger | Debian trixie の `libapache2-mod-passenger` (6.0.26)、`REDMINE_WEB_SERVER=passenger` 用 |
 | Node.js / Yarn | Debian `nodejs` + Yarn 1.22.22（redmine_gtt の webpack ビルド用） |
 
 `redmine-web` に焼き込まれているプラグイン (13 個): redmine_wiki_lists, redmine_banner,
