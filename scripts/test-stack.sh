@@ -24,6 +24,18 @@
 #   bash scripts/test-stack.sh
 #   bash scripts/test-stack.sh --web-server passenger --skip-build
 #
+# The Redmine series under test is selected with --series (5 / 6 / 7, default 6).
+# Each series has its own Containerfile, base image and plugin set, so the flag
+# sets REDMINE_WEB_CONTAINERFILE / REDMINE_WEB_BASE_IMAGE / REDMINE_WEB_IMAGE
+# together (same triples as the .env.example presets):
+#   5 -> Containerfile.v5 / redmine:5.1.12
+#   6 -> Containerfile.v6 / redmine:6.1.3   (default)
+#   7 -> Containerfile.v7 / redmine:7.0.0
+# Series images have different tags, so --skip-build only reuses an image built
+# for that same series. Note that --series 7 --web-server passenger is the
+# open question this stack has not answered yet: Debian trixie ships Passenger
+# 6.0.26 and Ruby 4 support landed in 6.1.1 (see Containerfile.v7).
+#
 # This is a destructive test against compose.dev.yaml ONLY: it tears down and
 # recreates the redmine-db/redmine-web containers under a dedicated compose
 # project (redmine_test) with their own dedicated named volumes
@@ -44,6 +56,7 @@
 #   bash scripts/test-stack.sh --keep     # ... and leave the stack running
 #   bash scripts/test-stack.sh --skip-build   # reuse existing images (faster iteration)
 #   bash scripts/test-stack.sh --web-server passenger   # test the Passenger mode
+#   bash scripts/test-stack.sh --series 7 # test the Redmine 7 image (5 / 6 / 7)
 #
 # Runs with podman (podman compose / the podman-compose external provider).
 
@@ -73,6 +86,7 @@ pc() { podman compose -p "${PROJECT_NAME}" -f "${COMPOSE_FILE}" "$@"; }
 KEEP=0
 SKIP_BUILD=0
 WEB_SERVER="${TEST_STACK_WEB_SERVER:-puma}"
+SERIES="${TEST_STACK_SERIES:-6}"
 while [ "$#" -gt 0 ]; do
     case "$1" in
         --keep) KEEP=1 ;;
@@ -83,8 +97,14 @@ while [ "$#" -gt 0 ]; do
             shift
             ;;
         --web-server=*) WEB_SERVER="${1#--web-server=}" ;;
+        --series)
+            [ "$#" -ge 2 ] || { echo "--series requires an argument" >&2; exit 2; }
+            SERIES="$2"
+            shift
+            ;;
+        --series=*) SERIES="${1#--series=}" ;;
         -h|--help)
-            sed -n '2,48p' "${BASH_SOURCE[0]}"
+            sed -n '2,61p' "${BASH_SOURCE[0]}"
             exit 0
             ;;
         *)
@@ -99,6 +119,20 @@ case "${WEB_SERVER}" in
     puma|passenger) ;;
     *) echo "--web-server must be 'puma' or 'passenger' (got '${WEB_SERVER}')" >&2; exit 2 ;;
 esac
+
+# Redmine のメジャーバージョン系列。系列ごとに Containerfile とベースイメージが
+# 違うため、compose.dev.yaml が読む 3 つの変数をここでまとめて設定します
+# （.env.example のプリセットと同じ組み合わせ）。--skip-build で使い回す
+# イメージタグもここで決まります。
+case "${SERIES}" in
+    5) REDMINE_SERIES_VERSION=5.1.12; REDMINE_SERIES_CONTAINERFILE=Containerfile.v5 ;;
+    6) REDMINE_SERIES_VERSION=6.1.3;  REDMINE_SERIES_CONTAINERFILE=Containerfile.v6 ;;
+    7) REDMINE_SERIES_VERSION=7.0.0;  REDMINE_SERIES_CONTAINERFILE=Containerfile.v7 ;;
+    *) echo "--series must be '5', '6' or '7' (got '${SERIES}')" >&2; exit 2 ;;
+esac
+export REDMINE_WEB_CONTAINERFILE="${REDMINE_SERIES_CONTAINERFILE}"
+export REDMINE_WEB_BASE_IMAGE="docker.io/library/redmine:${REDMINE_SERIES_VERSION}"
+export REDMINE_WEB_IMAGE="localhost/redmine-web:${REDMINE_SERIES_VERSION}"
 # redmine-web の entrypoint / healthcheck が読む値。compose.dev.yaml の
 # `REDMINE_WEB_SERVER: ${REDMINE_WEB_SERVER:-puma}` 経由でコンテナへ渡ります。
 export REDMINE_WEB_SERVER="${WEB_SERVER}"
@@ -168,7 +202,7 @@ fi
 
 log "Checking pg_config is present and on PATH in redmine-web ..."
 check "pg_config present on PATH in redmine-web image" \
-    podman run --rm --entrypoint sh localhost/redmine-web:6.1.3 -c 'command -v pg_config'
+    podman run --rm --entrypoint sh "${REDMINE_WEB_IMAGE}" -c 'command -v pg_config'
 
 # ── 4. Boot redmine-db and verify database bootstrap ───────────────────────
 log "Starting redmine-db ..."
@@ -219,7 +253,7 @@ check "postgis extension installed in '${TEST_DB_NAME}' db" extension_installed 
 check "postgis_topology extension installed in '${TEST_DB_NAME}' db" extension_installed postgis_topology
 
 # ── 5. Boot redmine-web and verify the app actually serves the sub-URI ─────
-log "Starting redmine-web (REDMINE_WEB_SERVER=${WEB_SERVER}) ..."
+log "Starting redmine-web (Redmine ${SERIES} 系 / ${REDMINE_WEB_IMAGE}, REDMINE_WEB_SERVER=${WEB_SERVER}) ..."
 pc up -d --force-recreate redmine-web >/dev/null
 
 check "redmine-web becomes healthy" wait_healthy redmine-web 400
@@ -266,7 +300,12 @@ else
 
     passenger_static_200() {
         # Apache が public/ を Alias 経由で配信できていること（<Directory> 許可漏れ検知）。
-        http_200 "http://localhost:${HOST_PORT}/redmine/stylesheets/application.css"
+        # 対象は public/404.html です。Redmine 6.0 でスタイルシートが
+        # public/stylesheets/ から app/assets/stylesheets/ へ移動し、6.1 / 7.0 の
+        # public/ には 404.html / 500.html / plugin_assets しか無くなったため、
+        # stylesheets/application.css は 5 系でしか存在しません。
+        # 404.html は 5.1 / 6.1 / 7.0 のすべてに存在します。
+        http_200 "http://localhost:${HOST_PORT}/redmine/404.html"
     }
     check "static asset served by Apache from public/ (Alias + <Directory>)" \
         passenger_static_200

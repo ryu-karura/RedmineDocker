@@ -67,8 +67,8 @@ RedmineDocker/
 ├── .github/copilot-instructions.md # pointer to this file, no duplicated content
 ├── containers/
 │   ├── redmine-db/                # Containerfile + init-redmine.sh (PostGIS ext)
-│   └── redmine-web/           # Containerfile, entrypoint.sh, healthcheck.sh, *.tmpl (db/config/httpd)
-├── quadlets/                    # production Podman Quadlet units (*.container, *.network)
+│   └── redmine-web/           # Containerfile.v5/.v6/.v7, entrypoint.sh, healthcheck.sh, *.tmpl (db/config/httpd)
+├── quadlets/                    # production Podman Quadlet units (*.container, *.network; v5/ and v7/ hold series-specific web units)
 ├── host-apache/                 # host-side TLS reverse proxy vhost
 ├── scripts/                     # generate-secrets, backup, restore
 ├── logrotate/                   # /etc/logrotate.d config
@@ -87,13 +87,66 @@ RedmineDocker/
 | PostgreSQL / PostGIS | 18 + 3.6 (`postgis/postgis:18-3.6`) |
 | Web tier | Apache httpd 2.4 (Debian `apt` package baked into `redmine-web`, not version-pinned) |
 | App server | Puma (default) or Passenger 6.0.26 (`libapache2-mod-passenger`), selected by `REDMINE_WEB_SERVER` |
-| Node.js / Yarn | Debian `nodejs` + Yarn 1.22.22 (for `redmine_gtt` webpack build) |
+| Node.js / Yarn | Debian `nodejs` + Yarn 1.22.22 — **Redmine 5 series only**, for `redmine_gtt` 6.0.3's webpack build |
 
 `redmine-web` bakes in 13 plugins (see the numbered list in
-`containers/redmine-web/Containerfile`) plus the `farend_fancy` theme. All
+`containers/redmine-web/Containerfile.v6`) plus the `farend_fancy` theme. All
 plugins/themes are `git clone`d **at build time** so they are reproducible in
 the image — update a plugin by editing the Containerfile and rebuilding, not by
-mounting a volume.
+mounting a volume. The one exception is `redmine_gtt` in the 6/7-series images,
+which is unpacked from its release tarball (see the series section below).
+
+### Redmine series (5 / 6 / 7)
+
+`redmine-web` has **one Containerfile per Redmine major series**, because the
+plugin/theme versions that actually work differ per series:
+
+| Series | Containerfile | Base image | Ruby / Rails | Plugins |
+|--------|---------------|------------|--------------|---------|
+| 5 | `Containerfile.v5` | `redmine:5.1.12` | 3.2 / 6.1.7.10 | 11 |
+| 6 (default) | `Containerfile.v6` | `redmine:6.1.3` | 3.4 / 7.2.3.1 | 13 |
+| 7 | `Containerfile.v7` | `redmine:7.0.0` | 4.0 / 8.1.3 | 12 |
+
+`entrypoint.sh`, `healthcheck.sh`, `config.ru`, the `*.tmpl` files and
+`redmine-db` are shared by all three — keep it that way; series differences
+belong in the Containerfiles only. Selection is `.env`'s
+`REDMINE_WEB_CONTAINERFILE` + `REDMINE_VERSION` (always change both), compose
+reads it as `dockerfile: ${REDMINE_WEB_CONTAINERFILE:-Containerfile.v6}`,
+production has `quadlets/v5/` and `quadlets/v7/` drop-in replacements for the
+web unit only, and `scripts/test-stack.sh --series 5|6|7` sets the whole
+triple. **Only one series can run at a time** (shared container names, ports,
+volumes) and the database is not backward-compatible across series.
+
+Series-specific facts that are easy to get wrong (full evidence in
+`docs/Design.md`, "Redmine シリーズの切り替え"):
+
+- Redmine 6.0 moved themes from `public/themes/` to `themes/`. The v5 image
+  clones `farend_fancy` (tag `redmine5.1`) into `public/themes/`, and must not
+  `chown` a top-level `themes/` that doesn't exist there.
+- The official 5.1 image line ended at **5.1.12** (docker-library commit
+  `ac72cc3` "Remove 5.1 (Ruby 3.2 EOL)", 2026-04-20). Redmine source has
+  5.1.13 but no image, so the v5 image is pinned to an unmaintained base.
+- `redmine_solid_queue` cannot run on Redmine 5 (the `solid_queue` gem needs
+  activerecord >= 7.1, Redmine 5.1 is Rails 6.1) and `redmine_login_audit2`
+  declares `requires_redmine 6.0.0` in every release — both are omitted from v5.
+- `redmine_banner` is omitted from v7: master has no Redmine 7 support and the
+  fix lives only in the unmerged branch `test_fix_for_redmine_7_0`.
+- `redmine_gtt` 6.0.3 on Redmine 5 needs the geo gem stack pinned via
+  **`ENV`** (not ARG — Redmine re-evaluates `plugins/*/Gemfile` on every
+  bundler run, including at runtime): `GEM_RGEO_ACTIVERECORD_VERSION=7.0.1`,
+  `GEM_ACTIVERECORD_POSTGIS_ADAPTER_VERSION=7.1.1`, the values gtt's own CI
+  uses for `5.1-stable`. Without them the Gemfile defaults to
+  activerecord-postgis-adapter 10.x (activerecord ~> 7.2) and won't resolve.
+- `redmine_gtt` 7.x switched the frontend from webpack+yarn to **Vite+pnpm**
+  (`corepack enable pnpm && pnpm install && pnpm build`, Node >= 22). Debian
+  trixie only has nodejs 20.19, so the v6/v7 images install the plugin from the
+  release tarball (`redmine_gtt-v7.1.0.tar.gz`), which ships prebuilt
+  `assets/javascripts/main.js` + `assets/stylesheets/main.css` and needs no
+  Node toolchain at all. Don't reintroduce yarn/webpack there.
+- Redmine 7's `passenger` mode is **unverified**: Debian trixie ships Passenger
+  6.0.26 and Ruby 4 support landed in 6.1.1. The v7 image installs the Debian
+  package anyway so it can be measured with
+  `bash scripts/test-stack.sh --series 7 --web-server passenger`.
 
 ## Development workflow (Docker Compose: WSL or Codespaces)
 
@@ -310,9 +363,15 @@ Start/stop order is enforced by `Requires=`/`After=` in the units:
   `compose.dev.yaml` and `quadlets/redmine-web.container` (override via `.env`'s
   `RUBY_YJIT_ENABLE`); a container restart picks it up, no rebuild required.
 - **Plugins/themes are pinned by git tag/branch at build time.** When adding or
-  bumping one, edit `containers/redmine-web/Containerfile`, keep the numbered
-  comment list accurate, and note that `view_customize`'s clone directory
-  **must** be named `view_customize` (required by its `init.rb`).
+  bumping one, edit the affected `containers/redmine-web/Containerfile.v*`
+  (each series pins its own versions — check whether the change applies to all
+  three), keep the numbered comment list accurate, and note that
+  `view_customize`'s clone directory **must** be named `view_customize`
+  (required by its `init.rb`). **Verify compatibility against real upstream
+  evidence** — `requires_redmine` in the plugin's `init.rb` plus its CI matrix
+  — not by assumption; when a plugin's CI targets RedMica, the mapping is
+  RedMica 3.0 = Redmine 5.1, 3.1 = 6.0, 4.0/4.1 = 6.1, and `redmine/redmine`
+  `master` = 7.0-devel.
   **Verify every `--branch` tag actually exists upstream** with
   `git ls-remote --tags --heads <url>` before pinning — the `v`-prefix convention
   varies per repo (some tags are `v1.2.1`, others `0.3.4`), and a `--branch` on a
@@ -371,6 +430,7 @@ bash scripts/test-stack.sh                # build, boot, verify, tear down (dest
 bash scripts/test-stack.sh --keep         # ... and leave the stack running
 bash scripts/test-stack.sh --skip-build   # reuse existing images for faster iteration
 bash scripts/test-stack.sh --web-server passenger --skip-build   # same image, Passenger mode
+bash scripts/test-stack.sh --series 7      # Redmine 7 image (5 / 6 / 7, default 6)
 ```
 
 It rebuilds both images, boots them, and checks every boot-time bug this
@@ -381,8 +441,12 @@ routing errors and not crash-looping, and the login page reachable both
 through Apache and directly on Puma. `--web-server passenger` runs the same
 boot sequence against `REDMINE_WEB_SERVER=passenger` and swaps the Puma-direct
 check for "nothing is listening on `:3000`", "`passenger_module` is loaded",
-and "Apache serves a static asset out of `public/`" — both modes share one
-image, so run it with `--skip-build` right after the default run. It only
+and "Apache serves a static asset out of `public/`" (`public/404.html` — the
+only static file present in all three series, since Redmine 6.0 moved
+stylesheets out of `public/`) — both modes share one image, so run it with
+`--skip-build` right after the default run. `--series 5|6|7` swaps the
+Containerfile, base image and image tag together; because each series has its
+own image tag, `--skip-build` only reuses an image of that same series. It only
 exercises **default** `.env` values otherwise — it does not verify that a
 `.env` override (`REDMINE_SUBURI`, `REDMINE_DB_NAME`, etc., see
 `docs/Design.md`) actually takes effect.

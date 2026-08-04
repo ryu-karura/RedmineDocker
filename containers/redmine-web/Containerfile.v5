@@ -1,0 +1,252 @@
+# redmine-web (Redmine 5 系): Redmine 5.1.12（公式イメージ）+ プラグイン/テーマ一式
+#
+# シリーズ別 Containerfile のうち Redmine 5 用です。
+# 6 系（既定）は Containerfile.v6、7 系は Containerfile.v7 を参照してください。
+# 切り替えは .env の REDMINE_WEB_CONTAINERFILE / REDMINE_VERSION で行います
+# （docs/Design.md「Redmine シリーズの切り替え」参照）。
+#
+# ベースイメージ: docker.io/library/redmine:5.1.12
+#   ruby:3.2-slim-trixie ベース / Rails 6.1.7.10
+#
+# ★ このイメージのメンテナンス状況（重要）
+#   公式 Docker イメージの 5.1 系は 5.1.12 で打ち切られました
+#   （docker-library/redmine commit ac72cc3 "Remove 5.1 (Ruby 3.2 EOL)"、
+#   2026-04-20）。Redmine 本体のソースには 5.1.13 がありますが、対応する
+#   公式イメージは存在しません。つまり 5.1.12 に固定するということは、
+#   ベース OS と Ruby 3.2 のセキュリティ更新が止まった土台を使うことを
+#   意味します。新規構築では 6 系（既定）または 7 系を選んでください。
+#
+# 公式イメージに対して次を追加します:
+#   - 日本語 CJK フォント（fonts-noto-cjk）
+#   - RedmineDocker のプラグイン/テーマ構成（11 plugins + farend_fancy）
+#   - redmine_gtt 用フロントエンド資産（yarn + webpack、PostGIS 前提）
+#
+# アプリ配置は /usr/src/redmine（公式イメージ標準）です。
+# Apache が :80 で受け、REDMINE_WEB_SERVER に応じて次のどちらかで処理します:
+#   puma      (既定) 内部の Puma（:3000）へ ProxyPass
+#   passenger mod_passenger が Redmine を直接起動（:3000 は使わない）
+#   （Debian trixie の Passenger 6.0.26 は Ruby 3.2 対応済みのため、
+#     6 系と同じく素の apt パッケージで両モードとも使えます）
+#
+# サブ URI: /redmine（RAILS_RELATIVE_URL_ROOT）
+#
+# ★ テーマの配置が 6 系以降と異なります
+#   Redmine 6.0 でテーマの置き場が public/themes/ から themes/ へ移動しました
+#   （5.1.13 のツリーには public/themes、6.1.3 / 7.0.0 には themes があります）。
+#   このため 5 系だけ public/themes/farend_fancy へ配置します。
+#
+# 導入プラグイン（11）:
+#   1.  redmine_wiki_lists        (tkusukawa, 0.0.11)
+#   2.  redmine_banner            (agileware-jp, 0.3.5)
+#   3.  redmine_issues_panel      (redmica, v1.0.4)
+#   4.  redmica_ui_extension      (redmica, v0.3.10)
+#   5.  redmine_ip_filter         (redmica, v1.1.0)
+#   6.  redmine_message_customize (redmica/farend, v1.0.1)
+#   7.  redmine_issue_templates   (redmica, master = 1.2.2)
+#   8.  view_customize            (onozaty, v3.6.0、ディレクトリ名は必ず 'view_customize')
+#   9.  redmine_logs              (haru, 0.3.0)
+#  10.  redmine_wiki_extensions   (haru, 0.9.5)
+#  11.  redmine_gtt               (gtt-project, v6.0.3) ← yarn+webpack+PostGIS が必要
+#
+# 6 系にあって 5 系で外したプラグイン（いずれも技術的に導入不可）:
+#   - redmine_login_audit2 … 全リリース（v1.0.0 / 1.0.2）が
+#     requires_redmine 6.0.0 を宣言しており、5.1 対応版が存在しません。
+#   - redmine_solid_queue  … 依存する solid_queue gem が activerecord >= 7.1 を
+#     要求します。Redmine 5.1 は Rails 6.1 のため bundle 解決ができません。
+#
+# 3〜10 のバージョンが 6 系より古いのは、それぞれ 5.1 を対象に CI が通っている
+# 最新タグを選んでいるためです（新しいタグは requires_redmine 6.0 以上を宣言）。
+#
+# テーマ: farend_fancy（farend、5.1 以前向けの tag redmine5.1）
+
+ARG WEB_BASE_IMAGE=docker.io/library/redmine:5.1.12
+FROM ${WEB_BASE_IMAGE}
+
+ARG REDMINE_HOME=/usr/src/redmine
+ENV REDMINE_HOME=${REDMINE_HOME}
+ENV RAILS_ENV=production
+ENV RAILS_RELATIVE_URL_ROOT=/redmine
+# Redmine はアプリポートで静的資産も配信します。
+# このコンテナ内の Apache フロントはそこへ転送します。
+ENV RAILS_SERVE_STATIC_FILES=1
+# アプリサーバーの既定は puma（Apache -> ProxyPass -> Puma :3000）。
+ENV REDMINE_WEB_SERVER=puma
+
+# redmine_gtt の geo gem スタックを Rails 6.1 に合わせて固定します。
+# gtt の Gemfile は GEM_* 環境変数があればそれを "~> <値>" として使い、
+# 無ければ Rails 7.2 以降向けの既定値（activerecord-postgis-adapter 10.x =
+# activerecord ~> 7.2）を使うため、Rails 6.1 では解決できません。
+# 値は gtt v6.0.3 自身の CI が 5.1-stable 用に設定しているものと同じです。
+# ENV（ARG ではない）にしているのは、Redmine の Gemfile が plugins/*/Gemfile を
+# 毎回評価するため、実行時の bundle exec でも同じ値が必要になるからです。
+ENV GEM_RGEO_ACTIVERECORD_VERSION=7.0.1
+ENV GEM_ACTIVERECORD_POSTGIS_ADAPTER_VERSION=7.1.1
+
+# ── システムパッケージ（root） ────────────────────────────────────────────────
+USER root
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+                # PDF/Gantt 出力向け日本語フォント
+        fonts-noto-cjk fontconfig \
+                # プラグインのビルド/実行ツール
+        git \
+                # redmine_gtt (6.0.3) のフロントビルド（webpack）
+        nodejs npm \
+                # postgis アダプタ系 native gem のビルド依存:
+                #   rgeo → GEOS/PROJ（libgeos-dev, libproj-dev）
+                #   pg   → libpq/pg_config（libpq-dev が /usr/bin/pg_config を提供）
+                # postgresql-client 単体では pg_config が入らないため、
+                # libpq-dev がないと `bundle install` で pg のビルドが失敗します。
+        libgeos-dev libproj-dev libpq-dev build-essential pkg-config \
+                # entrypoint 補助: envsubst（テンプレート描画）+ pg_isready（DB待機）
+        gettext-base postgresql-client \
+                # コンテナヘルスチェック + Apache フロント
+        curl apache2 \
+                # REDMINE_WEB_SERVER=passenger 用の mod_passenger。
+                # ベースは ruby:3.2-slim-trixie (Debian 13) で、trixie は
+                # Passenger 6.0.26 を提供します（Ruby 3.2 対応済み）。
+        libapache2-mod-passenger \
+    && rm -rf /var/lib/apt/lists/* \
+    && fc-cache -fv
+
+# Yarn 1.22.22（redmine_gtt 6.x の webpack ビルドに classic Yarn が必要）
+RUN npm install -g yarn@1.22.22 \
+    && yarn --version
+
+# ── プラグインとテーマ ─────────────────────────────────────────────────────────
+# 全プラグインはビルド時に clone してイメージへ焼き込みます（再現性確保）。
+# 更新時はイメージを再ビルドしてください。
+
+# テーマ farend_fancy: 5.1 以前向けの tag redmine5.1 から clone し、
+# public/themes/ 配下へ配置します（6.0 以降は themes/、上記★参照）。
+RUN git clone --depth 1 --branch redmine5.1 \
+        https://github.com/farend/redmine_theme_farend_fancy.git \
+        ${REDMINE_HOME}/public/themes/farend_fancy
+
+WORKDIR ${REDMINE_HOME}/plugins
+
+# 1. redmine_wiki_lists (0.0.11) — Wiki マクロプラグイン
+#    宣言は requires_redmine 3.4 以上。最終更新は 2021 年で 5.1 での
+#    検証実績はありません。事前検証推奨。
+RUN git clone --depth 1 --branch 0.0.11 \
+        https://github.com/tkusukawa/redmine_wiki_lists.git redmine_wiki_lists \
+    || git clone --depth 1 \
+        https://github.com/tkusukawa/redmine_wiki_lists.git redmine_wiki_lists
+
+# 2. redmine_banner (0.3.5) — サイト全体バナー
+#    宣言は requires_redmine 4.0 以上（CI の対象バージョンは非公開の
+#    CircleCI 環境変数のため確認できません）。事前検証推奨。
+RUN git clone --depth 1 --branch 0.3.5 \
+        https://github.com/agileware-jp/redmine_banner.git redmine_banner \
+    || git clone --depth 1 \
+        https://github.com/agileware-jp/redmine_banner.git redmine_banner
+
+# 3. redmine_issues_panel (1.0.4) — かんばん風課題パネル
+#    v1.1.0 以降は requires_redmine 6.0 を宣言するため 5 系では使えません。
+#    v1.0.4 の CI は RedMica 3.0（= Redmine 5.1.2/5.1.3 相当）を対象にしています。
+RUN git clone --depth 1 --branch v1.0.4 \
+        https://github.com/redmica/redmine_issues_panel.git redmine_issues_panel
+
+# 4. redmica_ui_extension (0.3.10) — UI 拡張（Select2, mermaid, burndown）
+#    v0.6.0 は requires_redmine 6.0 宣言。v0.4.x 以降は CI 対象が
+#    RedMica 3.1（= Redmine 6.0 相当）へ移っているため、5.1 相当の
+#    RedMica 3.0.1 を対象にしていた最新タグ v0.3.10 を採用します。
+RUN git clone --depth 1 --branch v0.3.10 \
+        https://github.com/redmica/redmica_ui_extension.git redmica_ui_extension
+
+# 5. redmine_ip_filter (1.1.0) — IP ベースアクセス制御
+#    宣言は requires_redmine 4.1 以上で新しいタグも使えますが、
+#    5.1 相当（RedMica 3.0）を CI 対象にしている最新タグは v1.1.0 です
+#    （v1.1.1 の CI は RedMica 3.1 = Redmine 6.0 相当）。
+RUN git clone --depth 1 --branch v1.1.0 \
+        https://github.com/redmica/redmine_ip_filter.git redmine_ip_filter
+
+# 6. redmine_message_customize (1.0.1) — UI 文字列カスタマイズ
+#    v1.1.0 は requires_redmine 6.0 宣言。v1.0.1 の CI は
+#    RedMica 3.0（= Redmine 5.1 相当）を対象にしています。
+RUN git clone --depth 1 --branch v1.0.1 \
+        https://github.com/redmica/redmine_message_customize.git redmine_message_customize
+
+# 7. redmine_issue_templates (master = 1.2.2) — 課題テンプレート
+#    タグが打たれていないため master を使います。宣言は requires_redmine 4.0
+#    以上ですが、master には Redmine 7.0 向けの対応も入っており、5.1 での
+#    検証実績は確認できません。事前検証推奨。
+RUN git clone --depth 1  \
+        https://github.com/redmica/redmine_issue_templates.git redmine_issue_templates
+
+# 8. view_customize (3.6.0) — ディレクトリ名は必ず 'view_customize'（init.rb の要件）
+#    CI に redmine-5.1 のジョブがあります。
+RUN git clone --depth 1 --branch v3.6.0 \
+        https://github.com/onozaty/redmine-view-customize.git view_customize \
+    || git clone --depth 1 \
+        https://github.com/onozaty/redmine-view-customize.git view_customize
+
+# 9. redmine_logs (0.3.0) — 管理画面ログビューア
+#    0.4.0 は requires_redmine 6.0 宣言。0.3.0 の宣言は 3.0 以上ですが、
+#    CI の対象は 5.0-stable までで 5.1 の実績はありません。事前検証推奨。
+RUN git clone --depth 1 --branch 0.3.0 \
+        https://github.com/haru/redmine_logs.git redmine_logs
+
+# 10. redmine_wiki_extensions (0.9.5) — Wiki 拡張（マクロ、コメント、タグ、投票）
+#     1.0.0 以降は requires_redmine 6.0 宣言。0.9.5 の CI マトリクスには
+#     5.1-stable が含まれています。
+RUN git clone --depth 1 --branch 0.9.5 \
+        https://github.com/haru/redmine_wiki_extensions.git redmine_wiki_extensions
+
+# 11. redmine_gtt (6.0.3) — Geo-Task-Tracker（PostGIS + webpack ビルドが必要）
+#     v7.x は requires_redmine 6.0.0 かつ Ruby >= 3.3 要求のため 5 系では
+#     使えません。v6.0.3 は requires_redmine 5.1.0 で、CI マトリクスに
+#     5.1-stable が含まれています（上の GEM_* ピンとセットで使用）。
+RUN git clone --depth 1 --branch v6.0.3 \
+        https://github.com/gtt-project/redmine_gtt.git redmine_gtt
+
+# ── プラグイン gem のインストール ─────────────────────────────────────────────
+# プラグイン依存 gem をイメージ内 bundle（/usr/local/bundle）へ焼き込みます。
+WORKDIR ${REDMINE_HOME}
+RUN bundle install --jobs 4 --retry 3 \
+    && apt-get autoremove -y \
+    && rm -rf /var/lib/apt/lists/*
+
+# ── redmine_gtt フロントエンド資産のビルド（yarn + webpack） ─────────────────
+RUN cd ${REDMINE_HOME}/plugins/redmine_gtt \
+    && yarn install --frozen-lockfile \
+    && npx webpack --mode production
+
+# ── 設定テンプレートと entrypoint ──────────────────────────────────────────────
+COPY database.yml.tmpl ${REDMINE_HOME}/config/database.yml.tmpl
+COPY configuration.yml.tmpl ${REDMINE_HOME}/config/configuration.yml.tmpl
+# stock の config.ru を置き換え、Puma 側で
+# RAILS_RELATIVE_URL_ROOT (/redmine) を正しく mount させます。
+# 理由は config.ru のコメントを参照してください。
+COPY config.ru ${REDMINE_HOME}/config.ru
+COPY httpd-redmine.conf.tmpl /etc/apache2/conf-available/redmine-proxy.conf.tmpl
+COPY httpd-redmine-passenger.conf.tmpl /etc/apache2/conf-available/redmine-passenger.conf.tmpl
+COPY entrypoint.sh /usr/local/bin/redmine-entrypoint.sh
+COPY healthcheck.sh /usr/local/bin/redmine-healthcheck.sh
+RUN a2enmod headers rewrite proxy proxy_http \
+    # mod_passenger は Debian パッケージの postinst が有効化しますが、
+    # 既定モード (puma) では不要なのでここで無効化しておきます。
+    # entrypoint.sh が REDMINE_WEB_SERVER に応じて起動時に切り替えます。
+    && a2dismod -f passenger \
+    && a2dissite 000-default || true \
+    # Build-time default render, purely so a2enconf has a file to enable;
+    # entrypoint.sh re-renders this from the .tmpl at container start in case
+    # RAILS_RELATIVE_URL_ROOT was overridden via .env, so this copy is never
+    # actually served as-is.
+    && envsubst '${RAILS_RELATIVE_URL_ROOT}' \
+        < /etc/apache2/conf-available/redmine-proxy.conf.tmpl \
+        > /etc/apache2/conf-available/redmine-proxy.conf \
+    && a2enconf redmine-proxy \
+    && chmod 0755 /usr/local/bin/redmine-entrypoint.sh /usr/local/bin/redmine-healthcheck.sh \
+    # 5 系にトップレベルの themes/ はありません（テーマは public/themes/ 配下）。
+    && chown -R redmine:redmine ${REDMINE_HOME}/config ${REDMINE_HOME}/plugins \
+    && chown -R redmine:redmine ${REDMINE_HOME}/public \
+    # Passenger の user switching は config.ru の所有者でアプリを起動しようと
+    # します。root 所有のままだと PassengerDefaultUser (nobody) へフォールバック
+    # し、files/ や log/ に書けなくなります（conf 側の PassengerUser と併用）。
+    && chown redmine:redmine ${REDMINE_HOME}/config.ru
+
+EXPOSE 80
+
+ENTRYPOINT ["/usr/local/bin/redmine-entrypoint.sh"]

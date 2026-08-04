@@ -1,13 +1,17 @@
-# redmine-web: Redmine 6.1.3（公式イメージ）+ プラグイン/テーマ一式
+# redmine-web (Redmine 6 系): Redmine 6.1.3（公式イメージ）+ プラグイン/テーマ一式
+#
+# シリーズ別 Containerfile のうち Redmine 6 用です（既定）。
+# 5 系は Containerfile.v5、7 系は Containerfile.v7 を参照してください。
+# 切り替えは .env の REDMINE_WEB_CONTAINERFILE / REDMINE_VERSION で行います
+# （docs/Design.md「Redmine シリーズの切り替え」参照）。
 #
 # ベースイメージ: docker.io/library/redmine:6.1.3
-# （Ruby / Bundler / Puma / Redmine 実行時 gem を同梱。rbenv ビルド不要）
+# （Ruby 3.4 / Bundler / Puma / Redmine 実行時 gem を同梱。rbenv ビルド不要）
 #
 # 公式イメージに対して次を追加します:
 #   - 日本語 CJK フォント（fonts-noto-cjk）
 #     （redmine.jp 記事の手順に準拠。Gantt/PDF 文字化け対策）
 #   - RedmineDocker のプラグイン/テーマ構成（13 plugins + farend_fancy）
-#   - redmine_gtt 用フロントエンド資産（yarn + webpack、PostGIS 前提）
 #
 # アプリ配置は /usr/src/redmine（公式イメージ標準）です。
 # Apache が :80 で受け、REDMINE_WEB_SERVER に応じて次のどちらかで処理します:
@@ -29,7 +33,11 @@
 #  10.  redmine_login_audit2      (seraph3000, v1.0.0)
 #  11.  redmine_wiki_extensions   (haru, v1.2.0)
 #  12.  redmine_solid_queue       (nishidayuya, v1.0.0)
-#  13.  redmine_gtt               (gtt-project, v6.0.3) ← yarn+webpack+PostGIS が必要
+#  13.  redmine_gtt               (gtt-project, v7.1.0) ← PostGIS が必要
+#       gtt 7.0 からフロントエンドが webpack+yarn → Vite+pnpm に変わりました。
+#       ソースビルドには Node >= 22 が必要ですが、Debian trixie の nodejs は
+#       20.19 のため足りません。ビルド済み assets を同梱する公式リリース
+#       tarball を展開することで、Node/yarn を一切入れずに済ませています。
 #
 # テーマ: farend_fancy（farend、既定ブランチは master。main は存在しない）
 
@@ -59,8 +67,6 @@ RUN apt-get update \
         fonts-noto-cjk fontconfig \
                 # プラグインのビルド/実行ツール
         git \
-                # redmine_gtt のフロントビルド（webpack）
-        nodejs npm \
                 # postgis アダプタ系 native gem のビルド依存:
                 #   rgeo → GEOS/PROJ（libgeos-dev, libproj-dev）
                 #   pg   → libpq/pg_config（libpq-dev が /usr/bin/pg_config を提供）
@@ -79,10 +85,6 @@ RUN apt-get update \
         libapache2-mod-passenger \
     && rm -rf /var/lib/apt/lists/* \
     && fc-cache -fv
-
-# Yarn 1.22.22（redmine_gtt の webpack ビルドに classic Yarn が必要）
-RUN npm install -g yarn@1.22.22 \
-    && yarn --version
 
 # ── プラグインとテーマ ─────────────────────────────────────────────────────────
 # 全プラグインはビルド時に clone してイメージへ焼き込みます（再現性確保）。
@@ -159,9 +161,20 @@ RUN git clone --depth 1 --branch v1.0.0 \
     || git clone --depth 1 \
         https://github.com/nishidayuya/redmine_solid_queue.git redmine_solid_queue
 
-# 13. redmine_gtt (6.0.3) — Geo-Task-Tracker（PostGIS + webpack ビルドが必要）
-RUN git clone --depth 1 --branch v6.0.3 \
-        https://github.com/gtt-project/redmine_gtt.git redmine_gtt
+# 13. redmine_gtt (7.1.0) — Geo-Task-Tracker（PostGIS が必要）
+#     他のプラグインと違い git clone ではなくリリース tarball を展開します。
+#     gtt 7.0 でフロントエンドが webpack+yarn から Vite+pnpm へ移行し、
+#     ソースからのビルドには Node >= 22 と corepack/pnpm が必要になりました
+#     （Debian trixie の nodejs は 20.19 で要件を満たしません）。
+#     リリース tarball には assets/javascripts/main.js と
+#     assets/stylesheets/main.css がビルド済みで同梱されているため、
+#     Node ツールチェーンを入れずに導入できます。
+ARG GTT_VERSION=v7.1.0
+RUN curl -fsSL -o /tmp/redmine_gtt.tar.gz \
+        "https://github.com/gtt-project/redmine_gtt/releases/download/${GTT_VERSION}/redmine_gtt-${GTT_VERSION}.tar.gz" \
+    && tar -xzf /tmp/redmine_gtt.tar.gz -C . \
+    && rm -f /tmp/redmine_gtt.tar.gz \
+    && test -f redmine_gtt/assets/javascripts/main.js
 
 # ── プラグイン gem のインストール ─────────────────────────────────────────────
 # プラグイン依存 gem をイメージ内 bundle（/usr/local/bundle）へ焼き込みます。
@@ -170,10 +183,8 @@ RUN bundle install --jobs 4 --retry 3 \
     && apt-get autoremove -y \
     && rm -rf /var/lib/apt/lists/*
 
-# ── redmine_gtt フロントエンド資産のビルド（yarn + webpack） ─────────────────
-RUN cd ${REDMINE_HOME}/plugins/redmine_gtt \
-    && yarn install --frozen-lockfile \
-    && npx webpack --mode production
+# redmine_gtt のフロントエンド資産はリリース tarball に同梱済みのため、
+# ここでのビルド手順はありません（上記 13 のコメント参照）。
 
 # ── 設定テンプレートと entrypoint ──────────────────────────────────────────────
 COPY database.yml.tmpl ${REDMINE_HOME}/config/database.yml.tmpl

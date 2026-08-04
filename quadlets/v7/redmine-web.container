@@ -1,31 +1,40 @@
-# quadlets/redmine-web.container
+# quadlets/v7/redmine-web.container
 #
-# redmine-web 用の Podman Quadlet ユニットです: Redmine 6.1.3 + plugin stack。
-# これは Redmine 6 系（既定）用です。5 系・7 系を動かす場合は、このファイルを
-# コピーしたあとに quadlets/v5/redmine-web.container または
-# quadlets/v7/redmine-web.container で上書きしてください
-# （redmine-db.container と redmine.network は系列共通です）。
+# Redmine 7 系（7.0.0）用の redmine-web Quadlet ユニットです。
+# quadlets/redmine-web.container（6 系・既定）の差し替え版で、変更点は
+# Image= のタグと、7 系特有の注意書きだけです。redmine-db.container と
+# redmine.network は系列共通なのでそのまま使います。
+#
+# 使い方（7 系を動かす場合）:
+#   cp quadlets/*.container quadlets/*.network ~/.config/containers/systemd/
+#   cp quadlets/v7/redmine-web.container ~/.config/containers/systemd/
+#   systemctl --user daemon-reload && systemctl --user start redmine-web
+#
 # 起動できるシリーズは一度に 1 つだけです（コンテナ名・ポート・データが共通）。
-# /etc/containers/systemd/redmine-web.container に配置し、次を実行します:
-#   systemctl daemon-reload && systemctl start redmine-web
+#
+# ★ passenger モードは未検証です
+#   7 系のベースは Ruby 4.0 ですが、Debian trixie の mod_passenger は 6.0.26
+#   で、Passenger が Ruby 4 対応に言及したのは 6.1.1 以降です。下の
+#   Environment=REDMINE_WEB_SERVER= を passenger にする前に、開発環境で
+#   `bash scripts/test-stack.sh --series 7 --web-server passenger` を
+#   実行して動作を確認してください。
+#
+# ★ 同梱プラグインが 6 系と異なります（12 個）
+#   redmine_banner は master が Redmine 7 未対応（修正は未マージのブランチ
+#   test_fix_for_redmine_7_0 のみ）のため同梱していません
+#   （containers/redmine-web/Containerfile.v7 参照）。
 #
 # DB パスワードと secret_key_base は Podman シークレットです（docs/Setup.md 参照）。
-# Apache フロントエンドが :80 で公開されます。その先のアプリサーバーは
-# REDMINE_WEB_SERVER で切り替えます:
-#   puma      (既定) Apache -> ProxyPass -> コンテナ内部の Puma :3000
-#   passenger        Apache + mod_passenger が Redmine を直接起動（:3000 なし）
-# 切り替えは下の Environment= を書き換えて再起動するだけです（イメージ再ビルド不要）。
-# SMTP 設定（あれば）には下の EnvironmentFile を使います。
 
 [Unit]
-Description=redmine Redmine アプリケーション 6.1.3
+Description=redmine Redmine アプリケーション 7.0.0
 Documentation=file:///opt/redmine/containers/docs/Design.md
 After=network-online.target redmine-db.service
 Wants=network-online.target
 Requires=redmine-db.service
 
 [Container]
-Image=localhost/redmine-web:6.1.3
+Image=localhost/redmine-web:7.0.0
 ContainerName=redmine-web
 Network=redmine-net
 PublishPort=127.0.0.1:80:80
@@ -33,7 +42,7 @@ PublishPort=127.0.0.1:80:80
 Environment=RAILS_ENV=production
 Environment=RAILS_RELATIVE_URL_ROOT=/redmine
 Environment=RUBY_YJIT_ENABLE=1
-# アプリサーバー: puma（既定）または passenger。
+# アプリサーバー: puma（既定）。passenger は上記★の理由で未検証です。
 Environment=REDMINE_WEB_SERVER=puma
 Environment=REDMINE_PUMA_PORT=3000
 Environment=REDMINE_DB_HOST=redmine-db
@@ -45,7 +54,7 @@ Environment=REDMINE_PLUGINS_MIGRATE=1
 # 公式イメージ同様、値を設定するとコアの db:migrate をスキップします
 # （既定は未設定 = 起動時にマイグレーションを実行）。
 # Environment=REDMINE_NO_DB_MIGRATE=1
-# 初回起動時（roles テーブルが空）のみ、日本語の既定データを投入します。
+# 初回起動時（trackers テーブルが空）のみ、日本語の既定データを投入します。
 Environment=REDMINE_LOAD_DEFAULT_DATA=1
 Environment=REDMINE_DEFAULT_DATA_LANG=ja
 # オプションの非シークレット設定（SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASSWORD）。

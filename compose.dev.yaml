@@ -66,11 +66,16 @@ services:
       retries: 5
       start_period: 30s
 
-  # ── Redmine 6.1.3 + Apache 2.4 frontend (port 80 / Puma :3000 or Passenger) ─
+  # ── Redmine + Apache 2.4 frontend (port 80 / Puma :3000 or Passenger) ───────
+  # 既定は Redmine 6 系（Containerfile.v6 / redmine:6.1.3）です。5 系・7 系へ
+  # 切り替えるときは .env で REDMINE_WEB_CONTAINERFILE / REDMINE_VERSION（=
+  # REDMINE_WEB_BASE_IMAGE, REDMINE_WEB_IMAGE）を 3 つセットで変更します
+  # （.env.example のプリセットと docs/Design.md「Redmine シリーズの切り替え」参照）。
+  # シリーズは一度に 1 つだけ起動する前提です（コンテナ名・ポート・ボリュームは共通）。
   redmine-web:
     build:
       context: containers/redmine-web
-      dockerfile: Containerfile
+      dockerfile: ${REDMINE_WEB_CONTAINERFILE:-Containerfile.v6}
       args:
         WEB_BASE_IMAGE: ${REDMINE_WEB_BASE_IMAGE:-docker.io/library/redmine:6.1.3}
     image: ${REDMINE_WEB_IMAGE:-localhost/redmine-web:6.1.3}

@@ -121,9 +121,14 @@ docker compose -f compose.dev.yaml top
 cd /opt/redmine/containers
 set -a; source .env; set +a
 podman build -t "${REDMINE_DB_IMAGE}"  --build-arg DB_BASE_IMAGE="${REDMINE_DB_BASE_IMAGE}"   containers/redmine-db
-podman build -t "${REDMINE_WEB_IMAGE}" --build-arg WEB_BASE_IMAGE="${REDMINE_WEB_BASE_IMAGE}" containers/redmine-web
+podman build -t "${REDMINE_WEB_IMAGE}" \
+    -f "containers/redmine-web/${REDMINE_WEB_CONTAINERFILE}" \
+    --build-arg WEB_BASE_IMAGE="${REDMINE_WEB_BASE_IMAGE}" containers/redmine-web
 podman images | grep -E 'redmine-(db|web)'
 ```
+
+`REDMINE_WEB_CONTAINERFILE` は Redmine の系列に対応します
+（`Containerfile.v5` / `Containerfile.v6`（既定）/ `Containerfile.v7`）。
 
 ### Docker Compose (開発)
 
@@ -266,6 +271,63 @@ podman healthcheck run redmine-web                       # どちらのモード
 
 ヘルスチェックはイメージ内の `/usr/local/bin/redmine-healthcheck.sh` が担当し、
 モードに応じて Puma 直叩きの検証を自動で省きます。
+
+なお **Redmine 7 系の `passenger` は未検証** です（Debian trixie の mod_passenger は 6.0.26、
+Passenger の Ruby 4 対応は 6.1.1 以降）。7 系で使う前に
+`bash scripts/test-stack.sh --series 7 --web-server passenger` で実測してください。
+
+### ケース F: Redmine のメジャーバージョン系列切り替え（5 ⇄ 6 ⇄ 7）
+
+対象: `Containerfile.v5` / `Containerfile.v6` / `Containerfile.v7` を切り替える場合。
+系列ごとにベースイメージとプラグイン構成が違うため、**再ビルドが必要** です。
+
+> **注意**: 起動できるのは一度に 1 系列だけです（コンテナ名・ポート・データが共通）。
+> また DB の中身は系列間で互換ではありません。上位系列を起動すると起動時の
+> `db:migrate` が走り、**元の系列へは戻せません**。必ず先にバックアップを取ってください。
+
+開発 (Compose):
+
+```bash
+# 0) 事前バックアップ（系列を戻せるようにするため必須）
+bash scripts/backup.sh
+
+# 1) .env を 2 つセットで変更（例: 6 系 → 7 系）
+#      REDMINE_VERSION=7.0.0
+#      REDMINE_WEB_CONTAINERFILE=Containerfile.v7
+
+# 2) 再ビルドして再作成
+docker compose -f compose.dev.yaml up --build -d
+docker compose -f compose.dev.yaml logs -f redmine-web   # マイグレーションの進行を確認
+```
+
+本番 (Quadlet):
+
+```bash
+# 0) 事前バックアップ
+bash /opt/redmine/containers/scripts/backup.sh
+
+# 1) .env を変更してイメージを再ビルド（「イメージビルド手順」参照）
+
+# 2) 系列に対応する web ユニットへ差し替え（db / network は共通）
+cp quadlets/v7/redmine-web.container ~/.config/containers/systemd/
+systemctl --user daemon-reload
+systemctl --user restart redmine-web
+systemctl --user status redmine-web
+```
+
+切り替え後の確認:
+
+```bash
+podman exec redmine-web cat /usr/src/redmine/lib/redmine/version.rb | head -8   # 本体バージョン
+podman exec redmine-web ls /usr/src/redmine/plugins                             # 同梱プラグイン
+podman healthcheck run redmine-web
+```
+
+系列ごとの同梱プラグインの違い（5 系は `redmine_login_audit2` と `redmine_solid_queue` が
+入らない、7 系は `redmine_banner` が入らない等）は `docs/Design.md`
+「Redmine シリーズの切り替え」を参照してください。6 系 → 7 系では `redmine_gtt` が
+6.0.3 から 7.1.0 に上がるため、MDI グリフを直接指定していたトラッカーアイコンは
+既定マーカーに戻ります。管理画面のトラッカー設定で選び直してください。
 
 ---
 
