@@ -57,8 +57,8 @@ RedmineDocker は 2 つのコンテナが連携して Redmine 6.1.3 を動作さ
 - 1 つの `redmine` ロールが `redmine` データベースを所有する（ブログの単一ユーザーモデル）構成です。`init-redmine.sh` は `postgis` / `postgis_topology` 拡張機能が存在することを確認します（冪等で、ベースイメージ側で初回初期化時に有効化済みです）。
 
 ### redmine-web (`containers/redmine-web/`)
-- ベースイメージは `redmine:6.1.3`（公式、Ruby / Bundler / Puma / gem も含む）です。
-- 日本語 CJK フォント（PDF / Gantt 用）、13 プラグイン + `farend_fancy` テーマ、`redmine_gtt` の webpack ビルド（yarn）を追加します。プラグイン gem は `bundle install` でイメージに焼き込みます。
+- ベースイメージは `redmine:6.1.3`（公式、Ruby / Bundler / Puma / gem も含む）です。Redmine のメジャーバージョン系列ごとに Containerfile を分けており、既定は 6 系（`Containerfile.v6`）です。5 系 / 7 系については「9. Redmine シリーズの切り替え」を参照してください。
+- 日本語 CJK フォント（PDF / Gantt 用）、13 プラグイン + `farend_fancy` テーマを追加します。プラグイン gem は `bundle install` でイメージに焼き込みます。`redmine_gtt` は 7.x でフロントエンドが webpack+yarn から Vite+pnpm へ移行したため、ビルド済み資産を同梱する公式リリース tarball を展開しています（6 系 / 7 系。Node ツールチェーンは不要）。5 系だけは webpack 時代の 6.0.3 を使うため yarn + webpack のビルドが残ります。
 - Apache フロントエンドを組み込み、`127.0.0.1:80` で `/redmine` リクエストを受けます。その先の処理は `REDMINE_WEB_SERVER` で切り替わります（下記「アプリサーバーの切り替え」）。
 - `entrypoint.sh` はシークレット解決（`*_FILE` 対応）、`config/database.yml` の描画（**`postgis`** アダプタ使用、redmine_gtt 必須）、`config/configuration.yml`（SMTP）の描画、Apache 設定の描画、DB 待機、コア / プラグインのマイグレーション実行、アプリサーバーの起動を行います。マイグレーションの実行可否は公式イメージと同じ環境変数で制御します（`REDMINE_NO_DB_MIGRATE` に値を設定するとコアの `db:migrate` をスキップ、`REDMINE_PLUGINS_MIGRATE` が非空なら `redmine:plugins:migrate` を実行。本スタックは 13 プラグインを内蔵するため既定で `REDMINE_PLUGINS_MIGRATE=1`）。
 
@@ -125,6 +125,7 @@ RedmineDocker は 2 つのコンテナが連携して Redmine 6.1.3 を動作さ
 | 用途 | 変数 | 既定値 |
 |------|------|--------|
 | Redmine バージョン | `REDMINE_VERSION` | `6.1.3` |
+| Web の Containerfile | `REDMINE_WEB_CONTAINERFILE` | `Containerfile.v6` |
 | PostgreSQL メジャー | `REDMINE_DB_PG_MAJOR` | `18` |
 | PostGIS バージョン | `REDMINE_DB_POSTGIS_VERSION` | `3.6` |
 | Web イメージタグ | `REDMINE_WEB_IMAGE` | `localhost/redmine-web:${REDMINE_VERSION}` |
@@ -146,7 +147,7 @@ RedmineDocker は 2 つのコンテナが連携して Redmine 6.1.3 を動作さ
 | YJIT 有効化 | `RUBY_YJIT_ENABLE` | `1` |
 
 補足:
-- `compose.dev.yaml` の build args で `REDMINE_WEB_BASE_IMAGE` / `REDMINE_DB_BASE_IMAGE` を `Containerfile` の `FROM` に渡します。
+- `compose.dev.yaml` の build args で `REDMINE_WEB_BASE_IMAGE` / `REDMINE_DB_BASE_IMAGE` を Containerfile の `FROM` に渡します。`redmine-web` の Containerfile は `REDMINE_WEB_CONTAINERFILE` で選びます（系列切り替えのため。「9. Redmine シリーズの切り替え」参照）。`REDMINE_VERSION` と `REDMINE_WEB_CONTAINERFILE` は必ずセットで変更してください。
 - 同じバージョン変数から、ビルド済みローカルイメージタグ（`REDMINE_WEB_IMAGE` / `REDMINE_DB_IMAGE`）も構成されます。
 - 本番の `quadlets/redmine-web.container` は `EnvironmentFile=-/opt/redmine/containers/.env` を読むため、SMTP/TZ などは同一ファイルで管理できます。
 - `RUBY_YJIT_ENABLE` は Ruby 本体が直接読む環境変数で、Puma (`bundle exec rails server`) に
@@ -177,3 +178,115 @@ Podman Quadlet の `*.container` ユニットファイルは、systemd 起動時
 ### なぜイメージ / バージョンは `.env` の値を変えただけでは反映しないのか
 
 Redmine・PostgreSQL・プラグインのバージョン変更は、`git ls-remote --tags` でタグの実在を確認したうえで Containerfile も合わせて編集し、リビルドする、レビュー前提の作業です（`CLAUDE.md` 参照）。`.env` の値を変えただけでは既存イメージは切り替わらないため、必ずビルドとレビューを経てください。
+
+## 9. Redmine シリーズの切り替え
+
+`redmine-web` は Redmine のメジャーバージョン系列ごとに Containerfile を分けています。
+プラグイン / テーマの対応バージョンが系列ごとに違い、単一 Containerfile の条件分岐では
+どのタグがどの系列向けか読み取れなくなるためです。
+
+| 系列 | Containerfile | ベースイメージ | Ruby / Rails | プラグイン数 |
+|------|---------------|----------------|--------------|--------------|
+| Redmine 5 | `Containerfile.v5` | `redmine:5.1.12` | Ruby 3.2 / Rails 6.1.7.10 | 11 |
+| Redmine 6（既定） | `Containerfile.v6` | `redmine:6.1.3` | Ruby 3.4 / Rails 7.2.3.1 | 13 |
+| Redmine 7 | `Containerfile.v7` | `redmine:7.0.0` | Ruby 4.0 / Rails 8.1.3 | 12 |
+
+`entrypoint.sh` / `healthcheck.sh` / `config.ru` / 各 `*.tmpl` / `redmine-db` は 3 系列で共通です。
+系列間の差分は「ベースイメージ」「プラグインのピン」「テーマの配置先」だけに閉じています。
+
+### 切り替え方法
+
+**開発 (Compose)** — `.env` の 2 つを必ずセットで変更します
+（`REDMINE_WEB_BASE_IMAGE` / `REDMINE_WEB_IMAGE` は `REDMINE_VERSION` から生成されます）。
+
+```bash
+# 5 系
+REDMINE_VERSION=5.1.12
+REDMINE_WEB_CONTAINERFILE=Containerfile.v5
+# 6 系（既定）
+REDMINE_VERSION=6.1.3
+REDMINE_WEB_CONTAINERFILE=Containerfile.v6
+# 7 系
+REDMINE_VERSION=7.0.0
+REDMINE_WEB_CONTAINERFILE=Containerfile.v7
+```
+
+変更後は `docker compose -f compose.dev.yaml up --build -d` で再ビルド・再作成します。
+
+**本番 (Quadlet)** — Quadlet は `Image=` を変数展開できないため、系列ごとにユニットを用意しています。
+`quadlets/*.container` をコピーしたあと、5 系 / 7 系では `redmine-web.container` だけを上書きします。
+
+```bash
+cp quadlets/*.container quadlets/*.network ~/.config/containers/systemd/
+cp quadlets/v7/redmine-web.container ~/.config/containers/systemd/   # 7 系の場合
+systemctl --user daemon-reload
+```
+
+**テスト** — `bash scripts/test-stack.sh --series 7`（`5` / `6` / `7`、既定 `6`）。
+系列でイメージタグが違うため、`--skip-build` は同じ系列のイメージにしか使えません。
+
+### 同時起動はできません
+
+コンテナ名 (`redmine-db` / `redmine-web`)、公開ポート、ボリューム、データディレクトリを
+系列間で共用しているため、起動できるのは一度に 1 系列だけです。また **データベースの内容は
+系列間で互換ではありません**。同じ DB に対して別系列のイメージを起動すると、起動時の
+`db:migrate` が片道で走ります（5 → 6 → 7 の順にしか進めません）。系列を跨いで試す場合は
+必ず事前に `scripts/backup.sh` を実行してください。
+
+### プラグイン / テーマの対応状況（調査根拠つき）
+
+各プラグインの `init.rb` の `requires_redmine` 宣言と、リポジトリの CI マトリクス / コミットを
+実際に確認した結果です。CI の対象が RedMica の場合は、RedMica 3.0 = Redmine 5.1.2/5.1.3 相当、
+3.1 = 6.0 相当、4.0/4.1 = 6.1 相当、`redmine/redmine` の `master` = 7.0-devel と読み替えています。
+
+| プラグイン | 5 系 | 6 系 | 7 系 |
+|---|---|---|---|
+| redmine_gtt | v6.0.3（CI に 5.1-stable。要 `GEM_*` ピン） | v7.1.0 | v7.1.0（CI に 7.0-stable × ruby 3.4/4.0） |
+| redmine_wiki_extensions | 0.9.5（CI に 5.1-stable） | 1.2.0 | 1.3.0（CI に 7.0-stable, ruby 4.0） |
+| view_customize | v3.6.0（CI に redmine-5.1） | master | v3.6.0（7.0 deprecation 対応コミット） |
+| redmine_issues_panel | v1.0.4（CI に RedMica 3.0） | v1.2.1 | v1.2.1（CI が redmine master） |
+| redmine_ip_filter | v1.1.0（CI に RedMica 3.0） | v1.1.1 | v1.2.0（CI が redmine master） |
+| redmica_ui_extension | v0.3.10（CI に RedMica 3.0.1） | v0.6.0 | v0.6.0（CI が redmine master） |
+| redmine_message_customize | v1.0.1（CI に RedMica 3.0） | v1.1.0 | v1.1.0（宣言 6.0+。CI 実績は 2024-11 時点で 7.0 の検証なし） |
+| redmine_issue_templates | master（宣言 4.0+） | master | master（7.0 向けアイコン互換コミットあり） |
+| redmine_logs | 0.3.0（宣言 3.0+、CI は 5.0 まで） | 0.4.0 | 0.4.0（CI は 6.1 まで） |
+| redmine_banner | 0.3.5（宣言 4.0+） | 0.3.5 | **非同梱**（master 未対応、修正は未マージ枝のみ） |
+| redmine_wiki_lists | 0.0.11（宣言 3.4+、2021 年で更新停止） | 0.0.11 | 0.0.11（同左） |
+| redmine_login_audit2 | **非同梱**（全版が 6.0.0 以上を要求） | v1.0.0 | 1.0.2（"Redmine 7.0 support" コミット） |
+| redmine_solid_queue | **非同梱**（solid_queue gem が activerecord >= 7.1 要求、5.1 は Rails 6.1） | v1.0.0 | v1.0.0（宣言なし・CI なし） |
+| テーマ farend_fancy | tag `redmine5.1`（`public/themes/` 配下） | master | master（Redmine trunk 追従コミットあり） |
+
+宣言だけで CI 実績がないもの（上表の「宣言 …+」と書いたもの）は本番投入前に動作確認してください。
+
+### 系列固有の注意点
+
+- **テーマの置き場が 5 系だけ違います。** Redmine 6.0 でテーマが `public/themes/` から
+  `themes/` へ移動しました（5.1.13 のツリーには `public/themes`、6.1.3 / 7.0.0 には `themes`）。
+  `Containerfile.v5` だけ `public/themes/farend_fancy` へ clone し、`chown` 対象も
+  `public/` 配下で完結させています。
+- **5 系の geo gem スタックは固定が必要です。** `redmine_gtt` 6.0.3 の Gemfile は既定で
+  `activerecord-postgis-adapter 10.x`（= activerecord ~> 7.2）を要求し、Rails 6.1 では解決
+  できません。`Containerfile.v5` は gtt 自身の CI が 5.1-stable 用に使っている値
+  （`GEM_RGEO_ACTIVERECORD_VERSION=7.0.1` / `GEM_ACTIVERECORD_POSTGIS_ADAPTER_VERSION=7.1.1`）を
+  `ENV` で設定します。ARG ではなく ENV なのは、Redmine の Gemfile が `plugins/*/Gemfile` を
+  bundler 実行のたびに評価するため、実行時にも同じ値が必要だからです。
+- **5 系の公式イメージはメンテナンスが終了しています。** docker-library/redmine は 2026-04-20 の
+  commit `ac72cc3` "Remove 5.1 (Ruby 3.2 EOL)" で 5.1 を削除しました。Docker Hub に残る
+  `redmine:5.1.12`（2026-04-14 push）が最後で、Redmine 本体のソースにある 5.1.13 に対応する
+  公式イメージはありません。ベース OS と Ruby 3.2 の更新は止まっています。
+- **7 系の `passenger` モードは未検証です。** Debian trixie の `libapache2-mod-passenger` は
+  6.0.26 で、Passenger が Ruby 4 対応に言及したのは 6.1.1（CHANGELOG: "[Ruby] Improve support
+  for Ruby 4 and Frozen String Literals"）以降です。7 系のベースは Ruby 4.0 のため、まずは
+  Debian パッケージのまま入れて `bash scripts/test-stack.sh --series 7 --web-server passenger`
+  で実測する方針にしています。動かない場合の選択肢は次の 2 つです。
+  1. Phusion の APT リポジトリ（Passenger 6.1.0 で Debian 13 trixie パッケージが追加済み）から
+     6.1.x を導入する。外部 APT リポジトリ依存が増えます。
+  2. 7 系は `puma` 専用と割り切り、`Containerfile.v7` から `libapache2-mod-passenger` を外す。
+- **7 系の `redmine_gtt` は導入手順が変わりました。** gtt 7.0 でフロントエンドが
+  webpack + yarn から Vite + pnpm（`corepack enable pnpm` → `pnpm install` → `pnpm build`、
+  Node >= 22）へ移行しました。Debian trixie の `nodejs` は 20.19 で要件を満たさないため、
+  ビルド済み `assets/` を同梱する公式リリース tarball
+  (`redmine_gtt-v7.1.0.tar.gz`) を展開する方式にしています。gtt の要件である
+  PostgreSQL >= 15 / PostGIS >= 3.4 は、本スタックの 18-3.6 で満たしています。
+  なお 6 系→7 系で gtt を上げた場合、MDI グリフを直接指定していたトラッカーアイコンは
+  既定マーカーへフォールバックするため、管理画面で選び直しが必要です。

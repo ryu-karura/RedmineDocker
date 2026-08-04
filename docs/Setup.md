@@ -30,14 +30,16 @@ RHEL の実機がまだ用意できない場合は、本番環境と同じ Podma
 # 0. 非シークレット設定 (.env) を作成 (初回のみ)
 cp .env.example .env
 # 必要に応じて REDMINE_SUBURI / REDMINE_WEB_HOST_PORT / REDMINE_WEB_SERVER / TZ / SMTP_* を編集
+# Redmine 5 系 / 7 系を使う場合は REDMINE_VERSION と REDMINE_WEB_CONTAINERFILE を
+# セットで変更します (既定は 6 系。docs/Design.md「Redmine シリーズの切り替え」参照)
 
 # 1. シークレットファイルを生成 (db_password.txt, secret_key_base.txt)
 bash scripts/generate-secrets.sh
 
 # 2. 2 コンテナをビルドして起動
 docker compose -f compose.dev.yaml up --build -d
-#    初回ビルドは遅めです: プラグイン gem を構築し、
-#    redmine_gtt の webpack ビルドを実行します。
+#    初回ビルドは遅めです: プラグイン gem を構築します
+#    (5 系はさらに redmine_gtt の webpack ビルドが走ります)。
 
 # 3. 起動状況を確認 (redmine-web の entrypoint でマイグレーションが実行されます)
 docker compose -f compose.dev.yaml logs -f redmine-web
@@ -137,8 +139,15 @@ podman secret create secret_key_base secrets/secret_key_base.txt
 cd /opt/redmine/containers
 set -a; source .env; set +a
 podman build -t "${REDMINE_DB_IMAGE}"  --build-arg DB_BASE_IMAGE="${REDMINE_DB_BASE_IMAGE}"   containers/redmine-db
-podman build -t "${REDMINE_WEB_IMAGE}" --build-arg WEB_BASE_IMAGE="${REDMINE_WEB_BASE_IMAGE}" containers/redmine-web
+podman build -t "${REDMINE_WEB_IMAGE}" \
+    -f "containers/redmine-web/${REDMINE_WEB_CONTAINERFILE}" \
+    --build-arg WEB_BASE_IMAGE="${REDMINE_WEB_BASE_IMAGE}" containers/redmine-web
 ```
+
+`redmine-web` は Redmine のメジャーバージョン系列ごとに Containerfile が分かれています
+（`Containerfile.v5` / `Containerfile.v6`（既定）/ `Containerfile.v7`）。`.env` の
+`REDMINE_VERSION` と `REDMINE_WEB_CONTAINERFILE` は必ずセットで設定してください
+（対応するプラグイン構成の違いは `docs/Design.md`「Redmine シリーズの切り替え」参照）。
 
 ### 5. Quadlet ユニットを導入する (redmine ユーザーとして)
 
@@ -147,6 +156,10 @@ mkdir -p ~/.config/containers/systemd
 cp quadlets/redmine.network           ~/.config/containers/systemd/
 cp quadlets/redmine-db.container      ~/.config/containers/systemd/
 cp quadlets/redmine-web.container ~/.config/containers/systemd/
+# Redmine 5 系 / 7 系の場合は、web ユニットだけを系列別のもので上書きします
+# (redmine-db.container と redmine.network は系列共通)
+# cp quadlets/v5/redmine-web.container ~/.config/containers/systemd/
+# cp quadlets/v7/redmine-web.container ~/.config/containers/systemd/
 systemctl --user daemon-reload
 systemctl --user start redmine-db redmine-web
 ```
@@ -163,6 +176,12 @@ systemctl --user start redmine-db redmine-web
 `EnvironmentFile` で読み込まれる `/opt/redmine/containers/.env` に
 `REDMINE_WEB_SERVER=passenger` と書く方法でも同じです。切り替え後の確認方法と
 トラブルシューティングは `docs/Manual.md` を参照してください。
+
+ただし **Redmine 7 系での Passenger は未検証** です。7 系のベースは Ruby 4.0 ですが、
+Debian trixie の `mod_passenger` は 6.0.26 で、Passenger が Ruby 4 対応に言及したのは
+6.1.1 以降のためです。7 系で使う前に、開発環境で
+`bash scripts/test-stack.sh --series 7 --web-server passenger` を実行して動作を
+確認してください（5 系 / 6 系は両モードとも利用できます）。
 
 ### 6. ホスト Apache を設定する (TLS)
 

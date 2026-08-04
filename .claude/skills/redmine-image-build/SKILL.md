@@ -2,8 +2,8 @@
 name: redmine-image-build
 description: >-
   Build/troubleshoot the redmine-web and redmine-db container images, and the
-  dev/prod boot sequence. Use when editing containers/redmine-web/Containerfile,
-  containers/redmine-db/Containerfile, bumping or adding a Redmine plugin or
+  dev/prod boot sequence. Use when editing containers/redmine-web/Containerfile.v5,
+  .v6 or .v7, containers/redmine-db/Containerfile, bumping or adding a Redmine plugin or
   theme, or diagnosing image-build failures — especially "Remote branch ... not
   found" from a git clone, `pg_config`/native-gem (`pg`, `rgeo`) build errors
   during `bundle install` — or boot-time crash-loops after a successful build:
@@ -16,16 +16,28 @@ description: >-
 
 # Building the redmine-web image
 
-The `redmine-web` image (`containers/redmine-web/Containerfile`) layers a
-plugin/theme stack and native-gem build tooling onto the official
-`redmine:6.1.3` base. Two classes of mistake break the build; both are avoidable
-with the checks below.
+The `redmine-web` image layers a plugin/theme stack and native-gem build
+tooling onto an official `redmine` base image. There is **one Containerfile per
+Redmine major series** — `Containerfile.v5` (`redmine:5.1.12`),
+`Containerfile.v6` (`redmine:6.1.3`, the default) and `Containerfile.v7`
+(`redmine:7.0.0`) — because the plugin versions that actually work differ per
+series. Everything else (`entrypoint.sh`, `healthcheck.sh`, `config.ru`, the
+`*.tmpl` files) is shared. Pick the file matching the series you are building;
+when a change is generic, apply it to all three. Two classes of mistake break
+the build; both are avoidable with the checks below.
 
 ## 1. Git tag pinning — verify before you pin
 
-All 13 plugins and the `farend_fancy` theme are `git clone`d **at build time** so
-the code is baked into the image. Each plugin is pinned with
-`git clone --depth 1 --branch <TAG> <url>`.
+All plugins and the `farend_fancy` theme are `git clone`d **at build time** so
+the code is baked into the image (the one exception is `redmine_gtt` in the
+v6/v7 images — see section 3). Each plugin is pinned with
+`git clone --depth 1 --branch <TAG> <url>`, and the pins differ per series:
+v6 has 13 plugins, v7 has 12 (no `redmine_banner`: unsupported on Redmine 7),
+v5 has 11 (no `redmine_login_audit2`, no `redmine_solid_queue`: neither can run
+on Rails 6.1) and generally older tags. Before changing a pin, check the
+plugin's `requires_redmine` and its CI matrix — for plugins tested against
+RedMica, RedMica 3.0 = Redmine 5.1, 3.1 = 6.0, 4.0/4.1 = 6.1, and
+`redmine/redmine` `master` = 7.0-devel.
 
 **Before adding or bumping any `--branch <TAG>`, confirm the tag exists upstream:**
 
@@ -95,11 +107,25 @@ Bundler resolves a different `pg` version for the plugin set — so a build can
 "work" without `libpq-dev` and then break on a dependency bump. Keep `libpq-dev`
 in the image so the outcome is stable.
 
-## 3. redmine_gtt frontend
+## 3. redmine_gtt frontend (differs per series)
 
-`redmine_gtt` also builds frontend assets with **classic Yarn 1.22.22** + webpack
-(`yarn install --frozen-lockfile && npx webpack --mode production`). The
-Containerfile installs `nodejs`/`npm` and pins Yarn to 1.22.22 — keep that pin.
+- **v6 / v7 (gtt 7.1.0)**: installed from the **release tarball**
+  (`redmine_gtt-v7.1.0.tar.gz`), not `git clone`. gtt 7.0 moved the frontend
+  from webpack+yarn to Vite+pnpm (`corepack enable pnpm && pnpm install &&
+  pnpm build`, Node >= 22) and Debian trixie only ships nodejs 20.19, so a
+  source build would need a third-party Node. The tarball ships prebuilt
+  `assets/javascripts/main.js` and `assets/stylesheets/main.css`, so these
+  images install **no Node toolchain at all**. Don't reintroduce yarn/webpack
+  there; the build asserts the prebuilt asset exists after unpacking.
+- **v5 (gtt 6.0.3)**: still the webpack era — builds with **classic Yarn
+  1.22.22** (`yarn install --frozen-lockfile && npx webpack --mode
+  production`), so `Containerfile.v5` installs `nodejs`/`npm` and pins Yarn to
+  1.22.22. Keep that pin. It also needs the geo gem stack pinned via `ENV`
+  (`GEM_RGEO_ACTIVERECORD_VERSION=7.0.1`,
+  `GEM_ACTIVERECORD_POSTGIS_ADAPTER_VERSION=7.1.1`) — `ENV`, not `ARG`, because
+  Redmine re-evaluates `plugins/*/Gemfile` on every bundler run including at
+  runtime. Without them Bundler tries activerecord-postgis-adapter 10.x
+  (activerecord ~> 7.2) against Rails 6.1 and fails to resolve.
 
 ## 4. Build succeeds, but the container crash-loops on boot
 
@@ -155,7 +181,10 @@ git ls-remote --tags https://github.com/haru/redmine_logs.git | grep -E 'v1\.0\.
 
 # Build the image end-to-end (must pass the plugin clones AND `bundle install`)
 docker compose -f compose.dev.yaml build redmine-web
-#   or: podman build -t localhost/redmine-web:6.1.3 containers/redmine-web
+#   or: podman build -t localhost/redmine-web:6.1.3 \
+#         -f containers/redmine-web/Containerfile.v6 containers/redmine-web
+# Other series (sets Containerfile + base image + tag together):
+#   bash scripts/test-stack.sh --series 5   # or 7
 
 # pg_config is present and on PATH inside the built image
 docker compose -f compose.dev.yaml run --rm --entrypoint sh redmine-web \
