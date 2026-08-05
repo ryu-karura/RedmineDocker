@@ -71,8 +71,8 @@ USER root
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
-                # PDF/Gantt 出力向け日本語フォント
-        fonts-noto-cjk fontconfig \
+                # PDF/Gantt 出力向け日本語フォント, OpenDocument
+        fonts-noto-cjk fontconfig pandoc \
                 # プラグインのビルド/実行ツール
         git \
                 # postgis アダプタ系 native gem のビルド依存:
