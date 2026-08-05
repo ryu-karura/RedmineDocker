@@ -272,9 +272,17 @@ podman healthcheck run redmine-web                       # どちらのモード
 ヘルスチェックはイメージ内の `/usr/local/bin/redmine-healthcheck.sh` が担当し、
 モードに応じて Puma 直叩きの検証を自動で省きます。
 
-なお **Redmine 7 系の `passenger` は未検証** です（Debian trixie の mod_passenger は 6.0.26、
-Passenger の Ruby 4 対応は 6.1.1 以降）。7 系で使う前に
-`bash scripts/test-stack.sh --series 7 --web-server passenger` で実測してください。
+なお **Redmine 7 系の mod_passenger は forky (Debian 14) の 6.1.x** です（ベースが Ruby 4.0 で、
+Passenger の Ruby 4 対応が 6.1.1 以降のため。5 系 / 6 系は trixie の 6.0.26）。
+稼働中のバージョンは次で確認できます。
+
+```bash
+podman exec redmine-web dpkg-query -W -f='${Version}\n' libapache2-mod-passenger
+```
+
+7 系を本番へ出す前に
+`bash scripts/test-stack.sh --series 7 --web-server passenger` で実測してください
+（このテストは 6.1 以上であることも検証します）。
 
 ### ケース F: Redmine のメジャーバージョン系列切り替え（5 ⇄ 6 ⇄ 7）
 
@@ -430,6 +438,9 @@ podman exec -it redmine-web bundle exec rails console -e production
 | gem が見つからない / bundler エラーで起動しない | `PassengerRuby` が Debian のシステム Ruby (`/usr/bin/ruby`) を向いています。`redmine-passenger.conf` の `PassengerRuby /usr/local/bin/ruby` を確認してください。 |
 | CSS/JS/テーマだけ 404 になる | Apache が `public/` を配信できていません。`redmine-passenger.conf` の `Alias` と `<Directory>` の `Require all granted` を確認してください。 |
 | error log に native support のコンパイル警告が出る | 想定内です。Passenger は pure-Ruby 実装へフォールバックして動作を継続します（わずかに遅くなるのみ）。 |
+| 7 系のビルドが `ERROR: libapache2-mod-passenger <版> < 6.1` で止まる | forky の `libapache2-mod-passenger` が 6.1 未満に戻っています。`Containerfile.v7` の `ARG PASSENGER_APT_SUITE` を 6.1 以上を持つスイート（例: `sid`）へ変えるか、`docs/Design.md`「9. Redmine シリーズの切り替え」の代替案（Phusion の APT リポジトリ / 7 系は `puma` 専用）を検討してください。 |
+| 7 系のビルドが forky の `apt-get install` で依存関係エラーになる | forky の passenger が trixie では満たせない依存を要求しています。APT pin が意図どおり働いて部分アップグレードを止めた状態です（`libc6` 等が黙って上がることはありません）。上と同じ代替案を検討してください。 |
+| 7 系のビルドが forky の `apt-get update` で `NO_PUBKEY` になる | ベースイメージの `debian-archive-keyring` に forky の署名鍵が入っていません。ベースイメージを更新（`podman pull docker.io/library/redmine:7.0.0`）してから再ビルドしてください。 |
 
 現在有効な Apache 設定は次で確認できます:
 

@@ -32,9 +32,10 @@
 #   6 -> Containerfile.v6 / redmine:6.1.3   (default)
 #   7 -> Containerfile.v7 / redmine:7.0.0
 # Series images have different tags, so --skip-build only reuses an image built
-# for that same series. Note that --series 7 --web-server passenger is the
-# open question this stack has not answered yet: Debian trixie ships Passenger
-# 6.0.26 and Ruby 4 support landed in 6.1.1 (see Containerfile.v7).
+# for that same series. With --series 7 --web-server passenger there is one
+# extra check: the Redmine 7 base is Ruby 4.0 and Passenger only supports it
+# from 6.1.1, so Containerfile.v7 pulls mod_passenger from Debian forky and the
+# test asserts the running container really has 6.1 or newer.
 #
 # This is a destructive test against compose.dev.yaml ONLY: it tears down and
 # recreates the redmine-db/redmine-web containers under a dedicated compose
@@ -297,6 +298,20 @@ else
         podman exec redmine-web apache2ctl -M 2>/dev/null | grep -q 'passenger_module'
     }
     check "mod_passenger is loaded in Apache" passenger_module_loaded
+
+    if [ "${SERIES}" = "7" ]; then
+        # 7 系のベースは Ruby 4.0 で、Passenger の Ruby 4 対応は 6.1.1 以降です。
+        # Containerfile.v7 は forky から 6.1.x を pin 導入しているので、
+        # 実際に走っているコンテナでもバージョンを確認します。
+        passenger_supports_ruby4() {
+            local version
+            version="$(podman exec redmine-web \
+                dpkg-query -W -f='${Version}' libapache2-mod-passenger 2>/dev/null)" || return 1
+            podman exec redmine-web dpkg --compare-versions "${version}" ge 6.1
+        }
+        check "mod_passenger is 6.1+ (Ruby 4 support, from forky)" \
+            passenger_supports_ruby4
+    fi
 
     passenger_static_200() {
         # Apache が public/ を Alias 経由で配信できていること（<Directory> 許可漏れ検知）。

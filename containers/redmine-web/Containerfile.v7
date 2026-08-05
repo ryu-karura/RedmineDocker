@@ -18,14 +18,19 @@
 #   puma      (既定) 内部の Puma（:3000）へ ProxyPass
 #   passenger mod_passenger が Redmine を直接起動（:3000 は使わない）
 #
-# ★ passenger モードの注意（7 系のみ）
-#   Debian trixie の libapache2-mod-passenger は 6.0.26 です。Passenger が
-#   Ruby 4 対応に言及したのは 6.1.1（CHANGELOG: "[Ruby] Improve support for
-#   Ruby 4 and Frozen String Literals"）以降のため、Ruby 4.0 のこのイメージで
-#   6.0.26 が動くかは未確定です。まず素の Debian パッケージのまま入れて
-#   実測する方針を採っています（scripts/test-stack.sh --series 7
-#   --web-server passenger）。動作しない場合の選択肢は
-#   docs/Design.md「Redmine シリーズの切り替え」に記載しています。
+# ★ mod_passenger は forky (Debian 14) から導入します（7 系のみ）
+#   このイメージのベースは Ruby 4.0 です。Debian trixie の
+#   libapache2-mod-passenger は 6.0.26 で、Passenger が Ruby 4 対応に言及した
+#   のは 6.1.1（CHANGELOG: "[Ruby] Improve support for Ruby 4 and Frozen String
+#   Literals"）以降のため、trixie のパッケージでは Ruby 4 対応が入りません。
+#   そこで 7 系だけ、forky (Debian 14 / testing) の Passenger 6.1.x を
+#   APT pin で導入します（5 / 6 系は Ruby 3.4 なので trixie の 6.0.26 のまま）。
+#   pin は passenger 関連パッケージのみ 990、それ以外の forky パッケージは
+#   -10（= インストール禁止）にしてあるので、libc6 等が forky へ引きずられる
+#   部分アップグレードは起こりません。依存ライブラリが trixie 側で満たせない
+#   場合は、黙って混ざらずにビルドがその場で失敗します。
+#   導入後に 6.1 以上であることを dpkg --compare-versions で検証しており、
+#   forky 側が 6.1 未満へ戻った場合もビルドが失敗します。
 #
 # サブ URI: /redmine（RAILS_RELATIVE_URL_ROOT）
 #
@@ -63,7 +68,7 @@ ENV RAILS_RELATIVE_URL_ROOT=/redmine
 ENV RAILS_SERVE_STATIC_FILES=1
 # アプリサーバーの既定は puma（Apache -> ProxyPass -> Puma :3000）。
 # passenger にすると Apache + mod_passenger が Redmine を直接起動します
-# （7 系では上記★の未確定事項あり）。
+# （7 系の mod_passenger は上記★のとおり forky の 6.1.x）。
 ENV REDMINE_WEB_SERVER=puma
 
 # ── システムパッケージ（root） ────────────────────────────────────────────────
@@ -85,11 +90,47 @@ RUN apt-get update \
         gettext-base postgresql-client \
                 # コンテナヘルスチェック + Apache フロント
         curl apache2 \
-                # REDMINE_WEB_SERVER=passenger 用の mod_passenger（6.0.26）。
-                # Ruby 4 での動作は未確定（先頭の★参照）。
-        libapache2-mod-passenger \
     && rm -rf /var/lib/apt/lists/* \
     && fc-cache -fv
+
+# ── mod_passenger（REDMINE_WEB_SERVER=passenger 用） ──────────────────────────
+# 先頭の★のとおり、7 系は Ruby 4.0 のため trixie の 6.0.26 ではなく
+# forky (Debian 14 / testing) の Passenger 6.1.x を導入します。
+#
+# APT pin の意図:
+#   Package: *                              … forky 由来は既定で -10（導入禁止）
+#   Package: passenger 系                   … 990（trixie の 500 より優先）
+# これにより forky から来るのは passenger 関連パッケージだけになり、依存が
+# trixie で満たせない場合はビルドが失敗します（部分アップグレードは起きません）。
+# sources.list / preferences は同じ RUN 内で削除し、実行時の apt に forky が
+# 残らないようにします。
+ARG PASSENGER_APT_SUITE=forky
+ARG PASSENGER_MIN_VERSION=6.1
+RUN set -eux; \
+    echo "deb http://deb.debian.org/debian ${PASSENGER_APT_SUITE} main" \
+        > /etc/apt/sources.list.d/passenger-suite.list; \
+    { \
+        echo 'Package: *'; \
+        echo "Pin: release n=${PASSENGER_APT_SUITE}"; \
+        echo 'Pin-Priority: -10'; \
+        echo ''; \
+        echo 'Package: passenger passenger-* libapache2-mod-passenger ruby-passenger'; \
+        echo "Pin: release n=${PASSENGER_APT_SUITE}"; \
+        echo 'Pin-Priority: 990'; \
+    } > /etc/apt/preferences.d/passenger-suite.pref; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends libapache2-mod-passenger; \
+    passenger_version="$(dpkg-query -W -f='${Version}' libapache2-mod-passenger)"; \
+    echo "installed libapache2-mod-passenger: ${passenger_version}"; \
+    if ! dpkg --compare-versions "${passenger_version}" ge "${PASSENGER_MIN_VERSION}"; then \
+        echo "ERROR: libapache2-mod-passenger ${passenger_version} < ${PASSENGER_MIN_VERSION}:" >&2; \
+        echo "       Ruby 4 support landed in Passenger 6.1.1. Check that suite" >&2; \
+        echo "       '${PASSENGER_APT_SUITE}' still ships 6.1 or newer." >&2; \
+        exit 1; \
+    fi; \
+    rm -f /etc/apt/sources.list.d/passenger-suite.list \
+          /etc/apt/preferences.d/passenger-suite.pref; \
+    rm -rf /var/lib/apt/lists/*
 
 # ── プラグインとテーマ ─────────────────────────────────────────────────────────
 # 全プラグインはビルド時に取得してイメージへ焼き込みます（再現性確保）。
