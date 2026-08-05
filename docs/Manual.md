@@ -194,6 +194,23 @@ systemctl --user restart redmine-db redmine-web
 - メジャーアップデートは DB 内部フォーマット変更を伴う可能性があるため、事前バックアップを必須にしてください。
 - 既存データを使っての移行（migrate）で進めるか、復元ベースで作り直すかは、ダウンタイム要件と検証結果で決めます。
 
+### ケース B-2: 別 DB 製品からの移行 / Redmine メジャーバージョンのアップグレード
+
+対象: 既存の **Redmine 5.1.6 + MySQL 8.0 CE** をこの構成（PostgreSQL 18 + PostGIS 3.6）へ
+移し、さらに Redmine 7.0.0 へ上げる場合。
+
+手順は独立したドキュメントにまとめています → **[docs/Upgrade.md](Upgrade.md)**
+
+要点だけ:
+
+- 移行元は `compose.legacy.yaml` でコンテナとして再現できます（`:8081`。通常スタックと同時起動可）。
+- DB のコンバートは `bash scripts/migrate-mysql-to-postgres.sh`
+  （スキーマは Rails のマイグレーションで作り、データだけ pgloader で転送します）。
+- Redmine 7 へ上げる前に `redmine_banner` をアンインストールしてください
+  （7 系イメージに含まれないため。`rake redmine:plugins:migrate NAME=redmine_banner VERSION=0`）。
+- アプリを公開せずにマイグレーションだけ先に流したい場合は `REDMINE_MIGRATE_ONLY=1` で単発起動します。
+- 通しの自動検証は `bash scripts/test-upgrade.sh`。
+
 ### ケース C: 完全再作成（データを消して作り直す）
 
 対象: 検証環境を初期化したい場合、設定汚染をリセットしたい場合。

@@ -147,6 +147,8 @@ RedmineDocker は 2 つのコンテナが連携して Redmine 6.1.3 を動作さ
 | アプリサーバー | `REDMINE_WEB_SERVER` | `puma`（`passenger` も可） |
 | Puma 内部ポート | `REDMINE_PUMA_PORT` | `3000`（`passenger` では未使用） |
 | YJIT 有効化 | `RUBY_YJIT_ENABLE` | `1` |
+| DB アダプタ | `REDMINE_DB_ADAPTER` | `postgis`（移行手順でのみ `postgresql` / `mysql2`。「10. 移行元 (MySQL) の再現と DB コンバート」参照） |
+| マイグレーション専用起動 | `REDMINE_MIGRATE_ONLY` | 未設定（設定するとマイグレーション後に Web サーバーを起動せず終了） |
 
 補足:
 - `compose.dev.yaml` の build args で `REDMINE_WEB_BASE_IMAGE` / `REDMINE_DB_BASE_IMAGE` を Containerfile の `FROM` に渡します。`redmine-web` の Containerfile は `REDMINE_WEB_CONTAINERFILE` で選びます（系列切り替えのため。「9. Redmine シリーズの切り替え」参照）。`REDMINE_VERSION` と `REDMINE_WEB_CONTAINERFILE` は必ずセットで変更してください。
@@ -195,6 +197,10 @@ Redmine・PostgreSQL・プラグインのバージョン変更は、`git ls-remo
 
 `entrypoint.sh` / `healthcheck.sh` / `config.ru` / 各 `*.tmpl` / `redmine-db` は 3 系列で共通です。
 系列間の差分は「ベースイメージ」「プラグインのピン」「テーマの配置先」だけに閉じています。
+
+このほかに、移行元 (as-is) を再現するための `Containerfile.v5-mysql`（Redmine 5.1.6 +
+MySQL 8.0 CE、プラグイン 10 個）があります。通常構成では使わない検証専用のイメージで、
+`compose.legacy.yaml` からのみ参照します（「10. 移行元 (MySQL) の再現と DB コンバート」）。
 
 ### 切り替え方法
 
@@ -306,3 +312,78 @@ systemctl --user daemon-reload
   PostgreSQL >= 15 / PostGIS >= 3.4 は、本スタックの 18-3.6 で満たしています。
   なお 6 系→7 系で gtt を上げた場合、MDI グリフを直接指定していたトラッカーアイコンは
   既定マーカーへフォールバックするため、管理画面で選び直しが必要です。
+
+---
+
+## 10. 移行元 (MySQL) の再現と DB コンバート
+
+既存の **Redmine 5.1.6 + MySQL 8.0 CE** から本構成へ移行するための設計です。
+実際の作業手順は [docs/Upgrade.md](Upgrade.md) にまとめています。ここでは
+「なぜその作り方なのか」だけを記録します。
+
+### 構成要素
+
+| 要素 | 位置づけ |
+|------|---------|
+| `containers/redmine-db-mysql/` | MySQL 8.0 CE。移行元 DB の再現専用（本番 Quadlet には無い） |
+| `containers/redmine-web/Containerfile.v5-mysql` | Redmine 5.1.6 + プラグイン 10 個。mysql2 / postgresql の両アダプタで起動できる |
+| `compose.legacy.yaml` | 移行元スタック。コンテナ名・ネットワーク・ボリューム・ポートを通常構成と分けており、`compose.dev.yaml` と同時起動できる |
+| `scripts/migrate-mysql-to-postgres.sh` | コンバート本体（preflight / schema / data / sequences / files / verify） |
+| `scripts/pgloader/` | pgloader コマンドファイルのテンプレートとシーケンス再設定 SQL |
+| `scripts/test-upgrade.sh` | 段階 1〜3 の通し検証 |
+
+### なぜ「スキーマは Rails、データは pgloader」なのか
+
+pgloader にスキーマ生成まで任せると、MySQL の型からの機械変換になります
+（`id` 列が `serial` にならない、`tinyint(1)` が `boolean` にならない等）。
+Rails から見ると壊れているスキーマになり、その後の Redmine 7 へのマイグレーションで
+破綻します。
+
+そこで移行先には、**移行元とまったく同じ Redmine 5.1.6・同じプラグイン構成**で
+`rake db:migrate` を実行させてスキーマを作り、pgloader には `data only` で中身だけを
+運ばせます。両者は同じマイグレーション列で作られるため、テーブル・列・列順が一致し、
+列名ベースの投入が安全に行えます。`schema_migrations` / `ar_internal_metadata` は
+移行先が作ったものをそのまま使うため転送対象外です。
+
+### `REDMINE_DB_ADAPTER` とテンプレートの選択規則
+
+`entrypoint.sh` は `config/database.${REDMINE_DB_ADAPTER}.yml.tmpl` があればそれを、
+無ければ既定の `config/database.yml.tmpl`（postgis 用）を描画します。
+どのテンプレートをイメージに含めるかは Containerfile 側の責務で、entrypoint に系列別の
+分岐は置きません。
+
+| イメージ | 同梱テンプレート | 既定アダプタ |
+|----------|-----------------|--------------|
+| `Containerfile.v5` / `.v6` / `.v7` | `database.yml.tmpl` | `postgis` |
+| `Containerfile.v5-mysql` | `database.mysql2.yml.tmpl` / `database.postgresql.yml.tmpl` | `mysql2` |
+
+コンバートの 1 ステップ目では、同じ 5.1.6 イメージを `REDMINE_DB_ADAPTER=postgresql` +
+`REDMINE_MIGRATE_ONLY=1` で単発起動します。gtt を同梱していないため
+`activerecord-postgis-adapter` は無く、素の `postgresql` アダプタで接続します
+（テーブル定義は同一で、後から 6/7 系が `postgis` アダプタで接続し直すだけです）。
+
+### `config/database.yml` が bundle の内容を決めてしまう
+
+Redmine の `Gemfile` は `config/database.yml` に現れる `adapter:` 行を集め、その集合に
+応じて DB gem（`mysql2` + `with_advisory_lock` / `pg`）を宣言します
+（公式 Docker イメージも、全アダプタを事前インストールするためにダミーの
+`database.yml` を置いてから `bundle install` しています）。
+
+このため `Containerfile.v5-mysql` は、
+
+1. ビルド時に **両アダプタを書いたダミー `config/database.yml`** を置いてから `bundle install`
+2. `mysql2` / `with_advisory_lock` / `pg` が bundle に入ったことをビルド時に検証
+3. 実行時テンプレート側にも常に両アダプタ（末尾の `gem_pin_*` スタンザ）を含める
+
+という作りにしています。ビルド時と実行時で adapter 集合が変わると、bundler が実行時に
+Gemfile.lock を解決し直し、ネットワーク不通の環境では起動に失敗するためです。
+
+なお通常構成（postgis）では、ビルド時に `database.yml` が無く、実行時の `adapter: postgis`
+は Redmine の Gemfile のどの分岐にも当たらないため、どちらも「DB gem の宣言なし」で一致
+しています。`pg` は `redmine_gtt` の Gemfile が持ち込んでいます。
+
+### 移行元プラグイン構成の一致が前提
+
+移行先スキーマは「`Containerfile.v5-mysql` が持つ 10 プラグイン」で作られます。移行元に
+それ以外のプラグインが入っていると、そのテーブルの投入先が存在せず pgloader が失敗します。
+`schema` ステップが移行元と移行先のテーブル集合を突き合わせ、事前に検出して止めます。

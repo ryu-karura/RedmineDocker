@@ -1,0 +1,56 @@
+-- scripts/pgloader/redmine-data-only.load.tmpl
+--
+-- pgloader コマンドファイルのテンプレート。
+-- scripts/migrate-mysql-to-postgres.sh が envsubst で描画し、pgloader コンテナへ
+-- 渡します（install path: コンテナ内 /tmp/redmine.load）。
+--
+-- ★ "data only" である理由
+--   移行先の PostgreSQL 側スキーマは、移行元とまったく同じ Redmine 5.1.6 +
+--   同じプラグイン構成で `rake db:migrate` を流して作ってあります
+--   （scripts/migrate-mysql-to-postgres.sh の schema ステップ）。
+--   つまり Rails が期待するとおりの型・既定値・serial 列・インデックスが揃った
+--   状態です。pgloader にスキーマ生成まで任せると、MySQL の型からの機械的変換に
+--   なり（id 列が integer のままで serial にならない、boolean が smallint に
+--   なる等）、後段の Redmine 7 へのマイグレーションで壊れます。
+--   ここではデータの転送だけを担当させます。
+--
+-- ★ schema_migrations / ar_internal_metadata を除外している理由
+--   PostgreSQL 側は上記のとおり同じマイグレーションを実行済みなので、これらの
+--   内容はすでに正しい状態です。移行元と同じ Redmine/プラグイン構成である限り
+--   中身も一致します（一致しない場合は移行元に別のプラグインが入っている
+--   ということなので、スクリプトの preflight ステップが検出して止まります）。
+--
+-- ★ CAST 規則
+--   tinyint(1)  MySQL の boolean 表現。PostgreSQL 側は boolean 列なので明示変換。
+--   datetime    PostgreSQL 側は timestamp without time zone（Rails 既定）。
+--               MySQL の '0000-00-00 00:00:00' は PostgreSQL に存在しないため
+--               NULL へ落とします（zero-dates-to-null）。
+--   date        同上。
+--
+-- 置換変数: ${MYSQL_USER} ${MYSQL_PASSWORD} ${MYSQL_HOST} ${MYSQL_PORT} ${MYSQL_DB}
+--           ${PG_USER} ${PG_PASSWORD} ${PG_HOST} ${PG_PORT} ${PG_DB}
+--   パスワードは URL の一部として渡すため、記号を含まない値であることが前提です
+--   （scripts/generate-secrets.sh は英数字 24 文字を生成します）。
+
+LOAD DATABASE
+     FROM     mysql://${MYSQL_USER}:${MYSQL_PASSWORD}@${MYSQL_HOST}:${MYSQL_PORT}/${MYSQL_DB}
+     INTO postgresql://${PG_USER}:${PG_PASSWORD}@${PG_HOST}:${PG_PORT}/${PG_DB}
+
+ WITH data only,
+      truncate,
+      batch rows = 5000,
+      prefetch rows = 5000,
+      workers = 4,
+      concurrency = 1
+
+  SET maintenance_work_mem to '256MB',
+      work_mem to '32MB'
+
+ CAST type tinyint when (= 1 precision) to boolean using tinyint-to-boolean,
+      type datetime to timestamp using zero-dates-to-null,
+      type date to date using zero-dates-to-null
+
+ EXCLUDING TABLE NAMES MATCHING 'schema_migrations', 'ar_internal_metadata'
+
+ ALTER SCHEMA '${MYSQL_DB}' RENAME TO 'public'
+;

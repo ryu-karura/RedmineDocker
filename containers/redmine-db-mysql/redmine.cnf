@@ -1,0 +1,50 @@
+# containers/redmine-db-mysql/redmine.cnf
+#
+# Redmine 5.1.6 向け MySQL 8.0 サーバー設定
+# （install path: /etc/mysql/conf.d/redmine.cnf）。
+#
+# 移行元 (as-is) の再現用です。docs/Upgrade.md「移行元スタックの再現」参照。
+
+[mysqld]
+# ── 文字コード ───────────────────────────────────────────────────────────────
+# Redmine 5.1.6 の config/database.yml.example は MySQL 5.7.7 以降で
+# encoding: utf8mb4 を指定します。サーバー側も utf8mb4 に揃えます。
+# 照合順序は utf8mb4_general_ci にしています。MySQL 8.0 の既定は
+# utf8mb4_0900_ai_ci ですが、utf8 (3 バイト) 時代から引き継いだ既存 Redmine DB は
+# general_ci であることが多く、移行元の再現としてはこちらが近いためです。
+# PostgreSQL へコンバートすると照合順序の概念は DB の LC_COLLATE (C.UTF-8) に
+# 変わるため、どちらでもコンバート自体には影響しません。
+character-set-server = utf8mb4
+collation-server     = utf8mb4_general_ci
+
+# ── 認証プラグイン ───────────────────────────────────────────────────────────
+# MySQL 8.0 の既定は caching_sha2_password ですが、ここでは
+# mysql_native_password を既定にしています。理由は 2 つあります:
+#   1. pgloader (v3.6.7) の MySQL ドライバが caching_sha2_password 非対応で、
+#      コンバート時に native password のユーザーが必要になる
+#      （scripts/migrate-mysql-to-postgres.sh は必要なら専用ユーザーを作ります）。
+#   2. Debian 系イメージの mysql2 gem / mysql クライアントは MariaDB
+#      Connector/C 実装で、MySQL 8 の caching_sha2 認証まわりの相性問題を
+#      避けられる。
+# MySQL 8.0 ではこのオプションは非推奨警告が出ますが有効です。8.4 以降では
+# 削除されているため、8.4 を再現対象にする場合はこの行を消し、pgloader 用に
+# 別途 native password ユーザーを用意する必要があります。
+default_authentication_plugin = mysql_native_password
+
+# ── SQL モード ───────────────────────────────────────────────────────────────
+# MySQL 8.0 の既定 sql_mode から ONLY_FULL_GROUP_BY を外しています。
+# Redmine 本体およびプラグインには GROUP BY に非集約列を含む SQL が残っており、
+# ONLY_FULL_GROUP_BY 有効のままだと一部画面で
+# "Expression #N of SELECT list is not in GROUP BY clause" になり得ます。
+# 移行元環境でよく行われている設定でもあります。
+sql_mode = STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION
+
+# ── トランザクション分離レベル ───────────────────────────────────────────────
+# Redmine 公式 (MySQL_configuration) の推奨。アプリ側 (database.yml の
+# variables:) でも指定していますが、サーバー既定も合わせておきます。
+transaction_isolation = READ-COMMITTED
+
+# ── その他 ───────────────────────────────────────────────────────────────────
+# 添付本体はファイルシステム上ですが、Wiki 本文などのテキストが大きくなることが
+# あるため、既定 (4MB) より余裕を持たせます。
+max_allowed_packet = 64M

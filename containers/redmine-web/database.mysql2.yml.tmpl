@@ -1,0 +1,50 @@
+# containers/redmine-web/database.mysql2.yml.tmpl
+#
+# MySQL (mysql2 アダプタ) 用の Redmine DB 設定テンプレートです。
+# entrypoint.sh が REDMINE_DB_ADAPTER=mysql2 のときに envsubst で描画します
+# （選択規則: config/database.${REDMINE_DB_ADAPTER}.yml.tmpl があればそれを使い、
+#   無ければ既定の config/database.yml.tmpl = postgis 用を使う）。
+#
+# 使うのは移行検証用の Containerfile.v5-mysql（Redmine 5.1.6 + MySQL 8.0 CE）
+# だけです。6 系・7 系は postgis 固定で、このファイルをイメージに含めません
+# （docs/Upgrade.md「移行元スタックの再現」参照）。
+#
+# 置換変数:
+#   ${REDMINE_DB_HOST}     → DB コンテナホスト名（redmine-legacy-db）
+#   ${REDMINE_DB_PORT}     → 3306
+#   ${REDMINE_DB_NAME}     → DB 名（redmine）
+#   ${REDMINE_DB_USER}     → DB ユーザー名（redmine）
+#   ${REDMINE_DB_PASSWORD} → DB パスワード（Docker/Podman シークレット）
+#
+# ★ encoding と transaction_isolation は Redmine 5.1.6 の
+#   config/database.yml.example の MySQL 例に合わせています
+#   （utf8mb4 + READ-COMMITTED、https://www.redmine.org/projects/redmine/wiki/MySQL_configuration）。
+#
+# ★ 末尾の gem_pin_postgresql は「接続しないダミー」です。消さないでください。
+#   Redmine の Gemfile は config/database.yml に現れる adapter 行をすべて集め、
+#   その集合に応じて DB gem（mysql2 + with_advisory_lock / pg）を宣言します。
+#   このイメージはコンバート手順の途中で PostgreSQL にも接続する
+#   （REDMINE_DB_ADAPTER=postgresql）ため、ビルド時・mysql2 起動時・
+#   postgresql 起動時のすべてで adapter 集合を {mysql2, postgresql} に
+#   固定しておかないと、bundler が実行時に Gemfile.lock を解決し直す
+#   （= ネットワークが必要になり、失敗しうる）ことになります。
+
+production:
+  adapter: mysql2
+  host: ${REDMINE_DB_HOST}
+  port: ${REDMINE_DB_PORT}
+  database: ${REDMINE_DB_NAME}
+  username: ${REDMINE_DB_USER}
+  password: ${REDMINE_DB_PASSWORD}
+  encoding: utf8mb4
+  pool: 10
+  variables:
+    transaction_isolation: "READ-COMMITTED"
+  # 接続関連パラメータ
+  checkout_timeout: 5
+  connect_timeout: 5
+
+# 接続には使いません（上記★参照）。gem 集合を固定するためだけの宣言です。
+gem_pin_postgresql:
+  adapter: postgresql
+  database: ${REDMINE_DB_NAME}
