@@ -14,7 +14,7 @@ ServerName localhost
 ServerTokens Prod
 ServerSignature Off
 
-# 公式イメージの Ruby 3.4（/usr/local/bin/ruby）を使います。
+# 公式イメージの Ruby（/usr/local/bin/ruby、5/6 系は 3.x・7 系は 4.0）を使います。
 # Debian の libapache2-mod-passenger は既定で /usr/bin/ruby（システム Ruby）を
 # 指すため、明示しないと Redmine の gem が入っていない Ruby でアプリが起動します。
 PassengerRuby /usr/local/bin/ruby

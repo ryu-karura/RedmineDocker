@@ -86,7 +86,7 @@ RedmineDocker/
 | Redmine | 6.1.3 (`docker.io/library/redmine:6.1.3`) |
 | PostgreSQL / PostGIS | 18 + 3.6 (`postgis/postgis:18-3.6`) |
 | Web tier | Apache httpd 2.4 (Debian `apt` package baked into `redmine-web`, not version-pinned) |
-| App server | Puma (default) or Passenger 6.0.26 (`libapache2-mod-passenger`), selected by `REDMINE_WEB_SERVER` |
+| App server | Puma (default) or Passenger (`libapache2-mod-passenger`: 6.0.26 from trixie on v5/v6, 6.1.x from forky on v7), selected by `REDMINE_WEB_SERVER` |
 | Node.js / Yarn | Debian `nodejs` + Yarn 1.22.22 — **Redmine 5 series only**, for `redmine_gtt` 6.0.3's webpack build |
 
 `redmine-web` bakes in 13 plugins (see the numbered list in
@@ -143,10 +143,19 @@ Series-specific facts that are easy to get wrong (full evidence in
   release tarball (`redmine_gtt-v7.1.0.tar.gz`), which ships prebuilt
   `assets/javascripts/main.js` + `assets/stylesheets/main.css` and needs no
   Node toolchain at all. Don't reintroduce yarn/webpack there.
-- Redmine 7's `passenger` mode is **unverified**: Debian trixie ships Passenger
-  6.0.26 and Ruby 4 support landed in 6.1.1. The v7 image installs the Debian
-  package anyway so it can be measured with
-  `bash scripts/test-stack.sh --series 7 --web-server passenger`.
+- Redmine 7's `mod_passenger` comes from **forky (Debian 14 / testing), not
+  trixie**: trixie ships Passenger 6.0.26 and Ruby 4 support landed in 6.1.1, so
+  the v7 base (Ruby 4.0) needs forky's 6.1.x. `Containerfile.v7` adds a forky
+  apt source plus `/etc/apt/preferences.d/passenger-suite.pref` that pins
+  everything from forky to `-10` (uninstallable) except the `passenger`
+  packages at `990` — so a dependency that trixie cannot satisfy fails the
+  build instead of silently dragging in a forky `libc6`. Both files are removed
+  in the same `RUN`, and the layer asserts
+  `dpkg --compare-versions <installed> ge 6.1`. Suite and floor are
+  `ARG PASSENGER_APT_SUITE` / `ARG PASSENGER_MIN_VERSION`. v5/v6 keep trixie's
+  6.0.26 (Ruby 3.4). Verify with
+  `bash scripts/test-stack.sh --series 7 --web-server passenger`, which also
+  re-checks the installed version inside the running container.
 
 ## Development workflow (Docker Compose: WSL or Codespaces)
 
@@ -234,9 +243,10 @@ Start/stop order is enforced by `Requires=`/`After=` in the units:
   actually served as-is. Edit the `.tmpl`, not a generated `.conf`.
 - **`REDMINE_WEB_SERVER` picks the app server at *runtime*: `puma` (default) or
   `passenger`.** The image bakes in *both* — the official image's Puma plus
-  Debian trixie's `libapache2-mod-passenger` (Passenger 6.0.26; the base image is
-  `ruby:3.4-slim-trixie`, and Ruby 3.4 support landed in Passenger 6.0.25, so no
-  third-party APT repo is needed). Switching is an env change plus a container
+  `libapache2-mod-passenger` (v5/v6: Debian trixie's Passenger 6.0.26 — those
+  base images are `ruby:3.4-slim-trixie` and Ruby 3.4 support landed in 6.0.25;
+  v7: forky's 6.1.x, because that base is Ruby 4.0 — see the series section. No
+  third-party APT repo is involved either way). Switching is an env change plus a container
   restart, never a rebuild — that is deliberate, because Quadlet units can pass
   `Environment=` but cannot template `Image=`, so a build-arg switch would be
   unusable in production. The Containerfile `a2dismod -f passenger`s at build
@@ -443,7 +453,9 @@ boot sequence against `REDMINE_WEB_SERVER=passenger` and swaps the Puma-direct
 check for "nothing is listening on `:3000`", "`passenger_module` is loaded",
 and "Apache serves a static asset out of `public/`" (`public/404.html` — the
 only static file present in all three series, since Redmine 6.0 moved
-stylesheets out of `public/`) — both modes share one image, so run it with
+stylesheets out of `public/`); on `--series 7` it additionally asserts the
+container's `libapache2-mod-passenger` is 6.1+ (the forky pin) — both modes
+share one image, so run it with
 `--skip-build` right after the default run. `--series 5|6|7` swaps the
 Containerfile, base image and image tag together; because each series has its
 own image tag, `--skip-build` only reuses an image of that same series. It only

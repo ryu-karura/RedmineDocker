@@ -64,7 +64,9 @@ RedmineDocker は 2 つのコンテナが連携して Redmine 6.1.3 を動作さ
 
 #### アプリサーバーの切り替え（`REDMINE_WEB_SERVER`）
 
-イメージには Puma（公式イメージ同梱）と `mod_passenger`（Debian trixie の `libapache2-mod-passenger` = Passenger 6.0.26）の **両方** が入っています。切り替えは環境変数の変更とコンテナ再起動のみで、イメージの再ビルドは不要です。
+イメージには Puma（公式イメージ同梱）と `mod_passenger` の **両方** が入っています。切り替えは環境変数の変更とコンテナ再起動のみで、イメージの再ビルドは不要です。
+
+`mod_passenger` の入手元は系列で異なります。5 系 / 6 系（Ruby 3.x）は Debian trixie の `libapache2-mod-passenger`（Passenger 6.0.26）を使い、7 系（Ruby 4.0）だけは Passenger の Ruby 4 対応が 6.1.1 以降であるため forky (Debian 14 / testing) の 6.1.x を APT pin で導入します（下記「9. Redmine シリーズの切り替え」参照）。
 
 | | `puma`（既定） | `passenger` |
 |---|---|---|
@@ -274,11 +276,25 @@ systemctl --user daemon-reload
   commit `ac72cc3` "Remove 5.1 (Ruby 3.2 EOL)" で 5.1 を削除しました。Docker Hub に残る
   `redmine:5.1.12`（2026-04-14 push）が最後で、Redmine 本体のソースにある 5.1.13 に対応する
   公式イメージはありません。ベース OS と Ruby 3.2 の更新は止まっています。
-- **7 系の `passenger` モードは未検証です。** Debian trixie の `libapache2-mod-passenger` は
-  6.0.26 で、Passenger が Ruby 4 対応に言及したのは 6.1.1（CHANGELOG: "[Ruby] Improve support
-  for Ruby 4 and Frozen String Literals"）以降です。7 系のベースは Ruby 4.0 のため、まずは
-  Debian パッケージのまま入れて `bash scripts/test-stack.sh --series 7 --web-server passenger`
-  で実測する方針にしています。動かない場合の選択肢は次の 2 つです。
+- **7 系の `mod_passenger` だけ forky (Debian 14 / testing) から導入します。** Debian trixie の
+  `libapache2-mod-passenger` は 6.0.26 で、Passenger が Ruby 4 に対応したのは 6.1.1（CHANGELOG:
+  "[Ruby] Improve support for Ruby 4 and Frozen String Literals"）以降です。7 系のベースは
+  Ruby 4.0 なので、trixie のパッケージでは Ruby 4 対応が入りません。forky には 6.1.x があり、
+  依存ライブラリは trixie と同一バージョンで満たせるため、`Containerfile.v7` は forky を
+  APT pin して `libapache2-mod-passenger` だけを取得します。実装は次のとおりです
+  （`ARG PASSENGER_APT_SUITE` / `ARG PASSENGER_MIN_VERSION` で変更可）。
+  - `/etc/apt/sources.list.d/passenger-suite.list` に forky を一時的に追加する。
+  - `/etc/apt/preferences.d/passenger-suite.pref` で、forky 由来を既定 `Pin-Priority: -10`
+    （= 導入禁止）、`passenger` 関連パッケージのみ `990`（trixie の 500 より優先）にする。
+    こうすると forky から来るのは passenger 関連だけで、`libc6` 等が引きずられる部分
+    アップグレードは起こりません。依存が trixie 側で満たせない場合は、黙って混ざる代わりに
+    ビルドがその場で失敗します。
+  - `dpkg --compare-versions ... ge 6.1` で導入結果を検証し、6.1 未満ならビルドを失敗させる。
+  - 追加した sources.list / preferences は同じ `RUN` 内で削除し、実行時の apt に forky を
+    残さない。
+  検証は `bash scripts/test-stack.sh --series 7 --web-server passenger` で、稼働中コンテナの
+  `libapache2-mod-passenger` が 6.1 以上であることも含めて確認できます。
+  forky 側の版が 6.1 未満に戻る、あるいは依存が trixie で満たせなくなった場合の代替案:
   1. Phusion の APT リポジトリ（Passenger 6.1.0 で Debian 13 trixie パッケージが追加済み）から
      6.1.x を導入する。外部 APT リポジトリ依存が増えます。
   2. 7 系は `puma` 専用と割り切り、`Containerfile.v7` から `libapache2-mod-passenger` を外す。

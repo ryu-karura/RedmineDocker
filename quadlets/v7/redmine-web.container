@@ -12,9 +12,10 @@
 #
 # 起動できるシリーズは一度に 1 つだけです（コンテナ名・ポート・データが共通）。
 #
-# ★ passenger モードは未検証です
-#   7 系のベースは Ruby 4.0 ですが、Debian trixie の mod_passenger は 6.0.26
-#   で、Passenger が Ruby 4 対応に言及したのは 6.1.1 以降です。下の
+# ★ mod_passenger は forky (Debian 14) の 6.1.x です
+#   7 系のベースは Ruby 4.0 で、Passenger の Ruby 4 対応は 6.1.1 以降のため、
+#   Debian trixie の 6.0.26 では足りません。Containerfile.v7 が APT pin で
+#   passenger 関連パッケージだけを forky から取得しています。下の
 #   Environment=REDMINE_WEB_SERVER= を passenger にする前に、開発環境で
 #   `bash scripts/test-stack.sh --series 7 --web-server passenger` を
 #   実行して動作を確認してください。
@@ -42,7 +43,7 @@ PublishPort=127.0.0.1:80:80
 Environment=RAILS_ENV=production
 Environment=RAILS_RELATIVE_URL_ROOT=/redmine
 Environment=RUBY_YJIT_ENABLE=1
-# アプリサーバー: puma（既定）。passenger は上記★の理由で未検証です。
+# アプリサーバー: puma（既定）。passenger は上記★の forky 版 6.1.x が動きます。
 Environment=REDMINE_WEB_SERVER=puma
 Environment=REDMINE_PUMA_PORT=3000
 Environment=REDMINE_DB_HOST=redmine-db
