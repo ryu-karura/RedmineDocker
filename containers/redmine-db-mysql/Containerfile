@@ -1,0 +1,48 @@
+# redmine-db-mysql: MySQL 8.0 CE（移行元スタック専用）
+#
+# ベースイメージ: docker.io/library/mysql:8.0
+#   Oracle 公式の MySQL Community Edition イメージ（Oracle Linux ベース）
+#
+# ★ このイメージは「移行元 (as-is) の再現」専用です。
+#   RedmineDocker の通常構成（開発・本番）の DB は PostgreSQL 18 + PostGIS 3.6
+#   （containers/redmine-db/）で、redmine_gtt が PostGIS を必須とするため
+#   MySQL では動きません。ここは Redmine 5.1.6 + MySQL 8.0 という既存環境を
+#   手元で再現し、PostgreSQL 18 へのコンバートと Redmine 7 へのアップグレードを
+#   リハーサルするためだけに存在します（docs/Upgrade.md 参照）。
+#   compose.legacy.yaml からのみ参照され、quadlets（本番）にはありません。
+#
+# ★ なぜ 8.4 LTS ではなく 8.0 なのか
+#   1. 移行元として一般的なのが 8.0 であること。
+#   2. mysql_native_password が使えること。MySQL 8.0 では組み込みで有効ですが、
+#      8.4 では既定で無効なプラガブル認証になりました。pgloader (v3.6.7) の
+#      MySQL ドライバは caching_sha2_password に対応しておらず、コンバート時に
+#      native password のユーザーが必要になります（docs/Upgrade.md「既知の落とし穴」）。
+#   なお 8.0 は 2026-04 に EOL 済みです。移行元の再現用途なので許容していますが、
+#   これを常用の DB として本番運用しないでください。
+#
+# Redmine 用 DB/ユーザーは upstream イメージの
+# MYSQL_DATABASE / MYSQL_USER / MYSQL_PASSWORD_FILE / MYSQL_ROOT_PASSWORD_FILE
+# から作成されます。パスワードは Docker/Podman シークレット（*_FILE）で渡し、
+# 平文の環境変数では扱いません。
+
+ARG DB_BASE_IMAGE=docker.io/library/mysql:8.0
+FROM ${DB_BASE_IMAGE}
+
+ENV MYSQL_DATABASE=redmine
+ENV MYSQL_USER=redmine
+
+# サーバー設定（文字コード / 認証プラグイン / sql_mode など）。
+# 公式イメージは /etc/mysql/conf.d/*.cnf を読み込みます。
+COPY redmine.cnf /etc/mysql/conf.d/redmine.cnf
+
+# 初期化フック（空データディレクトリのときだけ 1 回実行されます）。
+# DB の文字コードを utf8mb4 に揃えます（冪等）。
+COPY init-redmine.sh /docker-entrypoint-initdb.d/30-init-redmine.sh
+
+# ★ 0644（実行ビットなし）にすること。
+#   mysql の docker-entrypoint.sh は実行ビットのない .sh を source するため、
+#   スクリプト側から docker_process_sql / mysql_note を使えます
+#   （= パスワードを argv に出さずに済む）。詳細は init-redmine.sh のヘッダ参照。
+RUN chmod 0644 /etc/mysql/conf.d/redmine.cnf /docker-entrypoint-initdb.d/30-init-redmine.sh
+
+EXPOSE 3306

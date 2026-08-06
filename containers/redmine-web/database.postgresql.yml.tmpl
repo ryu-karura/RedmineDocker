@@ -1,0 +1,50 @@
+# containers/redmine-web/database.postgresql.yml.tmpl
+#
+# PostgreSQL (素の postgresql アダプタ) 用の Redmine DB 設定テンプレートです。
+# entrypoint.sh が REDMINE_DB_ADAPTER=postgresql のときに envsubst で描画します。
+#
+# 使うのは移行検証用の Containerfile.v5-mysql（Redmine 5.1.6）だけで、用途は
+# MySQL → PostgreSQL コンバート手順の 1 ステップ目です。空の PostgreSQL 18 DB に
+# 対して 5.1.6 のまま rake db:migrate を流し、「MySQL 側とまったく同じマイグレー
+# ションで作られた Rails スキーマ」を用意します。そこへ pgloader がデータだけを
+# 流し込みます（docs/Upgrade.md「PostgreSQL 18 へのコンバート」参照）。
+#
+# ★ adapter は postgis ではなく postgresql です。
+#   postgis アダプタは activerecord-postgis-adapter + rgeo を要求しますが、
+#   これらは redmine_gtt の Gemfile が持ち込むもので、gtt を同梱しない
+#   このイメージには入っていません。移行元 (MySQL) に gtt が無い以上
+#   スキーマにも gtt のテーブルは無く、素の postgresql で十分です。
+#   コンバート完了後に起動する 6 系 / 7 系イメージが postgis で接続し直します
+#   （テーブル定義は同じで、接続アダプタが変わるだけです）。
+#
+# 置換変数:
+#   ${REDMINE_DB_HOST}     → DB コンテナホスト名（redmine-db）
+#   ${REDMINE_DB_PORT}     → 5432
+#   ${REDMINE_DB_NAME}     → DB 名（redmine）
+#   ${REDMINE_DB_USER}     → DB ユーザー名（redmine）
+#   ${REDMINE_DB_PASSWORD} → DB パスワード（Docker/Podman シークレット）
+#
+# ★ 末尾の gem_pin_mysql2 は「接続しないダミー」です。消さないでください。
+#   理由は database.mysql2.yml.tmpl のヘッダコメントと同じで、
+#   ビルド時と実行時で Gemfile が見る adapter 集合を {mysql2, postgresql} に
+#   固定するためです。
+
+production:
+  adapter: postgresql
+  host: ${REDMINE_DB_HOST}
+  port: ${REDMINE_DB_PORT}
+  database: ${REDMINE_DB_NAME}
+  username: ${REDMINE_DB_USER}
+  password: ${REDMINE_DB_PASSWORD}
+  encoding: utf8
+  pool: 10
+  # 接続関連パラメータ
+  checkout_timeout: 5
+  connect_timeout: 5
+  idle_timeout: 300
+  prepared_statements: false
+
+# 接続には使いません（上記★参照）。gem 集合を固定するためだけの宣言です。
+gem_pin_mysql2:
+  adapter: mysql2
+  database: ${REDMINE_DB_NAME}

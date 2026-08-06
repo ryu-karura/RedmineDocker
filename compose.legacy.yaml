@@ -1,0 +1,131 @@
+# compose.legacy.yaml — 移行元 (as-is) 再現スタック / 開発・リハーサル専用
+#
+# 「アップグレード前の既存環境 = Redmine 5.1.6 + MySQL 8.0 CE」を手元で再現します。
+# 目的は次の 3 点の検証で、手順は docs/Upgrade.md にまとめてあります:
+#   1. 同じプラグイン構成のコンテナが MySQL でも作れるか（gtt など未対応は除外）
+#   2. DB を PostgreSQL 18 + PostGIS へコンバートできるか
+#   3. その後 Redmine 7.0.0 へマイグレーションできるか
+#
+# ★ これは本番構成ではありません。
+#   本番 (quadlets/) と通常の開発 (compose.dev.yaml) は PostgreSQL 18 + PostGIS
+#   3.6 のみで、MySQL 版の Quadlet ユニットは用意していません。
+#
+# ★ コンテナ名・ネットワーク・ボリューム・ホストポートはすべて compose.dev.yaml と
+#   別名です。コンバート作業では移行元 (MySQL) と移行先 (PostgreSQL) を同時に
+#   起動する必要があるため、両スタックが共存できるようにしてあります。
+#     移行元: redmine-legacy-db / redmine-legacy-web / redmine-legacy-net / :8081
+#     移行先: redmine-db        / redmine-web        / redmine-net        / :8080
+#
+# 使い方:
+#   bash scripts/generate-secrets.sh                       # ./secrets/*.txt を生成
+#   docker compose -f compose.legacy.yaml up --build -d
+#   docker compose -f compose.legacy.yaml logs -f redmine-web
+#   http://localhost:8081/redmine/ を開く（初期ログイン: admin / admin）
+
+name: redmine-legacy
+
+networks:
+  redmine-legacy-net:
+    name: ${REDMINE_LEGACY_NETWORK:-redmine-legacy-net}
+    driver: bridge
+
+volumes:
+  mysqldata:
+    name: ${REDMINE_LEGACY_DB_VOLUME:-redmine_legacy_mysqldata}
+  redmine_files:
+    name: ${REDMINE_LEGACY_FILES_VOLUME:-redmine_legacy_web_files}
+
+secrets:
+  db_password:
+    file: ./secrets/db_password.txt
+  db_root_password:
+    file: ./secrets/db_root_password.txt
+  secret_key_base:
+    file: ./secrets/secret_key_base.txt
+
+services:
+  # ── MySQL 8.0 CE（移行元 DB） ────────────────────────────────────────────────
+  redmine-legacy-db:
+    build:
+      context: containers/redmine-db-mysql
+      dockerfile: Containerfile
+      args:
+        DB_BASE_IMAGE: ${REDMINE_LEGACY_DB_BASE_IMAGE:-docker.io/library/mysql:8.0}
+    image: ${REDMINE_LEGACY_DB_IMAGE:-localhost/redmine-db-mysql:8.0}
+    container_name: ${REDMINE_LEGACY_DB_CONTAINER:-redmine-legacy-db}
+    restart: always
+    networks:
+      - redmine-legacy-net
+    # ポート 3306 は意図的にホストへ公開しません（pgloader も
+    # redmine-legacy-net に参加して名前解決で接続します）。
+    environment:
+      MYSQL_DATABASE: ${REDMINE_DB_NAME:-redmine}
+      MYSQL_USER: ${REDMINE_DB_USER:-redmine}
+      MYSQL_PASSWORD_FILE: /run/secrets/db_password
+      MYSQL_ROOT_PASSWORD_FILE: /run/secrets/db_root_password
+      TZ: ${TZ:-Asia/Tokyo}
+    secrets:
+      - db_password
+      - db_root_password
+    volumes:
+      - mysqldata:/var/lib/mysql
+    healthcheck:
+      # mysqladmin ping はサーバーが生きていれば認証に失敗しても成功扱いに
+      # なることがあるため、対象 DB へ実際に SELECT できるところまで見ます。
+      # $$ は Compose の変数展開を避けるためのエスケープ（コンテナ内で $ になる）。
+      test: ["CMD-SHELL", "MYSQL_PWD=\"$$(cat /run/secrets/db_password)\" mysql --protocol=TCP -h 127.0.0.1 -P 3306 -u ${REDMINE_DB_USER:-redmine} -D ${REDMINE_DB_NAME:-redmine} -e 'SELECT 1' >/dev/null 2>&1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
+
+  # ── Redmine 5.1.6 + Apache 2.4 frontend（移行元 Web） ───────────────────────
+  redmine-legacy-web:
+    build:
+      context: containers/redmine-web
+      dockerfile: ${REDMINE_LEGACY_WEB_CONTAINERFILE:-Containerfile.v5-mysql}
+      args:
+        WEB_BASE_IMAGE: ${REDMINE_LEGACY_WEB_BASE_IMAGE:-docker.io/library/redmine:5.1.6}
+    image: ${REDMINE_LEGACY_WEB_IMAGE:-localhost/redmine-web:5.1.6-mysql}
+    container_name: ${REDMINE_LEGACY_WEB_CONTAINER:-redmine-legacy-web}
+    restart: always
+    networks:
+      - redmine-legacy-net
+    ports:
+      # compose.dev.yaml (8080) と同時に起動できるよう 8081 を使います。
+      - "${REDMINE_WEB_BIND_HOST:-127.0.0.1}:${REDMINE_LEGACY_WEB_HOST_PORT:-8081}:${REDMINE_WEB_CONTAINER_PORT:-80}"
+    depends_on:
+      redmine-legacy-db:
+        condition: service_healthy
+    environment:
+      RAILS_ENV: production
+      RAILS_RELATIVE_URL_ROOT: ${REDMINE_SUBURI:-/redmine}
+      TZ: ${TZ:-Asia/Tokyo}
+      RUBY_YJIT_ENABLE: ${RUBY_YJIT_ENABLE:-0}
+      # このイメージは puma 専用です（mod_passenger 非同梱、
+      # containers/redmine-web/Containerfile.v5-mysql のコメント参照）。
+      REDMINE_WEB_SERVER: puma
+      REDMINE_PUMA_PORT: ${REDMINE_PUMA_PORT:-3000}
+      # 移行元は MySQL。コンバート時だけ scripts/migrate-mysql-to-postgres.sh が
+      # 同じイメージを REDMINE_DB_ADAPTER=postgresql で単発起動します。
+      REDMINE_DB_ADAPTER: mysql2
+      REDMINE_DB_HOST: ${REDMINE_LEGACY_DB_CONTAINER:-redmine-legacy-db}
+      REDMINE_DB_PORT: "3306"
+      REDMINE_DB_NAME: ${REDMINE_DB_NAME:-redmine}
+      REDMINE_DB_USER: ${REDMINE_DB_USER:-redmine}
+      REDMINE_DB_PASSWORD_FILE: /run/secrets/db_password
+      REDMINE_SECRET_KEY_BASE_FILE: /run/secrets/secret_key_base
+      REDMINE_PLUGINS_MIGRATE: "1"
+      REDMINE_LOAD_DEFAULT_DATA: "1"
+      REDMINE_DEFAULT_DATA_LANG: ja
+    secrets:
+      - db_password
+      - secret_key_base
+    volumes:
+      - redmine_files:/usr/src/redmine/files
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/redmine-healthcheck.sh"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 180s

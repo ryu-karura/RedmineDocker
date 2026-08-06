@@ -1,0 +1,250 @@
+# redmine-web (移行元再現): Redmine 5.1.6（公式イメージ）+ プラグイン一式 / MySQL 8.0 CE
+#
+# ★ このイメージの位置づけ
+#   通常構成（開発・本番）の Containerfile ではありません。「アップグレード前の
+#   既存環境 = Redmine 5.1.6 + MySQL 8」を手元で再現し、
+#     (1) 同じプラグイン構成のコンテナが作れるか
+#     (2) DB を PostgreSQL 18 へコンバートできるか
+#     (3) その後 Redmine 7 へマイグレーションできるか
+#   を検証するためのものです。手順は docs/Upgrade.md にまとめてあります。
+#   参照するのは compose.legacy.yaml のみで、quadlets（本番）にはありません。
+#
+#   通常構成は Containerfile.v5 (5.1.12) / .v6 (6.1.3、既定) / .v7 (7.0.0) で、
+#   いずれも PostgreSQL 18 + PostGIS 3.6 接続（postgis アダプタ）です。
+#
+# ベースイメージ: docker.io/library/redmine:5.1.6
+#   ruby:3.2-slim-bookworm ベース / Rails 6.1.7.10
+#   （Redmine 5.1.6 の Gemfile は ruby '>= 2.7.0', '< 3.3.0'）
+#
+# ★ 接続先データベースは 2 通りあります（REDMINE_DB_ADAPTER で切り替え）
+#   mysql2      移行元の再現。compose.legacy.yaml の redmine-legacy-db (MySQL 8.0)
+#   postgresql  コンバート手順の 1 ステップ目。空の PostgreSQL 18 に対して
+#               5.1.6 のまま rake db:migrate を流し、MySQL 側とまったく同じ
+#               マイグレーション列で作られた Rails スキーマを用意します
+#               （そこへ pgloader がデータだけを流し込みます）。
+#   このため mysql / postgresql 双方のクライアントと gem を同梱しています。
+#
+# ★ ビルド時にダミーの config/database.yml を置いてから bundle install します
+#   Redmine の Gemfile は config/database.yml に現れる adapter 行を集め、その
+#   集合に応じて DB gem を宣言します（mysql2 → mysql2 + with_advisory_lock、
+#   postgresql → pg）。ビルド時にこのファイルが無いと DB gem が
+#   Gemfile.lock から外れ、実行時に bundler が解決をやり直す（= ネットワークが
+#   必要になり失敗しうる）ことになります。そこでビルド時は両アダプタを書いた
+#   ダミーを置き、実行時に描画される database.*.yml.tmpl 側も常に両アダプタを
+#   含める構成にして、ビルド時と実行時で gem 集合が一致するようにしています。
+#   （公式 redmine イメージも同じ手法で全アダプタを事前インストールしています）
+#
+# アプリ配置は /usr/src/redmine（公式イメージ標準）です。
+# Apache が :80 で受け、REDMINE_WEB_SERVER に応じて次のどちらかで処理します:
+#   puma      (既定) 内部の Puma（:3000）へ ProxyPass
+#   passenger mod_passenger が Redmine を直接起動（:3000 は使わない）
+#
+# サブ URI: /redmine（RAILS_RELATIVE_URL_ROOT）
+#
+# 導入プラグイン（10）— Containerfile.v5 の 11 個から redmine_gtt を除いたもの:
+#   1.  redmine_wiki_lists        (tkusukawa, 0.0.11)
+#   2.  redmine_banner            (agileware-jp, 0.3.5)
+#   3.  redmine_issues_panel      (redmica, v1.0.4)
+#   4.  redmica_ui_extension      (redmica, v0.3.10)
+#   5.  redmine_ip_filter         (redmica, v1.1.0)
+#   6.  redmine_message_customize (redmica/farend, v1.0.1)
+#   7.  redmine_issue_templates   (redmica, master = 1.2.2)
+#   8.  view_customize            (onozaty, v3.6.0、ディレクトリ名は必ず 'view_customize')
+#   9.  redmine_logs              (haru, 0.3.0)
+#  10.  redmine_wiki_extensions   (haru, 0.9.5)
+#
+# 未対応のため除外したプラグイン:
+#   - redmine_gtt          … PostGIS 必須（geometry 型・PostGIS 関数を使う）。
+#                            MySQL では動作しないため、DB を PostgreSQL へ
+#                            コンバートしたあと 6 系 / 7 系イメージで導入します。
+#                            gem 側も同様で、activerecord-postgis-adapter /
+#                            rgeo を入れる必要が無くなるため、このイメージには
+#                            libgeos-dev / libproj-dev / yarn / webpack も
+#                            入れていません（Containerfile.v5 との差分）。
+#   - redmine_login_audit2 … 全リリースが requires_redmine 6.0.0 を宣言（5.1 不可）。
+#   - redmine_solid_queue  … solid_queue gem が activerecord >= 7.1 を要求
+#                            （Redmine 5.1 は Rails 6.1）。
+#   バージョン選定の根拠は Containerfile.v5 のコメントと同じです
+#   （5.1 を対象に CI が通っている最新タグ）。5.1.6 と 5.1.12 は同じ 5.1 系の
+#   パッチ差分で、プラグインの対応バージョンは変わりません。
+#
+# テーマ: farend_fancy（farend、5.1 以前向けの tag redmine5.1）
+#   Redmine 6.0 でテーマの置き場が public/themes/ から themes/ へ移動したため、
+#   5 系では public/themes/ 配下に置きます（Containerfile.v5 と同じ）。
+
+ARG WEB_BASE_IMAGE=docker.io/library/redmine:5.1.6
+FROM ${WEB_BASE_IMAGE}
+
+ARG REDMINE_HOME=/usr/src/redmine
+ENV REDMINE_HOME=${REDMINE_HOME}
+ENV RAILS_ENV=production
+ENV RAILS_RELATIVE_URL_ROOT=/redmine
+# Redmine はアプリポートで静的資産も配信します。
+# このコンテナ内の Apache フロントはそこへ転送します。
+ENV RAILS_SERVE_STATIC_FILES=1
+# アプリサーバーの既定は puma（Apache -> ProxyPass -> Puma :3000）。
+ENV REDMINE_WEB_SERVER=puma
+# 既定の接続先は移行元 (MySQL)。コンバート時のみ postgresql を渡します。
+ENV REDMINE_DB_ADAPTER=mysql2
+
+# ── システムパッケージ（root） ────────────────────────────────────────────────
+USER root
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+                # PDF/Gantt 出力向け日本語フォント
+        fonts-noto-cjk fontconfig \
+                # プラグインのビルド/実行ツール
+        git \
+                # プラグインが native extension を含む gem を要求した場合の
+                # ビルド依存。mysql2 / pg 本体は公式イメージがビルド済みですが、
+                # プラグイン側の gem までは保証されないため入れておきます。
+                # （PostGIS 系 = libgeos-dev / libproj-dev は redmine_gtt を
+                #   同梱しないため不要です — Containerfile.v5 との差分）
+        build-essential pkg-config libmariadb-dev libpq-dev \
+                # entrypoint の DB 待機・初期データ判定に使うクライアント。
+                #   mysql : 移行元 (mysql2) 用
+                #   psql / pg_isready : コンバート時 (postgresql) 用
+        default-mysql-client postgresql-client \
+                # entrypoint 補助: envsubst（テンプレート描画）
+        gettext-base \
+                # コンテナヘルスチェック + Apache フロント
+        curl apache2 \
+    && rm -rf /var/lib/apt/lists/* \
+    && fc-cache -fv
+
+# ★ このイメージは REDMINE_WEB_SERVER=puma 専用です（mod_passenger 非同梱）。
+#   redmine:5.1.6 のベースは Debian 12 (bookworm) で、bookworm の
+#   libapache2-mod-passenger は Passenger の Ruby 3.2 対応が入る直前の版です
+#   （Ruby 3.2 対応は upstream 6.0.16 以降）。移行元の再現に Passenger は
+#   不要なので、動くか怪しいものを同梱するより外してあります。
+#   Passenger モードの検証は通常構成のイメージ（Containerfile.v5/.v6/.v7、
+#   ベースは trixie 以降）で行ってください。
+#   entrypoint.sh は puma モードで mod_passenger が無くても動きます
+#   （a2dismod は失敗を無視、passenger 指定時は明示エラー）。
+
+# ── プラグインとテーマ ─────────────────────────────────────────────────────────
+# 全プラグインはビルド時に clone してイメージへ焼き込みます（再現性確保）。
+# 更新時はイメージを再ビルドしてください。
+
+# テーマ farend_fancy: 5.1 以前向けの tag redmine5.1 から clone し、
+# public/themes/ 配下へ配置します。
+RUN git clone --depth 1 --branch redmine5.1 \
+        https://github.com/farend/redmine_theme_farend_fancy.git \
+        ${REDMINE_HOME}/public/themes/farend_fancy
+
+WORKDIR ${REDMINE_HOME}/plugins
+
+# 1. redmine_wiki_lists (0.0.11) — Wiki マクロプラグイン
+RUN git clone --depth 1 --branch 0.0.11 \
+        https://github.com/tkusukawa/redmine_wiki_lists.git redmine_wiki_lists \
+    || git clone --depth 1 \
+        https://github.com/tkusukawa/redmine_wiki_lists.git redmine_wiki_lists
+
+# 2. redmine_banner (0.3.5) — サイト全体バナー
+#    ★ Redmine 7 系には同梱できません（master が 7.0 未対応）。7 へ上げる前に
+#      `rake redmine:plugins:migrate NAME=redmine_banner VERSION=0` で
+#      アンインストールしてください（docs/Upgrade.md 参照）。
+RUN git clone --depth 1 --branch 0.3.5 \
+        https://github.com/agileware-jp/redmine_banner.git redmine_banner \
+    || git clone --depth 1 \
+        https://github.com/agileware-jp/redmine_banner.git redmine_banner
+
+# 3. redmine_issues_panel (1.0.4) — かんばん風課題パネル
+RUN git clone --depth 1 --branch v1.0.4 \
+        https://github.com/redmica/redmine_issues_panel.git redmine_issues_panel
+
+# 4. redmica_ui_extension (0.3.10) — UI 拡張（Select2, mermaid, burndown）
+RUN git clone --depth 1 --branch v0.3.10 \
+        https://github.com/redmica/redmica_ui_extension.git redmica_ui_extension
+
+# 5. redmine_ip_filter (1.1.0) — IP ベースアクセス制御
+RUN git clone --depth 1 --branch v1.1.0 \
+        https://github.com/redmica/redmine_ip_filter.git redmine_ip_filter
+
+# 6. redmine_message_customize (1.0.1) — UI 文字列カスタマイズ
+RUN git clone --depth 1 --branch v1.0.1 \
+        https://github.com/redmica/redmine_message_customize.git redmine_message_customize
+
+# 7. redmine_issue_templates (master = 1.2.2) — 課題テンプレート
+RUN git clone --depth 1  \
+        https://github.com/redmica/redmine_issue_templates.git redmine_issue_templates
+
+# 8. view_customize (3.6.0) — ディレクトリ名は必ず 'view_customize'（init.rb の要件）
+RUN git clone --depth 1 --branch v3.6.0 \
+        https://github.com/onozaty/redmine-view-customize.git view_customize \
+    || git clone --depth 1 \
+        https://github.com/onozaty/redmine-view-customize.git view_customize
+
+# 9. redmine_logs (0.3.0) — 管理画面ログビューア
+RUN git clone --depth 1 --branch 0.3.0 \
+        https://github.com/haru/redmine_logs.git redmine_logs
+
+# 10. redmine_wiki_extensions (0.9.5) — Wiki 拡張（マクロ、コメント、タグ、投票）
+RUN git clone --depth 1 --branch 0.9.5 \
+        https://github.com/haru/redmine_wiki_extensions.git redmine_wiki_extensions
+
+# ── プラグイン gem のインストール ─────────────────────────────────────────────
+# プラグイン依存 gem をイメージ内 bundle（/usr/local/bundle）へ焼き込みます。
+# ここで置くダミー database.yml の意味は冒頭★参照（mysql2 + postgresql の
+# 両方を書いて、mysql2 / with_advisory_lock / pg を Gemfile.lock に載せます）。
+WORKDIR ${REDMINE_HOME}
+RUN printf '%s\n' \
+        '# build-time only: forces `bundle install` to resolve the database gems' \
+        '# for both adapters this image can run with (mysql2 / postgresql).' \
+        '# Removed right after bundle install — the real file is rendered by' \
+        '# entrypoint.sh from config/database.<adapter>.yml.tmpl at container start.' \
+        'gem_pin_mysql2:' \
+        '  adapter: mysql2' \
+        '  database: redmine' \
+        'gem_pin_postgresql:' \
+        '  adapter: postgresql' \
+        '  database: redmine' \
+        > config/database.yml \
+    && bundle install --jobs 4 --retry 3 \
+    # 実際に 3 つとも bundle へ入ったことを確認します（入っていないと実行時に
+    # bundler が解決をやり直し、ネットワーク不通の本番相当環境で失敗します）。
+    # ダミー database.yml を消す前に確認すること — bundle list は Gemfile を
+    # 再評価するため、消したあとでは DB gem が候補から外れてしまいます。
+    && bundle list | grep -qE '^ +\* mysql2 ' \
+    && bundle list | grep -qE '^ +\* with_advisory_lock ' \
+    && bundle list | grep -qE '^ +\* pg ' \
+    && rm -f config/database.yml \
+    && apt-get autoremove -y \
+    && rm -rf /var/lib/apt/lists/*
+
+# ── 設定テンプレートと entrypoint ──────────────────────────────────────────────
+# このイメージだけはアダプタ別テンプレートを 2 つ持ちます。entrypoint.sh は
+# config/database.${REDMINE_DB_ADAPTER}.yml.tmpl があればそれを優先して描画します
+# （postgis 用の database.yml.tmpl はこのイメージには入れません）。
+COPY database.mysql2.yml.tmpl ${REDMINE_HOME}/config/database.mysql2.yml.tmpl
+COPY database.postgresql.yml.tmpl ${REDMINE_HOME}/config/database.postgresql.yml.tmpl
+COPY configuration.yml.tmpl ${REDMINE_HOME}/config/configuration.yml.tmpl
+# stock の config.ru を置き換え、Puma 側で
+# RAILS_RELATIVE_URL_ROOT (/redmine) を正しく mount させます。
+# 理由は config.ru のコメントを参照してください。
+COPY config.ru ${REDMINE_HOME}/config.ru
+COPY httpd-redmine.conf.tmpl /etc/apache2/conf-available/redmine-proxy.conf.tmpl
+COPY entrypoint.sh /usr/local/bin/redmine-entrypoint.sh
+COPY healthcheck.sh /usr/local/bin/redmine-healthcheck.sh
+# mod_passenger は同梱していないため a2dismod passenger はありません（上記★参照）。
+RUN a2enmod headers rewrite proxy proxy_http \
+    && a2dissite 000-default || true \
+    # Build-time default render, purely so a2enconf has a file to enable;
+    # entrypoint.sh re-renders this from the .tmpl at container start.
+    && envsubst '${RAILS_RELATIVE_URL_ROOT}' \
+        < /etc/apache2/conf-available/redmine-proxy.conf.tmpl \
+        > /etc/apache2/conf-available/redmine-proxy.conf \
+    && a2enconf redmine-proxy \
+    && chmod 0755 /usr/local/bin/redmine-entrypoint.sh /usr/local/bin/redmine-healthcheck.sh \
+    # 5 系にトップレベルの themes/ はありません（テーマは public/themes/ 配下）。
+    && chown -R redmine:redmine ${REDMINE_HOME}/config ${REDMINE_HOME}/plugins \
+    && chown -R redmine:redmine ${REDMINE_HOME}/public \
+    # Passenger の user switching は config.ru の所有者でアプリを起動しようと
+    # します。root 所有のままだと PassengerDefaultUser (nobody) へフォールバック
+    # し、files/ や log/ に書けなくなります（conf 側の PassengerUser と併用）。
+    && chown redmine:redmine ${REDMINE_HOME}/config.ru
+
+EXPOSE 80
+
+ENTRYPOINT ["/usr/local/bin/redmine-entrypoint.sh"]

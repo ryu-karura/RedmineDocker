@@ -69,6 +69,23 @@ redmine_login_audit2, redmine_wiki_extensions, redmine_solid_queue, redmine_gtt�
 | Redmine 6 | `Containerfile.v6` | `redmine:6.1.3` | 13 個 | 既定 |
 | Redmine 7 | `Containerfile.v7` | `redmine:7.0.0` | 12 個 | banner は 7.0 未対応のため非同梱。Ruby 4.0 のため mod_passenger は forky の 6.1.x を APT pin して導入 |
 
+### 移行元 (MySQL) の再現とアップグレード検証
+
+既存の **Redmine 5.1.6 + MySQL 8.0 CE** から本構成へ移行するための、再現用スタックと
+コンバート手順一式を同梱しています。手順書は
+**[アップグレード手順](docs/Upgrade.md)** です。
+
+| 系列 | Containerfile | ベースイメージ | DB | プラグイン | 用途 |
+|------|---------------|----------------|----|-----------|------|
+| 移行元 | `Containerfile.v5-mysql` | `redmine:5.1.6` | MySQL 8.0 CE | 10 個 | 移行元 (as-is) の再現。PostGIS 必須の `redmine_gtt` ほか未対応プラグインは除外 |
+
+```bash
+docker compose -f compose.legacy.yaml up --build -d   # 移行元を再現 (:8081)
+docker compose -f compose.dev.yaml up -d redmine-db    # 移行先 DB を起動
+bash scripts/migrate-mysql-to-postgres.sh              # MySQL → PostgreSQL 18 へコンバート
+bash scripts/test-upgrade.sh                           # 段階 1〜3 を通しで自動検証
+```
+
 ---
 
 ## リポジトリ構成
@@ -79,10 +96,12 @@ RedmineDocker/
 ├── docs/                         # 設計 / セットアップ / 運用手順
 ├── containers/
 │   ├── redmine-db/                 # PostgreSQL 18 + PostGIS 3.6
+│   ├── redmine-db-mysql/           # MySQL 8.0 CE（移行元の再現専用）
 │   └── redmine-web/            # Redmine + plugin/theme スタック + Apache フロントエンド
 │       ├── Containerfile.v5        #   Redmine 5.1.12 用
 │       ├── Containerfile.v6        #   Redmine 6.1.3 用（既定）
-│       └── Containerfile.v7        #   Redmine 7.0.0 用
+│       ├── Containerfile.v7        #   Redmine 7.0.0 用
+│       └── Containerfile.v5-mysql  #   Redmine 5.1.6 + MySQL（移行元の再現専用）
 ├── quadlets/                     # 本番用 Podman Quadlet ユニット
 │   ├── redmine.network
 │   ├── redmine-db.container
@@ -91,8 +110,12 @@ RedmineDocker/
 │   └── v7/redmine-web.container    #   Redmine 7 系の差し替え用
 ├── host-apache/                  # ホスト Apache のリバースプロキシ (TLS)
 ├── scripts/                      # generate-secrets, backup, restore
+│   ├── migrate-mysql-to-postgres.sh  # MySQL → PostgreSQL 18 コンバート
+│   ├── test-upgrade.sh               # 5.1.6+MySQL → PG18 → 7.0.0 の通し検証
+│   └── pgloader/                     # pgloader コマンドファイル + シーケンス再設定 SQL
 ├── logrotate/                    # ログローテーション
 ├── compose.dev.yaml              # 開発用 Docker Compose
+├── compose.legacy.yaml           # 移行元 (Redmine 5.1.6 + MySQL 8.0) 再現用
 ├── .devcontainer/                # GitHub Codespaces / VS Code dev container
 ├── .env.example                  # SMTP / TZ などのオプション設定テンプレート
 └── .gitignore
@@ -150,6 +173,7 @@ podman secret create secret_key_base secrets/secret_key_base.txt
 - **[設計書](docs/Design.md)** — アーキテクチャ、ネットワーク、データ配置、シークレット。
 - **[セットアップ手順](docs/Setup.md)** — 本番 / 開発環境の導入手順。
 - **[運用手順](docs/Manual.md)** — バックアップ、復旧、ログ管理。
+- **[アップグレード手順](docs/Upgrade.md)** — Redmine 5.1.6 + MySQL 8.0 からの移行（DB コンバートと Redmine 7 へのアップグレード）。
 
 ## ライセンス
 

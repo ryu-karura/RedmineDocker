@@ -63,16 +63,18 @@ each other by name on the `redmine-net` bridge network. Public URL:
 ```
 RedmineDocker/
 ├── README.md                    # overview (Japanese)
-├── docs/                        # Design.md / Setup.md / Manual.md (Japanese)
+├── docs/                        # Design.md / Setup.md / Manual.md / Upgrade.md (Japanese)
 ├── .github/copilot-instructions.md # pointer to this file, no duplicated content
 ├── containers/
 │   ├── redmine-db/                # Containerfile + init-redmine.sh (PostGIS ext)
-│   └── redmine-web/           # Containerfile.v5/.v6/.v7, entrypoint.sh, healthcheck.sh, *.tmpl (db/config/httpd)
+│   ├── redmine-db-mysql/          # MySQL 8.0 CE — migration-source rehearsal only
+│   └── redmine-web/           # Containerfile.v5/.v6/.v7/.v5-mysql, entrypoint.sh, healthcheck.sh, *.tmpl (db/config/httpd)
 ├── quadlets/                    # production Podman Quadlet units (*.container, *.network; v5/ and v7/ hold series-specific web units)
 ├── host-apache/                 # host-side TLS reverse proxy vhost
-├── scripts/                     # generate-secrets, backup, restore
+├── scripts/                     # generate-secrets, backup, restore, migrate-mysql-to-postgres, test-*, pgloader/
 ├── logrotate/                   # /etc/logrotate.d config
 ├── compose.dev.yaml             # development orchestration
+├── compose.legacy.yaml          # migration-source stack (Redmine 5.1.6 + MySQL 8.0)
 ├── .devcontainer/               # Codespaces / VS Code dev container
 ├── .env.example                 # non-secret config reference (see docs/Design.md)
 └── .gitignore
@@ -106,6 +108,11 @@ plugin/theme versions that actually work differ per series:
 | 5 | `Containerfile.v5` | `redmine:5.1.12` | 3.2 / 6.1.7.10 | 11 |
 | 6 (default) | `Containerfile.v6` | `redmine:6.1.3` | 3.4 / 7.2.3.1 | 13 |
 | 7 | `Containerfile.v7` | `redmine:7.0.0` | 4.0 / 8.1.3 | 12 |
+
+A fourth Containerfile, `Containerfile.v5-mysql` (Redmine 5.1.6 + MySQL 8.0 CE,
+10 plugins), exists **only to rehearse the upgrade** from a legacy MySQL install
+— see "Upgrade rehearsal path" below and `docs/Upgrade.md`. It is not part of
+the normal dev/prod stack and has no Quadlet unit.
 
 `entrypoint.sh`, `healthcheck.sh`, `config.ru`, the `*.tmpl` files and
 `redmine-db` are shared by all three — keep it that way; series differences
@@ -277,6 +284,26 @@ Start/stop order is enforced by `Requires=`/`After=` in the units:
   now just invoke the script; it curls Apache always, and Puma directly only in
   `puma` mode (that direct curl is the regression test for the `config.ru`
   sub-URI mount, so keep it).
+- **`REDMINE_DB_ADAPTER` picks the DB template at runtime; the default (`postgis`)
+  is the only one the normal stack ever uses.** `entrypoint.sh` renders
+  `config/database.${REDMINE_DB_ADAPTER}.yml.tmpl` when that file exists in the
+  image and falls back to `config/database.yml.tmpl` (postgis) otherwise — so
+  which adapters an image supports is decided by *which templates its
+  Containerfile COPYs*, and the entrypoint keeps no per-series branching. Only
+  `Containerfile.v5-mysql` ships the `mysql2`/`postgresql` templates.
+  `REDMINE_MIGRATE_ONLY` (non-empty, `!= 0`) makes the entrypoint stop right
+  after migrations instead of starting a web server — used by the conversion's
+  schema step, and useful for migrating before exposing the app on an upgrade.
+- **Redmine's `Gemfile` derives the DB gem set from `config/database.yml`.** It
+  scans every `adapter:` line and declares `mysql2` + `with_advisory_lock` /
+  `pg` accordingly (`postgis` matches no branch — that's why the normal stack
+  gets `pg` from `redmine_gtt`'s Gemfile instead). Consequence: **the adapter
+  set visible at build time must equal the set visible at runtime**, or bundler
+  re-resolves `Gemfile.lock` at boot and fails without network access.
+  `Containerfile.v5-mysql` therefore writes a dummy two-adapter `database.yml`
+  before `bundle install` (and asserts the three gems landed), and both of its
+  runtime templates carry a `gem_pin_*` stanza for the other adapter. Don't
+  delete those stanzas.
 - **The database adapter is `postgis`, not `postgresql`.** Required by the
   `redmine_gtt` plugin; using `postgresql` breaks startup. This is why
   `entrypoint.sh` renders `config/database.yml` from
@@ -399,6 +426,39 @@ Start/stop order is enforced by `Requires=`/`After=` in the units:
   idempotently — that is the intended upgrade path; set `REDMINE_NO_DB_MIGRATE=1`
   to boot without migrating (e.g. to inspect a DB before an upgrade).
 
+## Upgrade rehearsal path (legacy MySQL → PostgreSQL → Redmine 7)
+
+Full procedure: `docs/Upgrade.md`; rationale: `docs/Design.md` §10. In short, the
+repo can reproduce a **Redmine 5.1.6 + MySQL 8.0 CE** source system
+(`compose.legacy.yaml`, its own containers/network/volumes/port 8081 so it can run
+*alongside* `compose.dev.yaml`), convert its database to PostgreSQL 18 + PostGIS,
+and then upgrade straight to Redmine 7.0.0. Things worth not re-deriving:
+
+- **"Schema by Rails, data by pgloader."** The target schema is created by running
+  `rake db:migrate` with the *same* 5.1.6 image and plugin set
+  (`REDMINE_DB_ADAPTER=postgresql` + `REDMINE_MIGRATE_ONLY=1`); pgloader then runs
+  `WITH data only, truncate`. Letting pgloader build the schema yields non-serial
+  `id` columns and `smallint` booleans, which breaks the later 5.1→7.0 migrations.
+  `schema_migrations`/`ar_internal_metadata` are excluded from the copy.
+- **The legacy image excludes plugins that can't work there**: `redmine_gtt`
+  (PostGIS-only), `redmine_login_audit2` and `redmine_solid_queue` (both need
+  Redmine ≥ 6.0 / Rails ≥ 7.1). Anything the *source* database has beyond the
+  image's 10 plugins makes the load fail — the `schema` step diffs the table sets
+  and stops first.
+- **`redmine_banner` must be uninstalled before switching to the v7 image**
+  (`rake redmine:plugins:migrate NAME=redmine_banner VERSION=0`), because v7 does
+  not ship it and plugin migrations can't be rolled back once the code is gone.
+- **MySQL is pinned to 8.0, not 8.4**, because pgloader 3.6.7 can't speak
+  `caching_sha2_password`; `redmine.cnf` sets `default_authentication_plugin =
+  mysql_native_password` and the migration script creates a temporary
+  native-password user for pgloader (dropped afterwards). 8.4 removed that option.
+- Sequences must be reset after a data-only load
+  (`scripts/pgloader/reset-sequences.sql`) or the first insert after migration
+  fails on a duplicate primary key.
+- The legacy image is **puma-only** (no `mod_passenger`: its Debian 12 base
+  predates Passenger's Ruby 3.2 support). `entrypoint.sh` tolerates the missing
+  module in puma mode and fails with a clear message if `passenger` is requested.
+
 ## Shell script conventions
 
 - Every script is bash with `set -euo pipefail` and a header comment block
@@ -417,7 +477,7 @@ Start/stop order is enforced by `Requires=`/`After=` in the units:
 
 - **File-header comments and this CLAUDE.md are in English.**
 - **User-facing docs are in Japanese**: `README.md`, everything in `docs/`
-  (`Design.md`, `Setup.md`, `Manual.md`), and the comment blocks inside the
+  (`Design.md`, `Setup.md`, `Manual.md`, `Upgrade.md`), and the comment blocks inside the
   `quadlets/*.container` units. When editing those, keep them in Japanese and
   consistent with the existing tone.
 - **`.github/copilot-instructions.md` is a pointer, not a second source of
@@ -426,12 +486,22 @@ Start/stop order is enforced by `Requires=`/`After=` in the units:
   guidance changes, edit this file — never fork content into that one.
 - When you change architecture, versions, ports, plugin lists, or workflows,
   update the affected docs in the same change: `docs/Design.md` (architecture),
-  `docs/Setup.md` (install), `docs/Manual.md` (operations), `README.md`
-  (overview), and this file.
+  `docs/Setup.md` (install), `docs/Manual.md` (operations), `docs/Upgrade.md`
+  (migration from Redmine 5.1.6 + MySQL), `README.md` (overview), and this file.
 
 ## Verification (no CI pipeline; one integration test script)
 
-There is no CI pipeline, but `scripts/test-stack.sh` is a self-contained
+There is no CI pipeline, but two self-contained integration tests exist:
+`scripts/test-stack.sh` for the normal dev (Compose) path, and
+`scripts/test-upgrade.sh` for the legacy-MySQL upgrade path (builds the 5.1.6 +
+MySQL stack, seeds Japanese/boolean test data, runs
+`scripts/migrate-mysql-to-postgres.sh`, boots 5.1.6 on the converted PostgreSQL,
+uninstalls `redmine_banner`, then upgrades to 7.0.0 and re-checks the data —
+run it after touching `compose.legacy.yaml`, `Containerfile.v5-mysql`, the
+`database.*.yml.tmpl` files, or the migration script). It uses its own project,
+DB name, volumes and ports (8081/8082/8083), so it never touches a real stack.
+
+`scripts/test-stack.sh` is a self-contained
 integration test for the dev (Compose) path — run it after any change to
 `compose.dev.yaml`, the Containerfiles, `entrypoint.sh`, or `config.ru`:
 
