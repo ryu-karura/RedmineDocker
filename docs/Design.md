@@ -199,7 +199,7 @@ Redmine・PostgreSQL・プラグインのバージョン変更は、`git ls-remo
 系列間の差分は「ベースイメージ」「プラグインのピン」「テーマの配置先」だけに閉じています。
 
 このほかに、移行元 (as-is) を再現するための `Containerfile.v5-mysql`（Redmine 5.1.6 +
-MySQL 8.0 CE、プラグイン 10 個）があります。通常構成では使わない検証専用のイメージで、
+MySQL 8.0 CE、プラグイン 16 個）があります。通常構成では使わない検証専用のイメージで、
 `compose.legacy.yaml` からのみ参照します（「10. 移行元 (MySQL) の再現と DB コンバート」）。
 
 ### 切り替え方法
@@ -326,7 +326,7 @@ systemctl --user daemon-reload
 | 要素 | 位置づけ |
 |------|---------|
 | `containers/redmine-db-mysql/` | MySQL 8.0 CE。移行元 DB の再現専用（本番 Quadlet には無い） |
-| `containers/redmine-web/Containerfile.v5-mysql` | Redmine 5.1.6 + プラグイン 10 個。mysql2 / postgresql の両アダプタで起動できる |
+| `containers/redmine-web/Containerfile.v5-mysql` | Redmine 5.1.6 + プラグイン 16 個。mysql2 / postgresql の両アダプタで起動できる |
 | `compose.legacy.yaml` | 移行元スタック。コンテナ名・ネットワーク・ボリューム・ポートを通常構成と分けており、`compose.dev.yaml` と同時起動できる |
 | `scripts/migrate-mysql-to-postgres.sh` | コンバート本体（preflight / schema / data / sequences / files / verify） |
 | `scripts/pgloader/` | pgloader コマンドファイルのテンプレートとシーケンス再設定 SQL |
@@ -362,6 +362,16 @@ Rails から見ると壊れているスキーマになり、その後の Redmine
 `activerecord-postgis-adapter` は無く、素の `postgresql` アダプタで接続します
 （テーブル定義は同一で、後から 6/7 系が `postgis` アダプタで接続し直すだけです）。
 
+`compose.dev.yaml` の `redmine-web` は `REDMINE_DB_ADAPTER`（既定 `postgis`）を
+そのまま渡すので、この単発起動の代わりに `REDMINE_WEB_CONTAINERFILE=
+Containerfile.v5-mysql` + `REDMINE_DB_ADAPTER=postgresql` で恒久稼働させることもできます
+— 移行元のバージョン・プラグイン構成を変えず、DB だけ MySQL から PostgreSQL
+（`redmine-db`）へ切り替えたまま運用を続ける構成です。`redmine-db` の実体は
+PostGIS 拡張入りの PostgreSQL 18 ですが、gtt を積まないこの構成では PostGIS 固有
+機能を使わないため、`postgresql` アダプタで機能的に過不足ありません（`postgis`
+は指定できません — このイメージに `database.postgis.yml.tmpl` は無いため）。手順は
+[docs/Upgrade.md](Upgrade.md) §4.1 参照。
+
 ### `config/database.yml` が bundle の内容を決めてしまう
 
 Redmine の `Gemfile` は `config/database.yml` に現れる `adapter:` 行を集め、その集合に
@@ -384,6 +394,6 @@ Gemfile.lock を解決し直し、ネットワーク不通の環境では起動�
 
 ### 移行元プラグイン構成の一致が前提
 
-移行先スキーマは「`Containerfile.v5-mysql` が持つ 10 プラグイン」で作られます。移行元に
+移行先スキーマは「`Containerfile.v5-mysql` が持つ 16 プラグイン」で作られます。移行元に
 それ以外のプラグインが入っていると、そのテーブルの投入先が存在せず pgloader が失敗します。
 `schema` ステップが移行元と移行先のテーブル集合を突き合わせ、事前に検出して止めます。

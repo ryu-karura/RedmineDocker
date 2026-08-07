@@ -26,18 +26,22 @@
 【段階 1】移行元の再現                    【段階 2】DB コンバート          【段階 3】アップグレード
 
  redmine-legacy-web (5.1.6)                                              redmine-web (7.0.0)
-   plugins x10                                                            plugins x12
+   plugins x16                                                            plugins x12
         │ mysql2                                                               │ postgis
         ▼                                                                      ▼
  redmine-legacy-db  ──── pgloader (data only) ────►  redmine-db (PostgreSQL 18 + PostGIS 3.6)
  (MySQL 8.0 CE)             ▲                              ▲
                             │                              │
                      ① 空 DB に 5.1.6 のまま          ② 5.1.6 のまま起動して確認
-                       rake db:migrate でスキーマ作成    → banner を外す
-                                                        → 7.0.0 イメージへ差し替え
-                                                          （起動時に 5.1→7.0 の
-                                                            マイグレーションが走る）
+                       rake db:migrate でスキーマ作成    → そのまま本運用も可能（4.1）
+                                                          → banner を外して 7.0.0 へ
+                                                            （起動時に 5.1→7.0 の
+                                                              マイグレーションが走る）
 ```
+
+段階 2 で止めて、Redmine のバージョン・プラグイン構成は変えずに DB だけ
+PostgreSQL へ切り替えたまま運用を続けることもできます（4.1 節）。段階 3 の
+アップグレードは必須ではありません。
 
 **方式の要点 — 「スキーマは Rails、データは pgloader」**
 
@@ -98,9 +102,10 @@ docker compose -f compose.legacy.yaml logs -f redmine-legacy-web
 通常の開発スタック（`compose.dev.yaml`、`:8080`）とは、コンテナ名・ネットワーク・
 ボリューム・ポートがすべて別なので同時起動できます。段階 2 では実際に両方を起動します。
 
-### 2.1 プラグイン構成（10 個）と、除外したもの
+### 2.1 プラグイン構成（16 個）と、除外したもの
 
-`Containerfile.v5` の 11 個から `redmine_gtt` を除いた 10 個です。
+`Containerfile.v5` の 11 個から `redmine_gtt` を除いた 10 個に、実際の移行元環境
+（本番相当）のプラグイン構成に合わせて 6 個を追加したものです。
 
 | # | プラグイン | バージョン |
 |---|-----------|-----------|
@@ -114,6 +119,12 @@ docker compose -f compose.legacy.yaml logs -f redmine-legacy-web
 | 8 | view_customize | v3.6.0 |
 | 9 | redmine_logs | 0.3.0 |
 | 10 | redmine_wiki_extensions | 0.9.5 |
+| 11 | redmine_xlsx_format_issue_exporter | 0.2.1 |
+| 12 | redmine_issue_assign_notice | v2.2.1 |
+| 13 | redmine_theme_changer | 0.6.0 |
+| 14 | redmine_absolute_dates | 0.0.4 |
+| 15 | redmine_vividtone_my_page_blocks | 1.3 |
+| 16 | redmine_hide_sidebar | master（タグ無し） |
 
 **未対応のため除外したプラグイン**
 
@@ -157,11 +168,12 @@ docker run --rm -v redmine_legacy_web_files:/to -v /path/to/files:/from:ro \
 docker compose -f compose.legacy.yaml start redmine-legacy-web
 ```
 
-> **重要**: 実データの Redmine に、上の 10 個以外のプラグインが入っていた場合、その
-> プラグインのテーブルが移行先に存在せずコンバートが失敗します。
-> `scripts/migrate-mysql-to-postgres.sh` の `schema` ステップがこれを検出して止めるので、
-> 検出されたら「そのプラグインを `Containerfile.v5-mysql` に追加して再ビルドする」か
-> 「移行元でアンインストールする」かを選んでください。
+> **重要**: 実データの Redmine に、上の 16 個以外のプラグインのテーブルが入っていた場合、
+> コンバートが失敗します。`scripts/migrate-mysql-to-postgres.sh` の `schema` ステップが
+> これを検出して止めるので、検出されたら 9.4 節（「移行元のプラグイン構成が違うと
+> コンバートできない」）の対応を選んでください — プラグインがまだ使われているなら
+> 追加/アンインストール、既にアンインストール済みで孤立テーブルが残っているだけなら
+> `--exclude-tables` で除外します。
 
 ### 2.3 文字コードの事前確認（重要）
 
@@ -294,6 +306,41 @@ docker run -d --name redmine-legacy-on-pg \
 - [ ] **新規チケットを作成できる**（= シーケンスが正しく再設定されている）
 - [ ] プライベートチケットがプライベートのまま（= boolean 変換が正しい）
 
+### 4.1 このまま本運用する場合（Redmine 6/7 へのアップグレードを保留する場合）
+
+上の確認で問題がなければ、一時的な `docker run` の代わりに `compose.dev.yaml` で
+恒久的に動かせます。移行元スタック（`compose.legacy.yaml`、MySQL 側）はもう
+不要なので停止し、`.env` の `REDMINE_LEGACY_*`（と `MIGRATE_EXCLUDE_TABLES`）は
+コメントアウトしてください — 恒久運用に切り替えたあとは、通常スタック用の変数
+（`REDMINE_WEB_CONTAINERFILE` など）と移行元スタック用の変数を同じ `.env` に
+「両方有効」なつもりで混在させないでください（`.env.example` の該当セクションの
+⚠ 注記も参照）。
+
+```bash
+docker compose -f compose.legacy.yaml down   # 移行元 (MySQL) はもう不要
+                                              # .env の REDMINE_LEGACY_* もコメントアウトする
+
+# .env で次の 3 つをセットで変更する
+#   REDMINE_WEB_CONTAINERFILE=Containerfile.v5-mysql
+#   REDMINE_VERSION=5.1.6            # 移行元と同じバージョンに合わせる
+#   REDMINE_DB_ADAPTER=postgresql    # v5-mysql は postgis 非対応
+
+docker compose -f compose.dev.yaml up --build -d
+docker compose -f compose.dev.yaml logs -f redmine-web
+# http://localhost:8080/redmine/
+```
+
+このイメージは `redmine_gtt`（PostGIS 固有機能が必要な唯一のプラグイン）を
+積んでいないため、接続先が PostgreSQL 18 + PostGIS 3.6（`redmine-db`）であっても
+`postgresql` アダプタだけで問題なく動きます。`postgis` は指定しないでください
+（`Containerfile.v5-mysql` は `config/database.postgis.yml.tmpl` を持たず、
+指定すると起動に失敗します）。
+
+段階 3（Redmine 7 へのアップグレード）へは、この状態からいつでも再開できます —
+DB は既に PostgreSQL へ移行済みなので、`REDMINE_WEB_CONTAINERFILE` を
+`Containerfile.v7`（または `.v6`）へ、`REDMINE_DB_ADAPTER` を `postgis` へ
+切り替えるだけです（5.1 → 6/7 の一方向マイグレーションが起動時に走ります）。
+
 ---
 
 ## 5. 段階 3 — Redmine 7.0.0 へのアップグレード
@@ -401,7 +448,7 @@ bash scripts/test-upgrade.sh --skip-build # 既存イメージを再利用
 
 検査する内容:
 
-1. 移行元スタックが起動し、Redmine 5.1.6 / プラグイン 10 個 / mysql2 アダプタで動く
+1. 移行元スタックが起動し、Redmine 5.1.6 / プラグイン 16 個 / mysql2 アダプタで動く
 2. 検証データ（日本語・boolean を含む）を投入できる
 3. コンバートが成功し、件数・シーケンス・boolean 型が一致する
 4. コンバート後の DB で 5.1.6 が起動し、データが見え、新規チケットを作成できる
@@ -457,9 +504,23 @@ pgloader は `id` の値をそのまま COPY しますが、シーケンスは 1
 
 ### 9.4 移行元のプラグイン構成が違うとコンバートできない
 
-移行先スキーマは「このイメージが持つ 10 プラグイン」で作られます。移行元にそれ以外の
+移行先スキーマは「このイメージが持つ 16 プラグイン」で作られます。移行元にそれ以外の
 プラグインが入っていると、そのテーブルの投入先が無く pgloader が失敗します。
-`schema` ステップがテーブル集合を突き合わせて事前に検出します（2.2 参照）。
+`schema` ステップがテーブル集合を突き合わせて事前に検出します（2.2 参照）。原因は
+2 通りあります:
+
+- **プラグインが今も使われている** — `Containerfile.v5-mysql` にそのプラグインを
+  足してイメージを作り直すか、移行元でアンインストールしてから再実行してください。
+- **既にアンインストール済みのプラグインが残した孤立テーブル** —
+  `plugins/` フォルダにコードは無いのに、マイグレーションだけ過去に実行されて
+  テーブルが残っているケースです（`SELECT name FROM settings WHERE name LIKE
+  'plugin_%'` に出てこないのに `information_schema.tables` には出てくる場合、
+  これに該当します）。この場合はプラグインを追加/アンインストールする必要は
+  なく、`--exclude-tables <table1>,<table2>,...`（または `.env` の
+  `MIGRATE_EXCLUDE_TABLES`）でそのテーブルを移行対象から除外してください。
+  `schema` / `data`（pgloader の `EXCLUDING TABLE NAMES MATCHING` 句）/
+  `verify` の全ステップで自動的に除外されます。そのテーブルのデータは移行され
+  ません（孤立データなので、通常は移行する意味もありません）。
 
 ### 9.5 Gemfile と `config/database.yml` の関係（イメージを触るとき）
 

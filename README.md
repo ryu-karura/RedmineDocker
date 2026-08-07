@@ -77,7 +77,7 @@ redmine_login_audit2, redmine_wiki_extensions, redmine_solid_queue, redmine_gtt�
 
 | 系列 | Containerfile | ベースイメージ | DB | プラグイン | 用途 |
 |------|---------------|----------------|----|-----------|------|
-| 移行元 | `Containerfile.v5-mysql` | `redmine:5.1.6` | MySQL 8.0 CE | 10 個 | 移行元 (as-is) の再現。PostGIS 必須の `redmine_gtt` ほか未対応プラグインは除外 |
+| 移行元 | `Containerfile.v5-mysql` | `redmine:5.1.6` | MySQL 8.0 CE | 16 個 | 移行元 (as-is) の再現。PostGIS 必須の `redmine_gtt` ほか未対応プラグインは除外 |
 
 ```bash
 docker compose -f compose.legacy.yaml up --build -d   # 移行元を再現 (:8081)

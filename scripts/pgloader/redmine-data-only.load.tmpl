@@ -20,6 +20,12 @@
 --   中身も一致します（一致しない場合は移行元に別のプラグインが入っている
 --   ということなので、スクリプトの preflight ステップが検出して止まります）。
 --
+-- ★ ${EXCLUDE_TABLES_SQL} について
+--   常に 'schema_migrations', 'ar_internal_metadata' を含み、
+--   scripts/migrate-mysql-to-postgres.sh --exclude-tables（または .env の
+--   MIGRATE_EXCLUDE_TABLES）で指定した孤立テーブル（既にアンインストール済み
+--   プラグインが残したテーブル）があれば、それも同じ文字列に追記されます。
+--
 -- ★ CAST 規則
 --   tinyint(1)  MySQL の boolean 表現。PostgreSQL 側は boolean 列なので明示変換。
 --   datetime    PostgreSQL 側は timestamp without time zone（Rails 既定）。
@@ -29,6 +35,7 @@
 --
 -- 置換変数: ${MYSQL_USER} ${MYSQL_PASSWORD} ${MYSQL_HOST} ${MYSQL_PORT} ${MYSQL_DB}
 --           ${PG_USER} ${PG_PASSWORD} ${PG_HOST} ${PG_PORT} ${PG_DB}
+--           ${EXCLUDE_TABLES_SQL}
 --   パスワードは URL の一部として渡すため、記号を含まない値であることが前提です
 --   （scripts/generate-secrets.sh は英数字 24 文字を生成します）。
 
@@ -50,7 +57,7 @@ LOAD DATABASE
       type datetime to timestamp using zero-dates-to-null,
       type date to date using zero-dates-to-null
 
- EXCLUDING TABLE NAMES MATCHING 'schema_migrations', 'ar_internal_metadata'
+ EXCLUDING TABLE NAMES MATCHING ${EXCLUDE_TABLES_SQL}
 
  ALTER SCHEMA '${MYSQL_DB}' RENAME TO 'public'
 ;

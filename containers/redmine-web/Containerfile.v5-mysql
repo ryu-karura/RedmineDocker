@@ -7,7 +7,15 @@
 #     (2) DB を PostgreSQL 18 へコンバートできるか
 #     (3) その後 Redmine 7 へマイグレーションできるか
 #   を検証するためのものです。手順は docs/Upgrade.md にまとめてあります。
-#   参照するのは compose.legacy.yaml のみで、quadlets（本番）にはありません。
+#   通常はコンバートに使ったあと Containerfile.v6/.v7 へ切り替えますが、移行元の
+#   バージョン・プラグイン構成を維持したまま DB だけ PostgreSQL へ恒久的に
+#   切り替えて運用する（6/7 へのアップグレードを保留する）用途にも使えます —
+#   REDMINE_DB_ADAPTER=postgresql のまま compose.dev.yaml の redmine-web を
+#   このイメージでビルドし続けるだけです（docs/Upgrade.md「DB だけ PostgreSQL へ
+#   切り替える」参照）。この場合は compose.legacy.yaml（移行元 MySQL の再現）は
+#   不要になり、停止して構いません。
+#   参照するのは compose.legacy.yaml / compose.dev.yaml のみで、quadlets（本番）
+#   にはまだありません。
 #
 #   通常構成は Containerfile.v5 (5.1.12) / .v6 (6.1.3、既定) / .v7 (7.0.0) で、
 #   いずれも PostgreSQL 18 + PostGIS 3.6 接続（postgis アダプタ）です。
@@ -18,11 +26,19 @@
 #
 # ★ 接続先データベースは 2 通りあります（REDMINE_DB_ADAPTER で切り替え）
 #   mysql2      移行元の再現。compose.legacy.yaml の redmine-legacy-db (MySQL 8.0)
-#   postgresql  コンバート手順の 1 ステップ目。空の PostgreSQL 18 に対して
+#   postgresql  (1) コンバート手順の 1 ステップ目。空の PostgreSQL 18 に対して
 #               5.1.6 のまま rake db:migrate を流し、MySQL 側とまったく同じ
 #               マイグレーション列で作られた Rails スキーマを用意します
 #               （そこへ pgloader がデータだけを流し込みます）。
-#   このため mysql / postgresql 双方のクライアントと gem を同梱しています。
+#               (2) コンバート後、このバージョン・プラグイン構成のまま
+#               compose.dev.yaml の redmine-db (PostgreSQL 18 + PostGIS 3.6 の
+#               イメージですが、redmine_gtt を積まないこの構成では PostGIS
+#               固有機能は使わないため postgresql アダプタで十分です) に対して
+#               恒久的に接続する場合の両方で使います。
+#   このため mysql / postgresql 双方のクライアントと gem を同梱しています
+#   （postgis アダプタは非対応 — 使うと config/database.postgis.yml.tmpl が
+#   見つからず起動に失敗します。PostGIS 固有機能が要る場合は redmine_gtt ごと
+#   Containerfile.v6/.v7 へアップグレードしてください）。
 #
 # ★ ビルド時にダミーの config/database.yml を置いてから bundle install します
 #   Redmine の Gemfile は config/database.yml に現れる adapter 行を集め、その
@@ -41,7 +57,8 @@
 #
 # サブ URI: /redmine（RAILS_RELATIVE_URL_ROOT）
 #
-# 導入プラグイン（10）— Containerfile.v5 の 11 個から redmine_gtt を除いたもの:
+# 導入プラグイン（16）— Containerfile.v5 の 11 個から redmine_gtt を除いた 10 個に、
+#   実際の移行元環境（本番相当）のプラグイン構成に合わせて 6 個を追加したもの:
 #   1.  redmine_wiki_lists        (tkusukawa, 0.0.11)
 #   2.  redmine_banner            (agileware-jp, 0.3.5)
 #   3.  redmine_issues_panel      (redmica, v1.0.4)
@@ -52,6 +69,12 @@
 #   8.  view_customize            (onozaty, v3.6.0、ディレクトリ名は必ず 'view_customize')
 #   9.  redmine_logs              (haru, 0.3.0)
 #  10.  redmine_wiki_extensions   (haru, 0.9.5)
+#  11.  redmine_xlsx_format_issue_exporter (two-pack, 0.2.1)
+#  12.  redmine_issue_assign_notice        (onozaty, v2.2.1)
+#  13.  redmine_theme_changer              (haru, 0.6.0)
+#  14.  redmine_absolute_dates             (suer, 0.0.4)
+#  15.  redmine_vividtone_my_page_blocks   (vividtone, 1.3)
+#  16.  redmine_hide_sidebar               (nanego, 既定ブランチ = master、タグ無し)
 #
 # 未対応のため除外したプラグイン:
 #   - redmine_gtt          … PostGIS 必須（geometry 型・PostGIS 関数を使う）。
@@ -183,6 +206,30 @@ RUN git clone --depth 1 --branch 0.3.0 \
 # 10. redmine_wiki_extensions (0.9.5) — Wiki 拡張（マクロ、コメント、タグ、投票）
 RUN git clone --depth 1 --branch 0.9.5 \
         https://github.com/haru/redmine_wiki_extensions.git redmine_wiki_extensions
+
+# 11. redmine_xlsx_format_issue_exporter (0.2.1) — 課題一覧の xlsx エクスポート
+RUN git clone --depth 1 --branch 0.2.1 \
+        https://github.com/two-pack/redmine_xlsx_format_issue_exporter.git redmine_xlsx_format_issue_exporter
+
+# 12. redmine_issue_assign_notice (2.2.1) — 担当者変更時の通知
+RUN git clone --depth 1 --branch v2.2.1 \
+        https://github.com/onozaty/redmine_issue_assign_notice.git redmine_issue_assign_notice
+
+# 13. redmine_theme_changer (0.6.0) — ユーザーごとのテーマ切り替え
+RUN git clone --depth 1 --branch 0.6.0 \
+        https://github.com/haru/redmine_theme_changer.git redmine_theme_changer
+
+# 14. redmine_absolute_dates (0.0.4) — 日付の絶対値表示
+RUN git clone --depth 1 --branch 0.0.4 \
+        https://github.com/suer/redmine_absolute_dates.git redmine_absolute_dates
+
+# 15. redmine_vividtone_my_page_blocks (1.3) — マイページ用ブロック追加
+RUN git clone --depth 1 --branch 1.3 \
+        https://github.com/vividtone/redmine_vividtone_my_page_blocks.git redmine_vividtone_my_page_blocks
+
+# 16. redmine_hide_sidebar — サイドバー非表示（タグ無し、既定ブランチ = master）
+RUN git clone --depth 1 \
+        https://github.com/nanego/redmine_hide_sidebar.git redmine_hide_sidebar
 
 # ── プラグイン gem のインストール ─────────────────────────────────────────────
 # プラグイン依存 gem をイメージ内 bundle（/usr/local/bundle）へ焼き込みます。

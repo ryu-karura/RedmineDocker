@@ -110,7 +110,9 @@ plugin/theme versions that actually work differ per series:
 | 7 | `Containerfile.v7` | `redmine:7.0.0` | 4.0 / 8.1.3 | 12 |
 
 A fourth Containerfile, `Containerfile.v5-mysql` (Redmine 5.1.6 + MySQL 8.0 CE,
-10 plugins), exists **only to rehearse the upgrade** from a legacy MySQL install
+16 plugins — the 10 shared with `Containerfile.v5` minus `redmine_gtt`, plus 6
+more pinned to match a real legacy production plugin set), exists **only to
+rehearse the upgrade** from a legacy MySQL install
 — see "Upgrade rehearsal path" below and `docs/Upgrade.md`. It is not part of
 the normal dev/prod stack and has no Quadlet unit.
 
@@ -285,12 +287,20 @@ Start/stop order is enforced by `Requires=`/`After=` in the units:
   `puma` mode (that direct curl is the regression test for the `config.ru`
   sub-URI mount, so keep it).
 - **`REDMINE_DB_ADAPTER` picks the DB template at runtime; the default (`postgis`)
-  is the only one the normal stack ever uses.** `entrypoint.sh` renders
+  is the only one `Containerfile.v5`/`.v6`/`.v7` ever use.** `entrypoint.sh` renders
   `config/database.${REDMINE_DB_ADAPTER}.yml.tmpl` when that file exists in the
   image and falls back to `config/database.yml.tmpl` (postgis) otherwise — so
   which adapters an image supports is decided by *which templates its
   Containerfile COPYs*, and the entrypoint keeps no per-series branching. Only
-  `Containerfile.v5-mysql` ships the `mysql2`/`postgresql` templates.
+  `Containerfile.v5-mysql` ships the `mysql2`/`postgresql` templates (no
+  `postgis` — it carries no `redmine_gtt`, the only plugin that needs actual
+  PostGIS geometry types, so `postgresql` against the `redmine-db` PostGIS
+  container is functionally sufficient). `compose.dev.yaml` passes
+  `REDMINE_DB_ADAPTER` straight through to `redmine-web` (default `postgis`),
+  which is what lets `Containerfile.v5-mysql` + `REDMINE_DB_ADAPTER=postgresql`
+  run indefinitely against `redmine-db` — the supported way to keep the source
+  Redmine version and plugin set unchanged while retiring MySQL, without
+  upgrading to the 6/7 series (`docs/Upgrade.md` §4.1).
   `REDMINE_MIGRATE_ONLY` (non-empty, `!= 0`) makes the entrypoint stop right
   after migrations instead of starting a web server — used by the conversion's
   schema step, and useful for migrating before exposing the app on an upgrade.
@@ -432,7 +442,11 @@ Full procedure: `docs/Upgrade.md`; rationale: `docs/Design.md` §10. In short, t
 repo can reproduce a **Redmine 5.1.6 + MySQL 8.0 CE** source system
 (`compose.legacy.yaml`, its own containers/network/volumes/port 8081 so it can run
 *alongside* `compose.dev.yaml`), convert its database to PostgreSQL 18 + PostGIS,
-and then upgrade straight to Redmine 7.0.0. Things worth not re-deriving:
+and then upgrade straight to Redmine 7.0.0. **The Redmine 7 upgrade is optional**:
+converting the DB and then staying on `Containerfile.v5-mysql` (source version and
+plugin set unchanged, `REDMINE_DB_ADAPTER=postgresql` against `redmine-db`) is a
+supported long-term end state — see `docs/Upgrade.md` §4.1 — for anyone who only
+wants off MySQL, not onto a newer Redmine. Things worth not re-deriving:
 
 - **"Schema by Rails, data by pgloader."** The target schema is created by running
   `rake db:migrate` with the *same* 5.1.6 image and plugin set
@@ -443,8 +457,17 @@ and then upgrade straight to Redmine 7.0.0. Things worth not re-deriving:
 - **The legacy image excludes plugins that can't work there**: `redmine_gtt`
   (PostGIS-only), `redmine_login_audit2` and `redmine_solid_queue` (both need
   Redmine ≥ 6.0 / Rails ≥ 7.1). Anything the *source* database has beyond the
-  image's 10 plugins makes the load fail — the `schema` step diffs the table sets
-  and stops first.
+  image's 16 plugins makes the load fail — the `schema` step diffs the table sets
+  and stops first. That's not always a missing-plugin problem, though: a plugin
+  that was uninstalled from the source long ago without rolling back its
+  migrations leaves orphaned tables with no plugin code behind them (verifiable
+  via `SELECT name FROM settings WHERE name LIKE 'plugin_%'` on the source,
+  which won't list it even though `information_schema.tables` does). For that
+  case `migrate-mysql-to-postgres.sh --exclude-tables <name>,...` (or `.env`'s
+  `MIGRATE_EXCLUDE_TABLES`) skips the named tables in the `schema` diff, the
+  pgloader `EXCLUDING TABLE NAMES MATCHING` clause, and `verify`'s row-count
+  comparison — no image rebuild and no destructive `DROP TABLE` on the source
+  needed.
 - **`redmine_banner` must be uninstalled before switching to the v7 image**
   (`rake redmine:plugins:migrate NAME=redmine_banner VERSION=0`), because v7 does
   not ship it and plugin migrations can't be rolled back once the code is gone.

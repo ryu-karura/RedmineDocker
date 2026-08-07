@@ -7,7 +7,7 @@
 # 自動化し、各段の結果を検査するものです。
 #
 # 検証する内容:
-#   1. 移行元スタックが構築・起動できる（Redmine 5.1.6 / MySQL 8.0 / 10 plugins）
+#   1. 移行元スタックが構築・起動できる（Redmine 5.1.6 / MySQL 8.0 / 16 plugins）
 #   2. 検証用データ（プロジェクト・チケット・Wiki・ユーザー、日本語と boolean を含む）
 #      を投入できる
 #   3. scripts/migrate-mysql-to-postgres.sh で PostgreSQL 18 へコンバートできる
@@ -182,8 +182,8 @@ check "legacy login page is served (:${REDMINE_LEGACY_WEB_HOST_PORT})" \
     http_200 "http://localhost:${REDMINE_LEGACY_WEB_HOST_PORT}/redmine/login"
 check "legacy Redmine reports version 5.1.6" \
     runner_equals "${REDMINE_LEGACY_WEB_CONTAINER}" 'puts Redmine::VERSION.to_s' "5.1.6"
-check "legacy Redmine loaded 10 plugins" \
-    runner_equals "${REDMINE_LEGACY_WEB_CONTAINER}" 'puts Redmine::Plugin.all.size' "10"
+check "legacy Redmine loaded 16 plugins" \
+    runner_equals "${REDMINE_LEGACY_WEB_CONTAINER}" 'puts Redmine::Plugin.all.size' "16"
 check "legacy Redmine is on the mysql2 adapter" \
     runner_equals "${REDMINE_LEGACY_WEB_CONTAINER}" \
         'puts ActiveRecord::Base.connection.adapter_name.downcase' "mysql2"
