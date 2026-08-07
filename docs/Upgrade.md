@@ -26,18 +26,22 @@
 【段階 1】移行元の再現                    【段階 2】DB コンバート          【段階 3】アップグレード
 
  redmine-legacy-web (5.1.6)                                              redmine-web (7.0.0)
-   plugins x10                                                            plugins x12
+   plugins x16                                                            plugins x12
         │ mysql2                                                               │ postgis
         ▼                                                                      ▼
  redmine-legacy-db  ──── pgloader (data only) ────►  redmine-db (PostgreSQL 18 + PostGIS 3.6)
  (MySQL 8.0 CE)             ▲                              ▲
                             │                              │
                      ① 空 DB に 5.1.6 のまま          ② 5.1.6 のまま起動して確認
-                       rake db:migrate でスキーマ作成    → banner を外す
-                                                        → 7.0.0 イメージへ差し替え
-                                                          （起動時に 5.1→7.0 の
-                                                            マイグレーションが走る）
+                       rake db:migrate でスキーマ作成    → そのまま本運用も可能（4.1）
+                                                          → banner を外して 7.0.0 へ
+                                                            （起動時に 5.1→7.0 の
+                                                              マイグレーションが走る）
 ```
+
+段階 2 で止めて、Redmine のバージョン・プラグイン構成は変えずに DB だけ
+PostgreSQL へ切り替えたまま運用を続けることもできます（4.1 節）。段階 3 の
+アップグレードは必須ではありません。
 
 **方式の要点 — 「スキーマは Rails、データは pgloader」**
 
@@ -300,6 +304,36 @@ docker run -d --name redmine-legacy-on-pg \
 - [ ] Wiki の日本語本文が文字化けしていない
 - [ ] **新規チケットを作成できる**（= シーケンスが正しく再設定されている）
 - [ ] プライベートチケットがプライベートのまま（= boolean 変換が正しい）
+
+### 4.1 このまま本運用する場合（Redmine 6/7 へのアップグレードを保留する場合）
+
+上の確認で問題がなければ、一時的な `docker run` の代わりに `compose.dev.yaml` で
+恒久的に動かせます。移行元スタック（`compose.legacy.yaml`、MySQL 側）はもう
+不要なので停止して構いません。
+
+```bash
+docker compose -f compose.legacy.yaml down   # 移行元 (MySQL) はもう不要
+
+# .env で次の 3 つをセットで変更する
+#   REDMINE_WEB_CONTAINERFILE=Containerfile.v5-mysql
+#   REDMINE_VERSION=5.1.6            # 移行元と同じバージョンに合わせる
+#   REDMINE_DB_ADAPTER=postgresql    # v5-mysql は postgis 非対応
+
+docker compose -f compose.dev.yaml up --build -d
+docker compose -f compose.dev.yaml logs -f redmine-web
+# http://localhost:8080/redmine/
+```
+
+このイメージは `redmine_gtt`（PostGIS 固有機能が必要な唯一のプラグイン）を
+積んでいないため、接続先が PostgreSQL 18 + PostGIS 3.6（`redmine-db`）であっても
+`postgresql` アダプタだけで問題なく動きます。`postgis` は指定しないでください
+（`Containerfile.v5-mysql` は `config/database.postgis.yml.tmpl` を持たず、
+指定すると起動に失敗します）。
+
+段階 3（Redmine 7 へのアップグレード）へは、この状態からいつでも再開できます —
+DB は既に PostgreSQL へ移行済みなので、`REDMINE_WEB_CONTAINERFILE` を
+`Containerfile.v7`（または `.v6`）へ、`REDMINE_DB_ADAPTER` を `postgis` へ
+切り替えるだけです（5.1 → 6/7 の一方向マイグレーションが起動時に走ります）。
 
 ---
 

@@ -7,7 +7,15 @@
 #     (2) DB を PostgreSQL 18 へコンバートできるか
 #     (3) その後 Redmine 7 へマイグレーションできるか
 #   を検証するためのものです。手順は docs/Upgrade.md にまとめてあります。
-#   参照するのは compose.legacy.yaml のみで、quadlets（本番）にはありません。
+#   通常はコンバートに使ったあと Containerfile.v6/.v7 へ切り替えますが、移行元の
+#   バージョン・プラグイン構成を維持したまま DB だけ PostgreSQL へ恒久的に
+#   切り替えて運用する（6/7 へのアップグレードを保留する）用途にも使えます —
+#   REDMINE_DB_ADAPTER=postgresql のまま compose.dev.yaml の redmine-web を
+#   このイメージでビルドし続けるだけです（docs/Upgrade.md「DB だけ PostgreSQL へ
+#   切り替える」参照）。この場合は compose.legacy.yaml（移行元 MySQL の再現）は
+#   不要になり、停止して構いません。
+#   参照するのは compose.legacy.yaml / compose.dev.yaml のみで、quadlets（本番）
+#   にはまだありません。
 #
 #   通常構成は Containerfile.v5 (5.1.12) / .v6 (6.1.3、既定) / .v7 (7.0.0) で、
 #   いずれも PostgreSQL 18 + PostGIS 3.6 接続（postgis アダプタ）です。
@@ -18,11 +26,19 @@
 #
 # ★ 接続先データベースは 2 通りあります（REDMINE_DB_ADAPTER で切り替え）
 #   mysql2      移行元の再現。compose.legacy.yaml の redmine-legacy-db (MySQL 8.0)
-#   postgresql  コンバート手順の 1 ステップ目。空の PostgreSQL 18 に対して
+#   postgresql  (1) コンバート手順の 1 ステップ目。空の PostgreSQL 18 に対して
 #               5.1.6 のまま rake db:migrate を流し、MySQL 側とまったく同じ
 #               マイグレーション列で作られた Rails スキーマを用意します
 #               （そこへ pgloader がデータだけを流し込みます）。
-#   このため mysql / postgresql 双方のクライアントと gem を同梱しています。
+#               (2) コンバート後、このバージョン・プラグイン構成のまま
+#               compose.dev.yaml の redmine-db (PostgreSQL 18 + PostGIS 3.6 の
+#               イメージですが、redmine_gtt を積まないこの構成では PostGIS
+#               固有機能は使わないため postgresql アダプタで十分です) に対して
+#               恒久的に接続する場合の両方で使います。
+#   このため mysql / postgresql 双方のクライアントと gem を同梱しています
+#   （postgis アダプタは非対応 — 使うと config/database.postgis.yml.tmpl が
+#   見つからず起動に失敗します。PostGIS 固有機能が要る場合は redmine_gtt ごと
+#   Containerfile.v6/.v7 へアップグレードしてください）。
 #
 # ★ ビルド時にダミーの config/database.yml を置いてから bundle install します
 #   Redmine の Gemfile は config/database.yml に現れる adapter 行を集め、その
