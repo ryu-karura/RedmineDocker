@@ -5,7 +5,7 @@
 # （選択規則: config/database.${REDMINE_DB_ADAPTER}.yml.tmpl があればそれを使い、
 #   無ければ既定の config/database.yml.tmpl = postgis 用を使う）。
 #
-# 使うのは移行検証用の Containerfile.v5-mysql（Redmine 5.1.6 + MySQL 8.0 CE）
+# 使うのは移行検証用の Containerfile.v5-mysql（Redmine 5.1.1 + MySQL 8.0 CE）
 # だけです。6 系・7 系は postgis 固定で、このファイルをイメージに含めません
 # （docs/Upgrade.md「移行元スタックの再現」参照）。
 #
@@ -16,7 +16,7 @@
 #   ${REDMINE_DB_USER}     → DB ユーザー名（redmine）
 #   ${REDMINE_DB_PASSWORD} → DB パスワード（Docker/Podman シークレット）
 #
-# ★ encoding と transaction_isolation は Redmine 5.1.6 の
+# ★ encoding と transaction_isolation は Redmine 5.1.1 の
 #   config/database.yml.example の MySQL 例に合わせています
 #   （utf8mb4 + READ-COMMITTED、https://www.redmine.org/projects/redmine/wiki/MySQL_configuration）。
 #

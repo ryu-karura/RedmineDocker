@@ -1,6 +1,6 @@
 # compose.legacy.yaml — 移行元 (as-is) 再現スタック / 開発・リハーサル専用
 #
-# 「アップグレード前の既存環境 = Redmine 5.1.6 + MySQL 8.0 CE」を手元で再現します。
+# 「アップグレード前の既存環境 = Redmine 5.1.1 + MySQL 8.0 CE」を手元で再現します。
 # 目的は次の 3 点の検証で、手順は docs/Upgrade.md にまとめてあります:
 #   1. 同じプラグイン構成のコンテナが MySQL でも作れるか（gtt など未対応は除外）
 #   2. DB を PostgreSQL 18 + PostGIS へコンバートできるか
@@ -79,14 +79,14 @@ services:
       retries: 10
       start_period: 60s
 
-  # ── Redmine 5.1.6 + Apache 2.4 frontend（移行元 Web） ───────────────────────
+  # ── Redmine 5.1.1 + Apache 2.4 frontend（移行元 Web） ───────────────────────
   redmine-legacy-web:
     build:
       context: containers/redmine-web
       dockerfile: ${REDMINE_LEGACY_WEB_CONTAINERFILE:-Containerfile.v5-mysql}
       args:
-        WEB_BASE_IMAGE: ${REDMINE_LEGACY_WEB_BASE_IMAGE:-docker.io/library/redmine:5.1.6}
-    image: ${REDMINE_LEGACY_WEB_IMAGE:-localhost/redmine-web:5.1.6-mysql}
+        WEB_BASE_IMAGE: ${REDMINE_LEGACY_WEB_BASE_IMAGE:-docker.io/library/redmine:5.1.1}
+    image: ${REDMINE_LEGACY_WEB_IMAGE:-localhost/redmine-web:5.1.1-mysql}
     container_name: ${REDMINE_LEGACY_WEB_CONTAINER:-redmine-legacy-web}
     restart: always
     networks:

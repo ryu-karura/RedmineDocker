@@ -1,8 +1,8 @@
-# redmine-web (移行元再現): Redmine 5.1.6（公式イメージ）+ プラグイン一式 / MySQL 8.0 CE
+# redmine-web (移行元再現): Redmine 5.1.1（公式イメージ）+ プラグイン一式 / MySQL 8.0 CE
 #
 # ★ このイメージの位置づけ
 #   通常構成（開発・本番）の Containerfile ではありません。「アップグレード前の
-#   既存環境 = Redmine 5.1.6 + MySQL 8」を手元で再現し、
+#   既存環境 = Redmine 5.1.1 + MySQL 8」を手元で再現し、
 #     (1) 同じプラグイン構成のコンテナが作れるか
 #     (2) DB を PostgreSQL 18 へコンバートできるか
 #     (3) その後 Redmine 7 へマイグレーションできるか
@@ -20,14 +20,14 @@
 #   通常構成は Containerfile.v5 (5.1.12) / .v6 (6.1.3、既定) / .v7 (7.0.0) で、
 #   いずれも PostgreSQL 18 + PostGIS 3.6 接続（postgis アダプタ）です。
 #
-# ベースイメージ: docker.io/library/redmine:5.1.6
+# ベースイメージ: docker.io/library/redmine:5.1.1
 #   ruby:3.2-slim-bookworm ベース / Rails 6.1.7.10
-#   （Redmine 5.1.6 の Gemfile は ruby '>= 2.7.0', '< 3.3.0'）
+#   （Redmine 5.1.1 の Gemfile は ruby '>= 2.7.0', '< 3.3.0'）
 #
 # ★ 接続先データベースは 2 通りあります（REDMINE_DB_ADAPTER で切り替え）
 #   mysql2      移行元の再現。compose.legacy.yaml の redmine-legacy-db (MySQL 8.0)
 #   postgresql  (1) コンバート手順の 1 ステップ目。空の PostgreSQL 18 に対して
-#               5.1.6 のまま rake db:migrate を流し、MySQL 側とまったく同じ
+#               5.1.1 のまま rake db:migrate を流し、MySQL 側とまったく同じ
 #               マイグレーション列で作られた Rails スキーマを用意します
 #               （そこへ pgloader がデータだけを流し込みます）。
 #               (2) コンバート後、このバージョン・プラグイン構成のまま
@@ -88,14 +88,14 @@
 #   - redmine_solid_queue  … solid_queue gem が activerecord >= 7.1 を要求
 #                            （Redmine 5.1 は Rails 6.1）。
 #   バージョン選定の根拠は Containerfile.v5 のコメントと同じです
-#   （5.1 を対象に CI が通っている最新タグ）。5.1.6 と 5.1.12 は同じ 5.1 系の
+#   （5.1 を対象に CI が通っている最新タグ）。5.1.1 と 5.1.12 は同じ 5.1 系の
 #   パッチ差分で、プラグインの対応バージョンは変わりません。
 #
 # テーマ: farend_fancy（farend、5.1 以前向けの tag redmine5.1）
 #   Redmine 6.0 でテーマの置き場が public/themes/ から themes/ へ移動したため、
 #   5 系では public/themes/ 配下に置きます（Containerfile.v5 と同じ）。
 
-ARG WEB_BASE_IMAGE=docker.io/library/redmine:5.1.6
+ARG WEB_BASE_IMAGE=docker.io/library/redmine:5.1.1
 FROM ${WEB_BASE_IMAGE}
 
 ARG REDMINE_HOME=/usr/src/redmine
@@ -137,7 +137,7 @@ RUN apt-get update \
     && fc-cache -fv
 
 # ★ このイメージは REDMINE_WEB_SERVER=puma 専用です（mod_passenger 非同梱）。
-#   redmine:5.1.6 のベースは Debian 12 (bookworm) で、bookworm の
+#   redmine:5.1.1 のベースは Debian 12 (bookworm) で、bookworm の
 #   libapache2-mod-passenger は Passenger の Ruby 3.2 対応が入る直前の版です
 #   （Ruby 3.2 対応は upstream 6.0.16 以降）。移行元の再現に Passenger は
 #   不要なので、動くか怪しいものを同梱するより外してあります。

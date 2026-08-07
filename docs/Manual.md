@@ -196,7 +196,7 @@ systemctl --user restart redmine-db redmine-web
 
 ### ケース B-2: 別 DB 製品からの移行 / Redmine メジャーバージョンのアップグレード
 
-対象: 既存の **Redmine 5.1.6 + MySQL 8.0 CE** をこの構成（PostgreSQL 18 + PostGIS 3.6）へ
+対象: 既存の **Redmine 5.1.1 + MySQL 8.0 CE** をこの構成（PostgreSQL 18 + PostGIS 3.6）へ
 移し、さらに Redmine 7.0.0 へ上げる場合。
 
 手順は独立したドキュメントにまとめています → **[docs/Upgrade.md](Upgrade.md)**

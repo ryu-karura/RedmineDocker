@@ -3,9 +3,9 @@
 # PostgreSQL (素の postgresql アダプタ) 用の Redmine DB 設定テンプレートです。
 # entrypoint.sh が REDMINE_DB_ADAPTER=postgresql のときに envsubst で描画します。
 #
-# 使うのは移行検証用の Containerfile.v5-mysql（Redmine 5.1.6）だけです。用途は 2 つ:
+# 使うのは移行検証用の Containerfile.v5-mysql（Redmine 5.1.1）だけです。用途は 2 つ:
 #   (1) MySQL → PostgreSQL コンバート手順の 1 ステップ目。空の PostgreSQL 18 DB に
-#       対して 5.1.6 のまま rake db:migrate を流し、「MySQL 側とまったく同じマイグレー
+#       対して 5.1.1 のまま rake db:migrate を流し、「MySQL 側とまったく同じマイグレー
 #       ションで作られた Rails スキーマ」を用意します。そこへ pgloader がデータだけを
 #       流し込みます（docs/Upgrade.md「PostgreSQL 18 へのコンバート」参照）。
 #   (2) コンバート後、移行元のバージョン・プラグイン構成を変えないまま DB だけ

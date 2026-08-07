@@ -198,7 +198,7 @@ Redmine・PostgreSQL・プラグインのバージョン変更は、`git ls-remo
 `entrypoint.sh` / `healthcheck.sh` / `config.ru` / 各 `*.tmpl` / `redmine-db` は 3 系列で共通です。
 系列間の差分は「ベースイメージ」「プラグインのピン」「テーマの配置先」だけに閉じています。
 
-このほかに、移行元 (as-is) を再現するための `Containerfile.v5-mysql`（Redmine 5.1.6 +
+このほかに、移行元 (as-is) を再現するための `Containerfile.v5-mysql`（Redmine 5.1.1 +
 MySQL 8.0 CE、プラグイン 16 個）があります。通常構成では使わない検証専用のイメージで、
 `compose.legacy.yaml` からのみ参照します（「10. 移行元 (MySQL) の再現と DB コンバート」）。
 
@@ -317,7 +317,7 @@ systemctl --user daemon-reload
 
 ## 10. 移行元 (MySQL) の再現と DB コンバート
 
-既存の **Redmine 5.1.6 + MySQL 8.0 CE** から本構成へ移行するための設計です。
+既存の **Redmine 5.1.1 + MySQL 8.0 CE** から本構成へ移行するための設計です。
 実際の作業手順は [docs/Upgrade.md](Upgrade.md) にまとめています。ここでは
 「なぜその作り方なのか」だけを記録します。
 
@@ -326,7 +326,7 @@ systemctl --user daemon-reload
 | 要素 | 位置づけ |
 |------|---------|
 | `containers/redmine-db-mysql/` | MySQL 8.0 CE。移行元 DB の再現専用（本番 Quadlet には無い） |
-| `containers/redmine-web/Containerfile.v5-mysql` | Redmine 5.1.6 + プラグイン 16 個。mysql2 / postgresql の両アダプタで起動できる |
+| `containers/redmine-web/Containerfile.v5-mysql` | Redmine 5.1.1 + プラグイン 16 個。mysql2 / postgresql の両アダプタで起動できる |
 | `compose.legacy.yaml` | 移行元スタック。コンテナ名・ネットワーク・ボリューム・ポートを通常構成と分けており、`compose.dev.yaml` と同時起動できる |
 | `scripts/migrate-mysql-to-postgres.sh` | コンバート本体（preflight / schema / data / sequences / files / verify） |
 | `scripts/pgloader/` | pgloader コマンドファイルのテンプレートとシーケンス再設定 SQL |
@@ -339,7 +339,7 @@ pgloader にスキーマ生成まで任せると、MySQL の型からの機械�
 Rails から見ると壊れているスキーマになり、その後の Redmine 7 へのマイグレーションで
 破綻します。
 
-そこで移行先には、**移行元とまったく同じ Redmine 5.1.6・同じプラグイン構成**で
+そこで移行先には、**移行元とまったく同じ Redmine 5.1.1・同じプラグイン構成**で
 `rake db:migrate` を実行させてスキーマを作り、pgloader には `data only` で中身だけを
 運ばせます。両者は同じマイグレーション列で作られるため、テーブル・列・列順が一致し、
 列名ベースの投入が安全に行えます。`schema_migrations` / `ar_internal_metadata` は
@@ -357,7 +357,7 @@ Rails から見ると壊れているスキーマになり、その後の Redmine
 | `Containerfile.v5` / `.v6` / `.v7` | `database.yml.tmpl` | `postgis` |
 | `Containerfile.v5-mysql` | `database.mysql2.yml.tmpl` / `database.postgresql.yml.tmpl` | `mysql2` |
 
-コンバートの 1 ステップ目では、同じ 5.1.6 イメージを `REDMINE_DB_ADAPTER=postgresql` +
+コンバートの 1 ステップ目では、同じ 5.1.1 イメージを `REDMINE_DB_ADAPTER=postgresql` +
 `REDMINE_MIGRATE_ONLY=1` で単発起動します。gtt を同梱していないため
 `activerecord-postgis-adapter` は無く、素の `postgresql` アダプタで接続します
 （テーブル定義は同一で、後から 6/7 系が `postgis` アダプタで接続し直すだけです）。

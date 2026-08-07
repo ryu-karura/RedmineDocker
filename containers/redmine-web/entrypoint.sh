@@ -39,10 +39,10 @@ REDMINE_DB_USER="${REDMINE_DB_USER:-redmine}"
 # データベースアダプタ。既定は postgis で、これがこのスタックの通常構成です
 # （redmine_gtt が必須とするため。CLAUDE.md / docs/Design.md 参照）。
 # mysql2 / postgresql を使うのは移行検証用の Containerfile.v5-mysql
-# （Redmine 5.1.6）だけです（docs/Upgrade.md）。
+# （Redmine 5.1.1）だけです（docs/Upgrade.md）。
 #   postgis     6 系 / 7 系の通常構成（config/database.yml.tmpl を描画）
-#   postgresql  コンバート途中の 5.1.6（config/database.postgresql.yml.tmpl）
-#   mysql2      移行元の 5.1.6 + MySQL 8.0（config/database.mysql2.yml.tmpl）
+#   postgresql  コンバート途中の 5.1.1（config/database.postgresql.yml.tmpl）
+#   mysql2      移行元の 5.1.1 + MySQL 8.0（config/database.mysql2.yml.tmpl）
 REDMINE_DB_ADAPTER="${REDMINE_DB_ADAPTER:-postgis}"
 case "${REDMINE_DB_ADAPTER}" in
     postgis|postgresql) REDMINE_DB_PORT="${REDMINE_DB_PORT:-5432}" ;;
@@ -156,7 +156,7 @@ chmod 640 config/configuration.yml
 # ever reads it.
 # Both configs render a *:80 VirtualHost, so exactly one of them may be enabled.
 if [[ "${REDMINE_WEB_SERVER}" == "passenger" ]]; then
-    # 移行検証用の 5.1.6 イメージ (Containerfile.v5-mysql) は mod_passenger を
+    # 移行検証用の 5.1.1 イメージ (Containerfile.v5-mysql) は mod_passenger を
     # 同梱していません。a2enmod の分かりにくい失敗ではなく理由を出して止めます。
     [[ -r /etc/apache2/conf-available/redmine-passenger.conf.tmpl ]] \
         || die "REDMINE_WEB_SERVER=passenger is not supported by this image (mod_passenger not installed)."

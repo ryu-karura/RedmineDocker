@@ -1,13 +1,13 @@
 # containers/redmine-db-mysql/redmine.cnf
 #
-# Redmine 5.1.6 向け MySQL 8.0 サーバー設定
+# Redmine 5.1.1 向け MySQL 8.0 サーバー設定
 # （install path: /etc/mysql/conf.d/redmine.cnf）。
 #
 # 移行元 (as-is) の再現用です。docs/Upgrade.md「移行元スタックの再現」参照。
 
 [mysqld]
 # ── 文字コード ───────────────────────────────────────────────────────────────
-# Redmine 5.1.6 の config/database.yml.example は MySQL 5.7.7 以降で
+# Redmine 5.1.1 の config/database.yml.example は MySQL 5.7.7 以降で
 # encoding: utf8mb4 を指定します。サーバー側も utf8mb4 に揃えます。
 # 照合順序は utf8mb4_general_ci にしています。MySQL 8.0 の既定は
 # utf8mb4_0900_ai_ci ですが、utf8 (3 バイト) 時代から引き継いだ既存 Redmine DB は
