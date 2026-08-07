@@ -1,6 +1,6 @@
-# アップグレード検証手順 — Redmine 5.1.6 + MySQL 8.0 → PostgreSQL 18 → Redmine 7.0.0
+# アップグレード検証手順 — Redmine 5.1.1 + MySQL 8.0 → PostgreSQL 18 → Redmine 7.0.0
 
-このドキュメントは、**既存の Redmine 5.1.6 (MySQL 8.0 CE) を、このリポジトリの標準構成
+このドキュメントは、**既存の Redmine 5.1.1 (MySQL 8.0 CE) を、このリポジトリの標準構成
 である Redmine 7.0.0 + PostgreSQL 18 + PostGIS 3.6 へ移行する**ための手順書です。
 
 移行を 3 段階に分け、各段階を単独で検証・切り戻しできるようにしています。
@@ -9,7 +9,7 @@
 |------|------|----------|
 | 1 | 移行元 (as-is) をコンテナで再現する | `compose.legacy.yaml` + `containers/redmine-web/Containerfile.v5-mysql` + `containers/redmine-db-mysql/` |
 | 2 | DB を MySQL 8.0 → PostgreSQL 18 + PostGIS へコンバートする | `scripts/migrate-mysql-to-postgres.sh` + `scripts/pgloader/` |
-| 3 | Redmine 5.1.6 → 7.0.0 へアップグレードする | `compose.dev.yaml`（`Containerfile.v7`） |
+| 3 | Redmine 5.1.1 → 7.0.0 へアップグレードする | `compose.dev.yaml`（`Containerfile.v7`） |
 
 通しの自動検証は `bash scripts/test-upgrade.sh` です（段階 1〜3 を実データ入りで流し、
 各段の結果を検査します）。
@@ -25,14 +25,14 @@
 ```
 【段階 1】移行元の再現                    【段階 2】DB コンバート          【段階 3】アップグレード
 
- redmine-legacy-web (5.1.6)                                              redmine-web (7.0.0)
+ redmine-legacy-web (5.1.1)                                              redmine-web (7.0.0)
    plugins x16                                                            plugins x12
         │ mysql2                                                               │ postgis
         ▼                                                                      ▼
  redmine-legacy-db  ──── pgloader (data only) ────►  redmine-db (PostgreSQL 18 + PostGIS 3.6)
  (MySQL 8.0 CE)             ▲                              ▲
                             │                              │
-                     ① 空 DB に 5.1.6 のまま          ② 5.1.6 のまま起動して確認
+                     ① 空 DB に 5.1.1 のまま          ② 5.1.1 のまま起動して確認
                        rake db:migrate でスキーマ作成    → そのまま本運用も可能（4.1）
                                                           → banner を外して 7.0.0 へ
                                                             （起動時に 5.1→7.0 の
@@ -50,7 +50,7 @@ pgloader にスキーマ生成まで任せると、MySQL の型からの機械�
 「Rails から見ると壊れているスキーマ」ができます。そのままだと段階 3 の
 マイグレーションで破綻します。
 
-そこで移行先には、**移行元とまったく同じ Redmine 5.1.6・同じプラグイン構成で
+そこで移行先には、**移行元とまったく同じ Redmine 5.1.1・同じプラグイン構成で
 `rake db:migrate` を流して**スキーマを作らせ、pgloader には
 `data only` でデータだけを流し込ませます。両者は同じマイグレーション列で作られる
 ため、テーブル・列・列順まで一致します。
@@ -84,7 +84,7 @@ bash scripts/generate-secrets.sh
 
 ---
 
-## 2. 段階 1 — 移行元 (Redmine 5.1.6 + MySQL 8.0 CE) の再現
+## 2. 段階 1 — 移行元 (Redmine 5.1.1 + MySQL 8.0 CE) の再現
 
 ```bash
 docker compose -f compose.legacy.yaml up --build -d
@@ -97,7 +97,7 @@ docker compose -f compose.legacy.yaml logs -f redmine-legacy-web
 | コンテナ | イメージ | 役割 | 公開 |
 |----------|----------|------|------|
 | `redmine-legacy-db` | `mysql:8.0` + `containers/redmine-db-mysql/` | MySQL 8.0 CE | 非公開（同一ネットワークのみ） |
-| `redmine-legacy-web` | `redmine:5.1.6` + `Containerfile.v5-mysql` | Redmine 5.1.6 + Apache + Puma | `127.0.0.1:8081` |
+| `redmine-legacy-web` | `redmine:5.1.1` + `Containerfile.v5-mysql` | Redmine 5.1.1 + Apache + Puma | `127.0.0.1:8081` |
 
 通常の開発スタック（`compose.dev.yaml`、`:8080`）とは、コンテナ名・ネットワーク・
 ボリューム・ポートがすべて別なので同時起動できます。段階 2 では実際に両方を起動します。
@@ -161,7 +161,7 @@ docker exec -i -e MYSQL_PWD="$DBPW" redmine-legacy-db \
 
 # 4. 添付ファイルをボリュームへ展開
 docker run --rm -v redmine_legacy_web_files:/to -v /path/to/files:/from:ro \
-    --entrypoint /bin/bash localhost/redmine-web:5.1.6-mysql \
+    --entrypoint /bin/bash localhost/redmine-web:5.1.1-mysql \
     -c 'cp -a /from/. /to/ && chown -R redmine:redmine /to'
 
 # 5. Redmine を起動（不足しているマイグレーションがあれば適用されます）
@@ -213,7 +213,7 @@ bash scripts/migrate-mysql-to-postgres.sh
 | ステップ | 内容 |
 |----------|------|
 | `preflight` | 両コンテナの稼働・接続・移行元が Redmine の DB であることを確認 |
-| `schema` | 移行元と同じ 5.1.6 イメージを `REDMINE_DB_ADAPTER=postgresql` / `REDMINE_MIGRATE_ONLY=1` で単発起動し、空の PostgreSQL に Rails スキーマを作る。作成後、**移行元の全テーブルが移行先に存在するか**を突き合わせる |
+| `schema` | 移行元と同じ 5.1.1 イメージを `REDMINE_DB_ADAPTER=postgresql` / `REDMINE_MIGRATE_ONLY=1` で単発起動し、空の PostgreSQL に Rails スキーマを作る。作成後、**移行元の全テーブルが移行先に存在するか**を突き合わせる |
 | `data` | pgloader を `data only, truncate` で実行し、データだけを転送する |
 | `sequences` | `serial` 列のシーケンスを `max(id)` に合わせ直す |
 | `files` | 添付ファイルのボリュームを移行先ボリュームへコピーする |
@@ -241,7 +241,7 @@ bash scripts/migrate-mysql-to-postgres.sh --steps verify
 スクリプトを使わない場合の等価な手順です（トラブル時の切り分け用）。
 
 ```bash
-# ① スキーマ作成（移行元と同じ 5.1.6 イメージ、Web は起動しない）
+# ① スキーマ作成（移行元と同じ 5.1.1 イメージ、Web は起動しない）
 docker run --rm --network redmine-net \
   -v "$PWD/secrets:/run/secrets:ro" \
   -e REDMINE_DB_ADAPTER=postgresql -e REDMINE_DB_HOST=redmine-db \
@@ -250,7 +250,7 @@ docker run --rm --network redmine-net \
   -e REDMINE_SECRET_KEY_BASE_FILE=/run/secrets/secret_key_base.txt \
   -e REDMINE_PLUGINS_MIGRATE=1 -e REDMINE_LOAD_DEFAULT_DATA=0 \
   -e REDMINE_MIGRATE_ONLY=1 \
-  localhost/redmine-web:5.1.6-mysql
+  localhost/redmine-web:5.1.1-mysql
 
 # ② pgloader 用の native password ユーザーを作る（理由は 9 章）
 docker exec -e MYSQL_PWD="$(cat secrets/db_root_password.txt)" redmine-legacy-db \
@@ -271,13 +271,13 @@ docker exec -i -e PGPASSWORD="$(cat secrets/db_password.txt)" redmine-db \
 
 # ⑤ 添付ファイル
 docker run --rm -v redmine_legacy_web_files:/from:ro -v redmine_web_files:/to \
-  --entrypoint /bin/bash localhost/redmine-web:5.1.6-mysql \
+  --entrypoint /bin/bash localhost/redmine-web:5.1.1-mysql \
   -c 'cp -a /from/. /to/ && chown -R redmine:redmine /to'
 ```
 
 ---
 
-## 4. 段階 2 の確認 — 5.1.6 のまま PostgreSQL で動かす
+## 4. 段階 2 の確認 — 5.1.1 のまま PostgreSQL で動かす
 
 Redmine 7 へ進む前に、**アプリのバージョンを変えないまま** DB だけが替わった状態を
 確認します。ここで問題が出たら原因はコンバートにあります（アップグレードではない）。
@@ -292,7 +292,7 @@ docker run -d --name redmine-legacy-on-pg \
   -e REDMINE_DB_PASSWORD_FILE=/run/secrets/db_password.txt \
   -e REDMINE_SECRET_KEY_BASE_FILE=/run/secrets/secret_key_base.txt \
   -e REDMINE_LOAD_DEFAULT_DATA=0 \
-  localhost/redmine-web:5.1.6-mysql
+  localhost/redmine-web:5.1.1-mysql
 
 # http://localhost:8083/redmine/ を開いて確認
 ```
@@ -322,7 +322,7 @@ docker compose -f compose.legacy.yaml down   # 移行元 (MySQL) はもう不要
 
 # .env で次の 3 つをセットで変更する
 #   REDMINE_WEB_CONTAINERFILE=Containerfile.v5-mysql
-#   REDMINE_VERSION=5.1.6            # 移行元と同じバージョンに合わせる
+#   REDMINE_VERSION=5.1.1            # 移行元と同じバージョンに合わせる
 #   REDMINE_DB_ADAPTER=postgresql    # v5-mysql は postgis 非対応
 
 docker compose -f compose.dev.yaml up --build -d
@@ -353,7 +353,7 @@ DB は既に PostgreSQL へ移行済みなので、`REDMINE_WEB_CONTAINERFILE` �
 プラグイン本体が消えた後では戻せません。
 
 ```bash
-# 上の redmine-legacy-on-pg コンテナ（5.1.6、プラグインを持っている）で実行する
+# 上の redmine-legacy-on-pg コンテナ（5.1.1、プラグインを持っている）で実行する
 docker exec redmine-legacy-on-pg \
   bundle exec rake redmine:plugins:migrate NAME=redmine_banner VERSION=0 RAILS_ENV=production
 
@@ -395,7 +395,7 @@ docker compose -f compose.dev.yaml logs -f redmine-web
 
 ### 5.4 プラグイン構成の変化
 
-| プラグイン | 5.1.6 (移行元) | 7.0.0 (移行先) | 備考 |
+| プラグイン | 5.1.1 (移行元) | 7.0.0 (移行先) | 備考 |
 |-----------|:---:|:---:|------|
 | redmine_wiki_lists | 0.0.11 | 0.0.11 | |
 | redmine_banner | 0.3.5 | — | **7.0 未対応。事前にアンインストール（5.1 参照）** |
@@ -426,7 +426,7 @@ docker compose -f compose.dev.yaml logs -f redmine-web
 
 | 段階 | 切り戻し方 |
 |------|-----------|
-| 段階 3 の途中で失敗 | `docker compose -f compose.dev.yaml down` → `.env` を 5 系相当に戻す前に、5.3 で取った `redmine_before_v7.dump` を `scripts/restore.sh` 相当の手順でリストアし、`localhost/redmine-web:5.1.6-mysql` を PostgreSQL 向けに起動（4 章）して確認 |
+| 段階 3 の途中で失敗 | `docker compose -f compose.dev.yaml down` → `.env` を 5 系相当に戻す前に、5.3 で取った `redmine_before_v7.dump` を `scripts/restore.sh` 相当の手順でリストアし、`localhost/redmine-web:5.1.1-mysql` を PostgreSQL 向けに起動（4 章）して確認 |
 | 段階 2 の途中で失敗 | 移行元 (MySQL) には一切書き込んでいないため、移行先の DB を捨てて (`docker compose -f compose.dev.yaml down -v`) やり直す |
 | 全体を中止 | 移行元スタックはそのまま動いています（`:8081`）。移行先を `down -v` で破棄するだけです |
 
@@ -448,10 +448,10 @@ bash scripts/test-upgrade.sh --skip-build # 既存イメージを再利用
 
 検査する内容:
 
-1. 移行元スタックが起動し、Redmine 5.1.6 / プラグイン 16 個 / mysql2 アダプタで動く
+1. 移行元スタックが起動し、Redmine 5.1.1 / プラグイン 16 個 / mysql2 アダプタで動く
 2. 検証データ（日本語・boolean を含む）を投入できる
 3. コンバートが成功し、件数・シーケンス・boolean 型が一致する
-4. コンバート後の DB で 5.1.6 が起動し、データが見え、新規チケットを作成できる
+4. コンバート後の DB で 5.1.1 が起動し、データが見え、新規チケットを作成できる
 5. `redmine_banner` をアンインストールできる
 6. Redmine 7.0.0 が起動し、マイグレーションが完了し、データが保持されている
 
@@ -461,7 +461,7 @@ bash scripts/test-upgrade.sh --skip-build # 既存イメージを再利用
 
 | 変数 | 既定 | 意味 |
 |------|------|------|
-| `REDMINE_DB_ADAPTER` | `postgis` | `postgis`（6/7 系の通常構成） / `postgresql`（コンバート時の 5.1.6） / `mysql2`（移行元） |
+| `REDMINE_DB_ADAPTER` | `postgis` | `postgis`（6/7 系の通常構成） / `postgresql`（コンバート時の 5.1.1） / `mysql2`（移行元） |
 | `REDMINE_MIGRATE_ONLY` | 未設定 | 設定するとマイグレーションだけ実行して終了（Web サーバーを起動しない） |
 | `REDMINE_LEGACY_WEB_HOST_PORT` | `8081` | 移行元 Redmine の公開ポート |
 | `REDMINE_LEGACY_DB_CONTAINER` | `redmine-legacy-db` | 移行元 MySQL のコンテナ名 |
@@ -563,9 +563,9 @@ Redmine の `Gemfile` は `config/database.yml` に現れる `adapter:` 行を�
 
 - `shellcheck` によるシェルスクリプトの静的検査
 - `docker compose -f compose.legacy.yaml config` / `compose.dev.yaml config` の構文検証
-- 上流ソースの確認（Redmine 5.1.6 / 6.1.3 / 7.0.0 の `Gemfile` の DB gem 解決ロジック、
+- 上流ソースの確認（Redmine 5.1.1 / 6.1.3 / 7.0.0 の `Gemfile` の DB gem 解決ロジック、
   公式 redmine イメージの `Dockerfile.template` がダミー `database.yml` で全アダプタを
-  事前インストールしている実装、`redmine:5.1.6` タグの存在、`mysql:8.0` の `*_FILE` 対応、
+  事前インストールしている実装、`redmine:5.1.1` タグの存在、`mysql:8.0` の `*_FILE` 対応、
   Redmine 7.0.0 が `db/migrate/001_setup.rb` から全マイグレーションを保持していること）
 
 未実施（実機で必ず行ってください）:
