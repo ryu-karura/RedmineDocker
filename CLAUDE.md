@@ -50,7 +50,7 @@ client ──443──► Host Apache ──/redmine──► redmine-web (Apach
 | Container | Build context | Base image | Role | Exposed |
 |-----------|---------------|------------|------|---------|
 | `redmine-db` | `containers/redmine-db/` | `postgis/postgis:18-3.6` | PostgreSQL 18 + PostGIS 3.6 | internal `:5432` only |
-| `redmine-web` | `containers/redmine-web/` | `redmine:6.1.3` | Redmine app + 13 plugins + theme, Apache 2.4 frontend, Puma | `127.0.0.1:80` |
+| `redmine-web` | `containers/redmine-web/` | `redmine:6.1.3` | Redmine app + 14 plugins + theme, Apache 2.4 frontend, Puma | `127.0.0.1:80` |
 
 **Only `redmine-web` is published**, and only to loopback. In production the
 host Apache terminates TLS on 443 and forwards `/redmine` there. PostgreSQL
@@ -93,7 +93,7 @@ RedmineDocker/
 | App server | Puma (default) or Passenger (`libapache2-mod-passenger`: 6.0.26 from trixie on v5/v6, 6.1.x from forky on v7), selected by `REDMINE_WEB_SERVER` |
 | Node.js / Yarn | Debian `nodejs` + Yarn 1.22.22 — **Redmine 5 series only**, for `redmine_gtt` 6.0.3's webpack build |
 
-`redmine-web` bakes in 13 plugins (see the numbered list in
+`redmine-web` bakes in 14 plugins (see the numbered list in
 `containers/redmine-web/Containerfile.v6`) plus the `farend_fancy` theme. All
 plugins/themes are `git clone`d **at build time** so they are reproducible in
 the image — update a plugin by editing the Containerfile and rebuilding, not by
@@ -107,9 +107,9 @@ plugin/theme versions that actually work differ per series:
 
 | Series | Containerfile | Base image | Ruby / Rails | Plugins |
 |--------|---------------|------------|--------------|---------|
-| 5 | `Containerfile.v5` | `redmine:5.1.12` | 3.2 / 6.1.7.10 | 11 |
-| 6 (default) | `Containerfile.v6` | `redmine:6.1.3` | 3.4 / 7.2.3.1 | 13 |
-| 7 | `Containerfile.v7` | `redmine:7.0.0` | 4.0 / 8.1.3 | 12 |
+| 5 | `Containerfile.v5` | `redmine:5.1.12` | 3.2 / 6.1.7.10 | 12 |
+| 6 (default) | `Containerfile.v6` | `redmine:6.1.3` | 3.4 / 7.2.3.1 | 14 |
+| 7 | `Containerfile.v7` | `redmine:7.0.0` | 4.0 / 8.1.3 | 13 |
 
 A fourth Containerfile, `Containerfile.v5-mysql` (Redmine 5.1.1 + MySQL 8.0 CE,
 16 plugins — the 10 shared with `Containerfile.v5` minus `redmine_gtt`, plus 6
@@ -436,7 +436,7 @@ Start/stop order is enforced by `Requires=`/`After=` in the units:
   `rake redmine:plugins:migrate` when `REDMINE_PLUGINS_MIGRATE` is set
   (non-empty, `!= 0`) — both mirroring `docker-entrypoint.sh` upstream. The one
   deliberate divergence is the default: upstream leaves both unset (plugins do
-  not migrate), while this stack bakes in 13 plugins and so defaults
+  not migrate), while this stack bakes in 14 plugins and so defaults
   `REDMINE_PLUGINS_MIGRATE=1`. Restarting `redmine-web` re-applies migrations
   idempotently — that is the intended upgrade path; set `REDMINE_NO_DB_MIGRATE=1`
   to boot without migrating (e.g. to inspect a DB before an upgrade).

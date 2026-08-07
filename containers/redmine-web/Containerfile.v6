@@ -11,7 +11,7 @@
 # 公式イメージに対して次を追加します:
 #   - 日本語 CJK フォント（fonts-noto-cjk）
 #     （redmine.jp 記事の手順に準拠。Gantt/PDF 文字化け対策）
-#   - RedmineDocker のプラグイン/テーマ構成（13 plugins + farend_fancy）
+#   - RedmineDocker のプラグイン/テーマ構成（14 plugins + farend_fancy）
 #
 # アプリ配置は /usr/src/redmine（公式イメージ標準）です。
 # Apache が :80 で受け、REDMINE_WEB_SERVER に応じて次のどちらかで処理します:
@@ -20,7 +20,7 @@
 #
 # サブ URI: /redmine（RAILS_RELATIVE_URL_ROOT）
 #
-# 導入プラグイン（13）:
+# 導入プラグイン（14）:
 #   1.  redmine_wiki_lists        (tkusukawa, v0.0.11)
 #   2.  redmine_banner            (agileware-jp, v0.3.5)
 #   3.  redmine_issues_panel      (redmica, v1.2.1)
@@ -38,6 +38,12 @@
 #       ソースビルドには Node >= 22 が必要ですが、Debian trixie の nodejs は
 #       20.19 のため足りません。ビルド済み assets を同梱する公式リリース
 #       tarball を展開することで、Node/yarn を一切入れずに済ませています。
+#  14.  redmine_xlsx_format_issue_exporter (two-pack, 0.2.1) — 課題/作業時間/
+#       ユーザー一覧を XLSX で出力。宣言は requires_redmine 4.2 以上（上限
+#       指定なし）が、最終タグは 2024-01（Redmine 5.1.x 対応）で 6 系 / 7 系
+#       の CI 実績はありません。事前検証推奨。依存 gem write_xlsx は nkf
+#       （native extension）をビルドするため build-essential が必要ですが、
+#       postgis アダプタ用に既に入れているので追加パッケージは不要です。
 #
 # テーマ: farend_fancy（farend、既定ブランチは master。main は存在しない）
 
@@ -175,6 +181,14 @@ RUN curl -fsSL -o /tmp/redmine_gtt.tar.gz \
     && tar -xzf /tmp/redmine_gtt.tar.gz -C . \
     && rm -f /tmp/redmine_gtt.tar.gz \
     && test -f redmine_gtt/assets/javascripts/main.js
+
+# 14. redmine_xlsx_format_issue_exporter (0.2.1) — 課題一覧などの XLSX 出力
+#     宣言は requires_redmine 4.2 以上（上限指定なし）。最終タグは 2024-01
+#     （Redmine 5.1.x 対応）で、6 系 / 7 系での CI 実績はありません。事前検証推奨。
+RUN git clone --depth 1 --branch 0.2.1 \
+        https://github.com/two-pack/redmine_xlsx_format_issue_exporter.git redmine_xlsx_format_issue_exporter \
+    || git clone --depth 1 \
+        https://github.com/two-pack/redmine_xlsx_format_issue_exporter.git redmine_xlsx_format_issue_exporter
 
 # ── プラグイン gem のインストール ─────────────────────────────────────────────
 # プラグイン依存 gem をイメージ内 bundle（/usr/local/bundle）へ焼き込みます。
