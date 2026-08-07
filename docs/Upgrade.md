@@ -310,10 +310,15 @@ docker run -d --name redmine-legacy-on-pg \
 
 上の確認で問題がなければ、一時的な `docker run` の代わりに `compose.dev.yaml` で
 恒久的に動かせます。移行元スタック（`compose.legacy.yaml`、MySQL 側）はもう
-不要なので停止して構いません。
+不要なので停止し、`.env` の `REDMINE_LEGACY_*`（と `MIGRATE_EXCLUDE_TABLES`）は
+コメントアウトしてください — 恒久運用に切り替えたあとは、通常スタック用の変数
+（`REDMINE_WEB_CONTAINERFILE` など）と移行元スタック用の変数を同じ `.env` に
+「両方有効」なつもりで混在させないでください（`.env.example` の該当セクションの
+⚠ 注記も参照）。
 
 ```bash
 docker compose -f compose.legacy.yaml down   # 移行元 (MySQL) はもう不要
+                                              # .env の REDMINE_LEGACY_* もコメントアウトする
 
 # .env で次の 3 つをセットで変更する
 #   REDMINE_WEB_CONTAINERFILE=Containerfile.v5-mysql
