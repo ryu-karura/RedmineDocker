@@ -6,7 +6,7 @@
 # ★ このイメージは「移行元 (as-is) の再現」専用です。
 #   RedmineDocker の通常構成（開発・本番）の DB は PostgreSQL 18 + PostGIS 3.6
 #   （containers/redmine-db/）で、redmine_gtt が PostGIS を必須とするため
-#   MySQL では動きません。ここは Redmine 5.1.6 + MySQL 8.0 という既存環境を
+#   MySQL では動きません。ここは Redmine 5.1.1 + MySQL 8.0 という既存環境を
 #   手元で再現し、PostgreSQL 18 へのコンバートと Redmine 7 へのアップグレードを
 #   リハーサルするためだけに存在します（docs/Upgrade.md 参照）。
 #   compose.legacy.yaml からのみ参照され、quadlets（本番）にはありません。

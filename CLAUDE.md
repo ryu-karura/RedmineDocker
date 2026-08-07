@@ -74,7 +74,7 @@ RedmineDocker/
 ├── scripts/                     # generate-secrets, backup, restore, migrate-mysql-to-postgres, test-*, pgloader/
 ├── logrotate/                   # /etc/logrotate.d config
 ├── compose.dev.yaml             # development orchestration
-├── compose.legacy.yaml          # migration-source stack (Redmine 5.1.6 + MySQL 8.0)
+├── compose.legacy.yaml          # migration-source stack (Redmine 5.1.1 + MySQL 8.0)
 ├── .devcontainer/               # Codespaces / VS Code dev container
 ├── .env.example                 # non-secret config reference (see docs/Design.md)
 └── .gitignore
@@ -109,7 +109,7 @@ plugin/theme versions that actually work differ per series:
 | 6 (default) | `Containerfile.v6` | `redmine:6.1.3` | 3.4 / 7.2.3.1 | 13 |
 | 7 | `Containerfile.v7` | `redmine:7.0.0` | 4.0 / 8.1.3 | 12 |
 
-A fourth Containerfile, `Containerfile.v5-mysql` (Redmine 5.1.6 + MySQL 8.0 CE,
+A fourth Containerfile, `Containerfile.v5-mysql` (Redmine 5.1.1 + MySQL 8.0 CE,
 16 plugins — the 10 shared with `Containerfile.v5` minus `redmine_gtt`, plus 6
 more pinned to match a real legacy production plugin set), exists **only to
 rehearse the upgrade** from a legacy MySQL install
@@ -438,49 +438,16 @@ Start/stop order is enforced by `Requires=`/`After=` in the units:
 
 ## Upgrade rehearsal path (legacy MySQL → PostgreSQL → Redmine 7)
 
-Full procedure: `docs/Upgrade.md`; rationale: `docs/Design.md` §10. In short, the
-repo can reproduce a **Redmine 5.1.6 + MySQL 8.0 CE** source system
-(`compose.legacy.yaml`, its own containers/network/volumes/port 8081 so it can run
-*alongside* `compose.dev.yaml`), convert its database to PostgreSQL 18 + PostGIS,
-and then upgrade straight to Redmine 7.0.0. **The Redmine 7 upgrade is optional**:
-converting the DB and then staying on `Containerfile.v5-mysql` (source version and
-plugin set unchanged, `REDMINE_DB_ADAPTER=postgresql` against `redmine-db`) is a
-supported long-term end state — see `docs/Upgrade.md` §4.1 — for anyone who only
-wants off MySQL, not onto a newer Redmine. Things worth not re-deriving:
-
-- **"Schema by Rails, data by pgloader."** The target schema is created by running
-  `rake db:migrate` with the *same* 5.1.6 image and plugin set
-  (`REDMINE_DB_ADAPTER=postgresql` + `REDMINE_MIGRATE_ONLY=1`); pgloader then runs
-  `WITH data only, truncate`. Letting pgloader build the schema yields non-serial
-  `id` columns and `smallint` booleans, which breaks the later 5.1→7.0 migrations.
-  `schema_migrations`/`ar_internal_metadata` are excluded from the copy.
-- **The legacy image excludes plugins that can't work there**: `redmine_gtt`
-  (PostGIS-only), `redmine_login_audit2` and `redmine_solid_queue` (both need
-  Redmine ≥ 6.0 / Rails ≥ 7.1). Anything the *source* database has beyond the
-  image's 16 plugins makes the load fail — the `schema` step diffs the table sets
-  and stops first. That's not always a missing-plugin problem, though: a plugin
-  that was uninstalled from the source long ago without rolling back its
-  migrations leaves orphaned tables with no plugin code behind them (verifiable
-  via `SELECT name FROM settings WHERE name LIKE 'plugin_%'` on the source,
-  which won't list it even though `information_schema.tables` does). For that
-  case `migrate-mysql-to-postgres.sh --exclude-tables <name>,...` (or `.env`'s
-  `MIGRATE_EXCLUDE_TABLES`) skips the named tables in the `schema` diff, the
-  pgloader `EXCLUDING TABLE NAMES MATCHING` clause, and `verify`'s row-count
-  comparison — no image rebuild and no destructive `DROP TABLE` on the source
-  needed.
-- **`redmine_banner` must be uninstalled before switching to the v7 image**
-  (`rake redmine:plugins:migrate NAME=redmine_banner VERSION=0`), because v7 does
-  not ship it and plugin migrations can't be rolled back once the code is gone.
-- **MySQL is pinned to 8.0, not 8.4**, because pgloader 3.6.7 can't speak
-  `caching_sha2_password`; `redmine.cnf` sets `default_authentication_plugin =
-  mysql_native_password` and the migration script creates a temporary
-  native-password user for pgloader (dropped afterwards). 8.4 removed that option.
-- Sequences must be reset after a data-only load
-  (`scripts/pgloader/reset-sequences.sql`) or the first insert after migration
-  fails on a duplicate primary key.
-- The legacy image is **puma-only** (no `mod_passenger`: its Debian 12 base
-  predates Passenger's Ruby 3.2 support). `entrypoint.sh` tolerates the missing
-  module in puma mode and fails with a clear message if `passenger` is requested.
+Exceptional, one-off tooling for migrating an existing **Redmine 5.1.1 + MySQL
+8.0 CE** installation onto this stack — not part of the normal dev/prod path, and
+not summarized here. Read `docs/Upgrade.md` (procedure) and `docs/Design.md` §10
+(design rationale — schema-by-Rails/data-by-pgloader, the `REDMINE_DB_ADAPTER`
+selection rules, the `Gemfile`/`database.yml` gem-pinning mechanism, the
+plugin-set-must-match requirement and its `--exclude-tables` escape hatch) before
+touching `compose.legacy.yaml`, `Containerfile.v5-mysql`,
+`scripts/migrate-mysql-to-postgres.sh`, `scripts/test-upgrade.sh`,
+`scripts/pgloader/`, or `database.mysql2.yml.tmpl` / `database.postgresql.yml.tmpl`
+— those two docs hold the pitfalls this file used to duplicate.
 
 ## Shell script conventions
 
@@ -510,15 +477,15 @@ wants off MySQL, not onto a newer Redmine. Things worth not re-deriving:
 - When you change architecture, versions, ports, plugin lists, or workflows,
   update the affected docs in the same change: `docs/Design.md` (architecture),
   `docs/Setup.md` (install), `docs/Manual.md` (operations), `docs/Upgrade.md`
-  (migration from Redmine 5.1.6 + MySQL), `README.md` (overview), and this file.
+  (migration from Redmine 5.1.1 + MySQL), `README.md` (overview), and this file.
 
 ## Verification (no CI pipeline; one integration test script)
 
 There is no CI pipeline, but two self-contained integration tests exist:
 `scripts/test-stack.sh` for the normal dev (Compose) path, and
-`scripts/test-upgrade.sh` for the legacy-MySQL upgrade path (builds the 5.1.6 +
+`scripts/test-upgrade.sh` for the legacy-MySQL upgrade path (builds the 5.1.1 +
 MySQL stack, seeds Japanese/boolean test data, runs
-`scripts/migrate-mysql-to-postgres.sh`, boots 5.1.6 on the converted PostgreSQL,
+`scripts/migrate-mysql-to-postgres.sh`, boots 5.1.1 on the converted PostgreSQL,
 uninstalls `redmine_banner`, then upgrades to 7.0.0 and re-checks the data —
 run it after touching `compose.legacy.yaml`, `Containerfile.v5-mysql`, the
 `database.*.yml.tmpl` files, or the migration script). It uses its own project,

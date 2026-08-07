@@ -12,7 +12,7 @@
 #   Containerfile 側で 0644 を設定しています。
 #
 # `redmine` ユーザーと `redmine` データベースは MYSQL_USER / MYSQL_DATABASE から
-# 作成済みです。ここでは Redmine 5.1.6 が要求する文字コード (utf8mb4) を DB に
+# 作成済みです。ここでは Redmine 5.1.1 が要求する文字コード (utf8mb4) を DB に
 # 明示的に固定します。redmine.cnf で character-set-server を utf8mb4 にしている
 # ため通常は同じ結果になりますが、ベースイメージや起動オプションが変わっても
 # DB 側が utf8mb4 であることを保証する冪等なセーフティネットです。

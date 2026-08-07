@@ -1,18 +1,18 @@
 #!/bin/bash
 # scripts/test-upgrade.sh
 #
-# 「Redmine 5.1.6 + MySQL 8.0 → PostgreSQL 18 へコンバート → Redmine 7.0.0 へ
+# 「Redmine 5.1.1 + MySQL 8.0 → PostgreSQL 18 へコンバート → Redmine 7.0.0 へ
 # アップグレード」の一連の手順を、実データを入れた状態で通しで検証します。
 # 手順そのものの説明は docs/Upgrade.md にあります。このスクリプトはその手順を
 # 自動化し、各段の結果を検査するものです。
 #
 # 検証する内容:
-#   1. 移行元スタックが構築・起動できる（Redmine 5.1.6 / MySQL 8.0 / 16 plugins）
+#   1. 移行元スタックが構築・起動できる（Redmine 5.1.1 / MySQL 8.0 / 16 plugins）
 #   2. 検証用データ（プロジェクト・チケット・Wiki・ユーザー、日本語と boolean を含む）
 #      を投入できる
 #   3. scripts/migrate-mysql-to-postgres.sh で PostgreSQL 18 へコンバートできる
 #      （件数一致・シーケンス・boolean 型まで検証）
-#   4. コンバート後の DB に対し 5.1.6 のまま Redmine が起動し、データが見える
+#   4. コンバート後の DB に対し 5.1.1 のまま Redmine が起動し、データが見える
 #   5. Redmine 7 に無いプラグイン（redmine_banner）をアンインストールできる
 #   6. Redmine 7.0.0 イメージへ差し替えて起動でき、マイグレーションが通り、
 #      データが保持されている
@@ -82,10 +82,10 @@ export REDMINE_WEB_CONTAINERFILE="Containerfile.v7"
 export REDMINE_WEB_BASE_IMAGE="docker.io/library/redmine:7.0.0"
 export REDMINE_WEB_IMAGE="localhost/redmine-web:7.0.0"
 
-# コンバート後の 5.1.6 動作確認に使う単発コンテナ
+# コンバート後の 5.1.1 動作確認に使う単発コンテナ
 ON_PG_CONTAINER="redmine-upgrade-legacy-on-pg"
 ON_PG_PORT="${TEST_UPGRADE_ON_PG_PORT:-8083}"
-LEGACY_WEB_IMAGE="${REDMINE_LEGACY_WEB_IMAGE:-localhost/redmine-web:5.1.6-mysql}"
+LEGACY_WEB_IMAGE="${REDMINE_LEGACY_WEB_IMAGE:-localhost/redmine-web:5.1.1-mysql}"
 
 log()  { echo "[$(date -u '+%Y-%m-%dT%H:%M:%SZ')] [test-upgrade] $*"; }
 warn() { echo "[$(date -u '+%Y-%m-%dT%H:%M:%SZ')] [test-upgrade] WARNING: $*" >&2; }
@@ -167,9 +167,9 @@ legacy_compose down -v >/dev/null 2>&1 || true
 target_compose down -v >/dev/null 2>&1 || true
 cli rm -f "${ON_PG_CONTAINER}" >/dev/null 2>&1 || true
 
-# ── 1. 移行元スタック（Redmine 5.1.6 + MySQL 8.0） ─────────────────────────────
+# ── 1. 移行元スタック（Redmine 5.1.1 + MySQL 8.0） ─────────────────────────────
 if [ "${SKIP_BUILD}" -eq 0 ]; then
-    log "Building the legacy stack images (Redmine 5.1.6 + MySQL 8.0) ..."
+    log "Building the legacy stack images (Redmine 5.1.1 + MySQL 8.0) ..."
     legacy_compose build || die "Legacy image build failed."
 fi
 
@@ -180,8 +180,8 @@ check "legacy MySQL becomes healthy"  wait_healthy "${REDMINE_LEGACY_DB_CONTAINE
 check "legacy Redmine becomes healthy" wait_healthy "${REDMINE_LEGACY_WEB_CONTAINER}" 600
 check "legacy login page is served (:${REDMINE_LEGACY_WEB_HOST_PORT})" \
     http_200 "http://localhost:${REDMINE_LEGACY_WEB_HOST_PORT}/redmine/login"
-check "legacy Redmine reports version 5.1.6" \
-    runner_equals "${REDMINE_LEGACY_WEB_CONTAINER}" 'puts Redmine::VERSION.to_s' "5.1.6"
+check "legacy Redmine reports version 5.1.1" \
+    runner_equals "${REDMINE_LEGACY_WEB_CONTAINER}" 'puts Redmine::VERSION.to_s' "5.1.1"
 check "legacy Redmine loaded 16 plugins" \
     runner_equals "${REDMINE_LEGACY_WEB_CONTAINER}" 'puts Redmine::Plugin.all.size' "16"
 check "legacy Redmine is on the mysql2 adapter" \
@@ -247,8 +247,8 @@ else
     FAILURES+=("MySQL -> PostgreSQL conversion")
 fi
 
-# ── 5. コンバート後の DB に対して 5.1.6 が動くか ───────────────────────────────
-log "Booting Redmine 5.1.6 against the converted PostgreSQL database ..."
+# ── 5. コンバート後の DB に対して 5.1.1 が動くか ───────────────────────────────
+log "Booting Redmine 5.1.1 against the converted PostgreSQL database ..."
 cli run -d --name "${ON_PG_CONTAINER}" \
     --network "${REDMINE_NETWORK}" \
     -p "127.0.0.1:${ON_PG_PORT}:80" \
@@ -264,12 +264,12 @@ cli run -d --name "${ON_PG_CONTAINER}" \
     -e REDMINE_SECRET_KEY_BASE_FILE=/run/secrets/secret_key_base.txt \
     -e REDMINE_LOAD_DEFAULT_DATA=0 \
     "${LEGACY_WEB_IMAGE}" >/dev/null \
-    || die "Could not start Redmine 5.1.6 against PostgreSQL."
+    || die "Could not start Redmine 5.1.1 against PostgreSQL."
 
-check "5.1.6-on-PostgreSQL becomes healthy" wait_healthy "${ON_PG_CONTAINER}" 600
-check "5.1.6-on-PostgreSQL serves the login page" \
+check "5.1.1-on-PostgreSQL becomes healthy" wait_healthy "${ON_PG_CONTAINER}" 600
+check "5.1.1-on-PostgreSQL serves the login page" \
     http_200 "http://localhost:${ON_PG_PORT}/redmine/login"
-check "5.1.6-on-PostgreSQL is on the postgresql adapter" \
+check "5.1.1-on-PostgreSQL is on the postgresql adapter" \
     runner_equals "${ON_PG_CONTAINER}" \
         'puts ActiveRecord::Base.connection.adapter_name.downcase' "postgresql"
 check "migrated data is visible (2 issues)" \

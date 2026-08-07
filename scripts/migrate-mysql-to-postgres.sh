@@ -1,13 +1,13 @@
 #!/bin/bash
 # scripts/migrate-mysql-to-postgres.sh
 #
-# 移行元 Redmine 5.1.6 の MySQL 8.0 データベースを、移行先の
+# 移行元 Redmine 5.1.1 の MySQL 8.0 データベースを、移行先の
 # PostgreSQL 18 + PostGIS 3.6 (redmine-db) へコンバートします。
 # Redmine 7 へのアップグレードはこのスクリプトの範囲外です — DB を
 # PostgreSQL へ移し替えるところまでを担当します（手順全体は docs/Upgrade.md）。
 #
 # 方式: 「スキーマは Rails、データは pgloader」
-#   1. schema    空の PostgreSQL に対し、移行元とまったく同じ Redmine 5.1.6 +
+#   1. schema    空の PostgreSQL に対し、移行元とまったく同じ Redmine 5.1.1 +
 #                同じプラグイン構成のイメージで `rake db:migrate` を実行し、
 #                Rails が期待するスキーマ（serial 列・boolean 列・索引）を作る。
 #                REDMINE_MIGRATE_ONLY=1 なので Web サーバーは起動しません。
@@ -82,7 +82,7 @@ DB_USER="${REDMINE_DB_USER:-redmine}"
 
 # 移行元（compose.legacy.yaml）
 LEGACY_DB_CONTAINER="${REDMINE_LEGACY_DB_CONTAINER:-redmine-legacy-db}"
-LEGACY_WEB_IMAGE="${REDMINE_LEGACY_WEB_IMAGE:-localhost/redmine-web:5.1.6-mysql}"
+LEGACY_WEB_IMAGE="${REDMINE_LEGACY_WEB_IMAGE:-localhost/redmine-web:5.1.1-mysql}"
 LEGACY_NETWORK="${REDMINE_LEGACY_NETWORK:-redmine-legacy-net}"
 LEGACY_FILES_VOLUME="${REDMINE_LEGACY_FILES_VOLUME:-redmine_legacy_web_files}"
 LEGACY_DB_PORT="${REDMINE_LEGACY_DB_PORT:-3306}"
@@ -224,7 +224,7 @@ fi
 
 # ── 2. schema ──────────────────────────────────────────────────────────────────
 if has_step schema; then
-    log "[schema] Creating the Rails schema on PostgreSQL with the 5.1.6 image (migrate-only) ..."
+    log "[schema] Creating the Rails schema on PostgreSQL with the 5.1.1 image (migrate-only) ..."
     cli run --rm \
         --name redmine-migrate-schema \
         --network "${PG_NETWORK}" \
