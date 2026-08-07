@@ -120,7 +120,7 @@ RedmineDocker は 2 つのコンテナが連携して Redmine 6.1.3 を動作さ
 
 ## 8. 設定パラメータ (.env)
 
-非シークレット設定は `.env`（テンプレート: `.env.example`）で管理します。Compose は自動で `.env` を読み込み、運用スクリプト（`scripts/backup.sh` / `scripts/restore.sh`）も同じ値を参照します。
+非シークレット設定は `.env`（テンプレート: `.env.example`）で管理します。Compose は自動で `.env` を読み込み、運用スクリプト（`scripts/backup.sh` / `scripts/restore.sh`）も同じ値を参照します。この節で扱うのは通常スタック（`compose.dev.yaml`）用の `.env` です。移行元スタック（`compose.legacy.yaml`）用の変数は別ファイル `.env.legacy`（テンプレート: `.env.legacy.example`）にあり、混在させません — 詳細は「10. 移行元 (MySQL) の再現と DB コンバート」参照。
 
 主なパラメータ:
 
@@ -147,7 +147,7 @@ RedmineDocker は 2 つのコンテナが連携して Redmine 6.1.3 を動作さ
 | アプリサーバー | `REDMINE_WEB_SERVER` | `puma`（`passenger` も可） |
 | Puma 内部ポート | `REDMINE_PUMA_PORT` | `3000`（`passenger` では未使用） |
 | YJIT 有効化 | `RUBY_YJIT_ENABLE` | `1` |
-| DB アダプタ | `REDMINE_DB_ADAPTER` | `postgis`（移行手順でのみ `postgresql` / `mysql2`。「10. 移行元 (MySQL) の再現と DB コンバート」参照） |
+| DB アダプタ | `REDMINE_DB_ADAPTER` | `postgis`（`.env` 側は常にこれで固定。`postgresql` / `mysql2` は `.env.legacy` 側でのみ使用。「10. 移行元 (MySQL) の再現と DB コンバート」参照） |
 | マイグレーション専用起動 | `REDMINE_MIGRATE_ONLY` | 未設定（設定するとマイグレーション後に Web サーバーを起動せず終了） |
 
 補足:
@@ -325,10 +325,12 @@ systemctl --user daemon-reload
 
 | 要素 | 位置づけ |
 |------|---------|
+| `.env.legacy.example` | `compose.legacy.yaml` 専用の環境変数テンプレート。通常スタックの `.env.example` とは別ファイル（8 章参照） |
 | `containers/redmine-db-mysql/` | MySQL 8.0 CE。移行元 DB の再現専用（本番 Quadlet には無い） |
 | `containers/redmine-web/Containerfile.v5-mysql` | Redmine 5.1.1 + プラグイン 16 個。mysql2 / postgresql の両アダプタで起動できる |
 | `compose.legacy.yaml` | 移行元スタック。コンテナ名・ネットワーク・ボリューム・ポートを通常構成と分けており、`compose.dev.yaml` と同時起動できる |
-| `scripts/migrate-mysql-to-postgres.sh` | コンバート本体（preflight / schema / data / sequences / files / verify） |
+| `compose.legacy-on-postgres.yaml` | `compose.legacy.yaml` への override。移行元のバージョン・プラグイン構成のまま DB だけ PostgreSQL へ恒久的に切り替える場合に重ねる（下記参照） |
+| `scripts/migrate-mysql-to-postgres.sh` | コンバート本体（preflight / schema / data / sequences / files / verify）。`.env` と `.env.legacy` の両方を読む |
 | `scripts/pgloader/` | pgloader コマンドファイルのテンプレートとシーケンス再設定 SQL |
 | `scripts/test-upgrade.sh` | 段階 1〜3 の通し検証 |
 
@@ -362,14 +364,21 @@ Rails から見ると壊れているスキーマになり、その後の Redmine
 `activerecord-postgis-adapter` は無く、素の `postgresql` アダプタで接続します
 （テーブル定義は同一で、後から 6/7 系が `postgis` アダプタで接続し直すだけです）。
 
-`compose.dev.yaml` の `redmine-web` は `REDMINE_DB_ADAPTER`（既定 `postgis`）を
-そのまま渡すので、この単発起動の代わりに `REDMINE_WEB_CONTAINERFILE=
-Containerfile.v5-mysql` + `REDMINE_DB_ADAPTER=postgresql` で恒久稼働させることもできます
-— 移行元のバージョン・プラグイン構成を変えず、DB だけ MySQL から PostgreSQL
-（`redmine-db`）へ切り替えたまま運用を続ける構成です。`redmine-db` の実体は
-PostGIS 拡張入りの PostgreSQL 18 ですが、gtt を積まないこの構成では PostGIS 固有
-機能を使わないため、`postgresql` アダプタで機能的に過不足ありません（`postgis`
-は指定できません — このイメージに `database.postgis.yml.tmpl` は無いため）。手順は
+この単発起動の代わりに `compose.legacy.yaml` の `redmine-legacy-web` を
+恒久稼働させることもできます — 移行元のバージョン・プラグイン構成を変えず、
+DB だけ MySQL から PostgreSQL（`redmine-db`）へ切り替えたまま運用を続ける構成
+です。`redmine-legacy-web` は既定では `redmine-legacy-net`（MySQL 側）にしか
+繋がっていないため、`compose.legacy-on-postgres.yaml` という override を
+重ねて `redmine-net`（`compose.dev.yaml` が作る、`external: true` で参照）
+にも接続し、`REDMINE_DB_ADAPTER=postgresql` で `redmine-db` を向くよう
+環境変数を上書きします。通常スタック（`.env` / `compose.dev.yaml`）側は
+一切変更しません — `Containerfile.v5-mysql` を通常スタックの
+`REDMINE_WEB_CONTAINERFILE` に指定することはなく、常に `compose.legacy.yaml`
+の管轄に留めます（`.env` と `.env.legacy` を混在させない、という設計方針の
+帰結です。8 章参照）。`redmine-db` の実体は PostGIS 拡張入りの PostgreSQL 18
+ですが、gtt を積まないこの構成では PostGIS 固有機能を使わないため、
+`postgresql` アダプタで機能的に過不足ありません（`postgis` は指定できません
+— このイメージに `database.postgis.yml.tmpl` は無いため）。手順は
 [docs/Upgrade.md](Upgrade.md) §4.1 参照。
 
 ### `config/database.yml` が bundle の内容を決めてしまう

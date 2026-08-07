@@ -75,8 +75,10 @@ RedmineDocker/
 ├── logrotate/                   # /etc/logrotate.d config
 ├── compose.dev.yaml             # development orchestration
 ├── compose.legacy.yaml          # migration-source stack (Redmine 5.1.1 + MySQL 8.0)
+├── compose.legacy-on-postgres.yaml # override: run the migration-source version/plugins permanently on PostgreSQL
 ├── .devcontainer/               # Codespaces / VS Code dev container
-├── .env.example                 # non-secret config reference (see docs/Design.md)
+├── .env.example                 # non-secret config for compose.dev.yaml (see docs/Design.md)
+├── .env.legacy.example          # non-secret config for compose.legacy.yaml — never mix with .env
 └── .gitignore
 ```
 
@@ -295,12 +297,15 @@ Start/stop order is enforced by `Requires=`/`After=` in the units:
   `Containerfile.v5-mysql` ships the `mysql2`/`postgresql` templates (no
   `postgis` — it carries no `redmine_gtt`, the only plugin that needs actual
   PostGIS geometry types, so `postgresql` against the `redmine-db` PostGIS
-  container is functionally sufficient). `compose.dev.yaml` passes
-  `REDMINE_DB_ADAPTER` straight through to `redmine-web` (default `postgis`),
-  which is what lets `Containerfile.v5-mysql` + `REDMINE_DB_ADAPTER=postgresql`
-  run indefinitely against `redmine-db` — the supported way to keep the source
-  Redmine version and plugin set unchanged while retiring MySQL, without
-  upgrading to the 6/7 series (`docs/Upgrade.md` §4.1).
+  container is functionally sufficient). `compose.dev.yaml` hardcodes
+  `REDMINE_DB_ADAPTER: postgis` (not overridable via `.env`) — that stack is
+  strictly the normal 5/6/7 series. The `postgresql` adapter only ever applies
+  on the `compose.legacy.yaml` side: either the one-shot schema-creation step
+  inside `scripts/migrate-mysql-to-postgres.sh`, or `redmine-legacy-web` run
+  indefinitely against `redmine-db` via the `compose.legacy-on-postgres.yaml`
+  override — the supported way to keep the source Redmine version and plugin
+  set unchanged while retiring MySQL, without upgrading to the 6/7 series
+  (`docs/Upgrade.md` §4.1).
   `REDMINE_MIGRATE_ONLY` (non-empty, `!= 0`) makes the entrypoint stop right
   after migrations instead of starting a web server — used by the conversion's
   schema step, and useful for migrating before exposing the app on an upgrade.
@@ -440,14 +445,21 @@ Start/stop order is enforced by `Requires=`/`After=` in the units:
 
 Exceptional, one-off tooling for migrating an existing **Redmine 5.1.1 + MySQL
 8.0 CE** installation onto this stack — not part of the normal dev/prod path, and
-not summarized here. Read `docs/Upgrade.md` (procedure) and `docs/Design.md` §10
-(design rationale — schema-by-Rails/data-by-pgloader, the `REDMINE_DB_ADAPTER`
-selection rules, the `Gemfile`/`database.yml` gem-pinning mechanism, the
-plugin-set-must-match requirement and its `--exclude-tables` escape hatch) before
-touching `compose.legacy.yaml`, `Containerfile.v5-mysql`,
-`scripts/migrate-mysql-to-postgres.sh`, `scripts/test-upgrade.sh`,
-`scripts/pgloader/`, or `database.mysql2.yml.tmpl` / `database.postgresql.yml.tmpl`
-— those two docs hold the pitfalls this file used to duplicate.
+not summarized here. It has its own env file, deliberately kept out of the normal
+stack's: `.env` + `compose.dev.yaml` is Redmine 5/6/7 + PostgreSQL/PostGIS;
+`.env.legacy` + `compose.legacy.yaml` (+ `compose.legacy-on-postgres.yaml` as an
+override, for the optional permanent-PostgreSQL end state) is the legacy 5.1.1 +
+MySQL side — never mix variables from one into the other's file. Read
+`docs/Upgrade.md` (procedure) and `docs/Design.md` §10 (design rationale —
+schema-by-Rails/data-by-pgloader, the `REDMINE_DB_ADAPTER` selection rules, the
+`Gemfile`/`database.yml` gem-pinning mechanism, the plugin-set-must-match
+requirement and its `--exclude-tables` escape hatch) before touching
+`compose.legacy.yaml`, `compose.legacy-on-postgres.yaml`, `.env.legacy.example`,
+`Containerfile.v5-mysql`, `scripts/migrate-mysql-to-postgres.sh` (reads both `.env`
+and `.env.legacy` — it's the one script that bridges both stacks),
+`scripts/test-upgrade.sh`, `scripts/pgloader/`, or `database.mysql2.yml.tmpl` /
+`database.postgresql.yml.tmpl` — those two docs hold the pitfalls this file used
+to duplicate.
 
 ## Shell script conventions
 

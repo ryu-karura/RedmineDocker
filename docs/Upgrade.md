@@ -7,9 +7,19 @@
 
 | 段階 | 内容 | 使うもの |
 |------|------|----------|
-| 1 | 移行元 (as-is) をコンテナで再現する | `compose.legacy.yaml` + `containers/redmine-web/Containerfile.v5-mysql` + `containers/redmine-db-mysql/` |
-| 2 | DB を MySQL 8.0 → PostgreSQL 18 + PostGIS へコンバートする | `scripts/migrate-mysql-to-postgres.sh` + `scripts/pgloader/` |
-| 3 | Redmine 5.1.1 → 7.0.0 へアップグレードする | `compose.dev.yaml`（`Containerfile.v7`） |
+| 1 | 移行元 (as-is) をコンテナで再現する | `.env.legacy` + `compose.legacy.yaml` + `containers/redmine-web/Containerfile.v5-mysql` + `containers/redmine-db-mysql/` |
+| 2 | DB を MySQL 8.0 → PostgreSQL 18 + PostGIS へコンバートする | `scripts/migrate-mysql-to-postgres.sh`（`.env` + `.env.legacy` の両方を読む）+ `scripts/pgloader/` |
+| 3 | Redmine 5.1.1 → 7.0.0 へアップグレードする | `.env` + `compose.dev.yaml`（`Containerfile.v7`） |
+
+**ファイルの役割は 2 系統に分かれています。混在させないでください:**
+
+| 系統 | 環境変数ファイル | Compose ファイル | 対象 |
+|------|-----------------|-------------------|------|
+| 通常スタック | `.env`（`.env.example` から作成） | `compose.dev.yaml` | Redmine 5 / 6 / 7 系 + PostgreSQL 18 + PostGIS 3.6（postgis アダプタ） |
+| 移行元スタック | `.env.legacy`（`.env.legacy.example` から作成） | `compose.legacy.yaml`（+ 恒久運用時は `compose.legacy-on-postgres.yaml` を重ねる） | Redmine 5.1.1 + MySQL 8.0 → PostgreSQL 18 へのコンバート |
+
+`scripts/migrate-mysql-to-postgres.sh` だけは両方のスタックを橋渡しするため、
+`.env` と `.env.legacy` の両方を読みます。
 
 通しの自動検証は `bash scripts/test-upgrade.sh` です（段階 1〜3 を実データ入りで流し、
 各段の結果を検査します）。
@@ -82,13 +92,26 @@ bash scripts/generate-secrets.sh
 > `db_root_password.txt` は、コンバート時に pgloader 用の一時ユーザーを作るために使います
 > （理由は「9. 既知の落とし穴」）。通常の PostgreSQL 構成では使いません。
 
+### 1.3 `.env.legacy` の準備
+
+移行元スタック（`compose.legacy.yaml`）専用の環境変数ファイルです。通常スタック用の
+`.env` とは別物で、混在させません（上の「ファイルの役割」参照）。
+
+```bash
+cp .env.legacy.example .env.legacy
+```
+
+通常スタック用の `.env` もまだ無ければ、あわせて作成してください
+（`cp .env.example .env`。詳細は `docs/Setup.md`）。段階 3 で `redmine-db` を
+起動する側で使います。
+
 ---
 
 ## 2. 段階 1 — 移行元 (Redmine 5.1.1 + MySQL 8.0 CE) の再現
 
 ```bash
-docker compose -f compose.legacy.yaml up --build -d
-docker compose -f compose.legacy.yaml logs -f redmine-legacy-web
+docker compose --env-file .env.legacy -f compose.legacy.yaml up --build -d
+docker compose --env-file .env.legacy -f compose.legacy.yaml logs -f redmine-legacy-web
 # http://localhost:8081/redmine/   (初期ログイン: admin / admin)
 ```
 
@@ -146,11 +169,11 @@ yarn / webpack も不要になっています（`Containerfile.v5` との差分�
 
 ```bash
 # 1. 移行元スタックを起動し、初回マイグレーション完了を待つ
-docker compose -f compose.legacy.yaml up --build -d
-docker compose -f compose.legacy.yaml logs -f redmine-legacy-web   # "Starting Puma" まで待つ
+docker compose --env-file .env.legacy -f compose.legacy.yaml up --build -d
+docker compose --env-file .env.legacy -f compose.legacy.yaml logs -f redmine-legacy-web   # "Starting Puma" まで待つ
 
 # 2. Redmine を止める（DB だけ動かしておく）
-docker compose -f compose.legacy.yaml stop redmine-legacy-web
+docker compose --env-file .env.legacy -f compose.legacy.yaml stop redmine-legacy-web
 
 # 3. ダンプを投入（DB は作り直す）
 DBPW="$(cat secrets/db_root_password.txt)"
@@ -165,7 +188,7 @@ docker run --rm -v redmine_legacy_web_files:/to -v /path/to/files:/from:ro \
     -c 'cp -a /from/. /to/ && chown -R redmine:redmine /to'
 
 # 5. Redmine を起動（不足しているマイグレーションがあれば適用されます）
-docker compose -f compose.legacy.yaml start redmine-legacy-web
+docker compose --env-file .env.legacy -f compose.legacy.yaml start redmine-legacy-web
 ```
 
 > **重要**: 実データの Redmine に、上の 16 個以外のプラグインのテーブルが入っていた場合、
@@ -308,38 +331,46 @@ docker run -d --name redmine-legacy-on-pg \
 
 ### 4.1 このまま本運用する場合（Redmine 6/7 へのアップグレードを保留する場合）
 
-上の確認で問題がなければ、一時的な `docker run` の代わりに `compose.dev.yaml` で
-恒久的に動かせます。移行元スタック（`compose.legacy.yaml`、MySQL 側）はもう
-不要なので停止し、`.env` の `REDMINE_LEGACY_*`（と `MIGRATE_EXCLUDE_TABLES`）は
-コメントアウトしてください — 恒久運用に切り替えたあとは、通常スタック用の変数
-（`REDMINE_WEB_CONTAINERFILE` など）と移行元スタック用の変数を同じ `.env` に
-「両方有効」なつもりで混在させないでください（`.env.example` の該当セクションの
-⚠ 注記も参照）。
+上の確認で問題がなければ、一時的な `docker run` の代わりに、移行元スタック
+（`compose.legacy.yaml`）の `redmine-legacy-web` を、`compose.legacy-on-postgres.yaml`
+という override を重ねて恒久的に `redmine-db`（PostgreSQL 18 + PostGIS 3.6）へ
+つなぎ直せます。**通常スタックの `.env` / `compose.dev.yaml` 側は一切変更しません**
+— `REDMINE_WEB_CONTAINERFILE` は `Containerfile.v6`（既定）のままで構いません。
+恒久運用にはこの移行元スタック側の設定だけが関係します。
 
 ```bash
-docker compose -f compose.legacy.yaml down   # 移行元 (MySQL) はもう不要
-                                              # .env の REDMINE_LEGACY_* もコメントアウトする
+# 移行元 MySQL (redmine-legacy-db) はもう不要なので停止する
+docker compose --env-file .env.legacy -f compose.legacy.yaml stop redmine-legacy-db
 
-# .env で次の 3 つをセットで変更する
-#   REDMINE_WEB_CONTAINERFILE=Containerfile.v5-mysql
-#   REDMINE_VERSION=5.1.1            # 移行元と同じバージョンに合わせる
-#   REDMINE_DB_ADAPTER=postgresql    # v5-mysql は postgis 非対応
-
-docker compose -f compose.dev.yaml up --build -d
-docker compose -f compose.dev.yaml logs -f redmine-web
-# http://localhost:8080/redmine/
+# redmine-legacy-web を PostgreSQL (redmine-db) へつなぎ直して起動する。
+# --env-file を 2 つ渡すのは REDMINE_NETWORK / REDMINE_DB_CONTAINER /
+# REDMINE_DB_NAME / REDMINE_DB_USER が .env 側にしかないため。
+# --no-deps は、redmine-legacy-web が redmine-legacy-db の healthy を条件に
+# 依存しているのを回避するため（その MySQL は上で止めた）。
+docker compose --env-file .env --env-file .env.legacy \
+    -f compose.legacy.yaml -f compose.legacy-on-postgres.yaml \
+    up --build -d --no-deps redmine-legacy-web
+docker compose --env-file .env.legacy -f compose.legacy.yaml logs -f redmine-legacy-web
+# http://localhost:8081/redmine/
 ```
 
 このイメージは `redmine_gtt`（PostGIS 固有機能が必要な唯一のプラグイン）を
 積んでいないため、接続先が PostgreSQL 18 + PostGIS 3.6（`redmine-db`）であっても
-`postgresql` アダプタだけで問題なく動きます。`postgis` は指定しないでください
+`postgresql` アダプタだけで問題なく動きます（override が
+`REDMINE_DB_ADAPTER=postgresql` を設定します）。`postgis` は指定できません
 （`Containerfile.v5-mysql` は `config/database.postgis.yml.tmpl` を持たず、
 指定すると起動に失敗します）。
 
+前提として `compose.dev.yaml` の `redmine-db` が先に起動している必要があります
+（`redmine-net` を override が `external: true` で参照するため）。
+
 段階 3（Redmine 7 へのアップグレード）へは、この状態からいつでも再開できます —
-DB は既に PostgreSQL へ移行済みなので、`REDMINE_WEB_CONTAINERFILE` を
-`Containerfile.v7`（または `.v6`）へ、`REDMINE_DB_ADAPTER` を `postgis` へ
-切り替えるだけです（5.1 → 6/7 の一方向マイグレーションが起動時に走ります）。
+DB は既に PostgreSQL へ移行済みなので、通常スタック側（`.env` /
+`compose.dev.yaml`）で `REDMINE_WEB_CONTAINERFILE` を `Containerfile.v7`（または
+`.v6`）に切り替えて起動するだけです（`.env` の `REDMINE_DB_ADAPTER` は既定の
+`postgis` のまま。5.1 → 6/7 の一方向マイグレーションが起動時に走ります）。
+恒久運用に使っていた `redmine-legacy-web` は不要になるので停止してください
+（`docker compose --env-file .env.legacy -f compose.legacy.yaml down`）。
 
 ---
 
@@ -457,18 +488,36 @@ bash scripts/test-upgrade.sh --skip-build # 既存イメージを再利用
 
 ---
 
-## 8. `.env` / 環境変数の対応表（この手順で使うもの）
+## 8. 環境変数ファイルと変数の対応表（この手順で使うもの）
+
+`.env`（通常スタック、`compose.dev.yaml`）と `.env.legacy`（移行元スタック、
+`compose.legacy.yaml`）の 2 ファイルに分かれています（0 章参照）。
+
+**`.env`（`.env.example` から作成）**
 
 | 変数 | 既定 | 意味 |
 |------|------|------|
-| `REDMINE_DB_ADAPTER` | `postgis` | `postgis`（6/7 系の通常構成） / `postgresql`（コンバート時の 5.1.1） / `mysql2`（移行元） |
+| `REDMINE_WEB_CONTAINERFILE` | `Containerfile.v6` | 段階 3 で `Containerfile.v7`（または `.v5`/`.v6`）に切り替える |
+| `REDMINE_DB_ADAPTER` | `postgis` | 通常構成では変更不要。段階 3 で `Containerfile.v7` に切り替えても既定の `postgis` のまま |
 | `REDMINE_MIGRATE_ONLY` | 未設定 | 設定するとマイグレーションだけ実行して終了（Web サーバーを起動しない） |
+| `REDMINE_NETWORK` / `REDMINE_DB_CONTAINER` | `redmine-net` / `redmine-db` | 4.1 の恒久運用 override（`compose.legacy-on-postgres.yaml`）が接続先として参照 |
+
+**`.env.legacy`（`.env.legacy.example` から作成）**
+
+| 変数 | 既定 | 意味 |
+|------|------|------|
 | `REDMINE_LEGACY_WEB_HOST_PORT` | `8081` | 移行元 Redmine の公開ポート |
 | `REDMINE_LEGACY_DB_CONTAINER` | `redmine-legacy-db` | 移行元 MySQL のコンテナ名 |
 | `REDMINE_LEGACY_NETWORK` | `redmine-legacy-net` | 移行元スタックのネットワーク |
 | `REDMINE_LEGACY_FILES_VOLUME` | `redmine_legacy_web_files` | 移行元の添付ファイルボリューム |
 | `PGLOADER_IMAGE` | `docker.io/dimitri/pgloader:v3.6.7` | pgloader のイメージ |
-| `SKIP_ENV_FILE` | `0` | `1` にすると `migrate-mysql-to-postgres.sh` が `.env` を読まない（呼び出し側の値を優先） |
+| `MIGRATE_EXCLUDE_TABLES` | 未設定 | 孤立テーブルの除外リスト（9.4 参照）。コマンドラインの `--exclude-tables` が優先 |
+
+**共通**
+
+| 変数 | 既定 | 意味 |
+|------|------|------|
+| `SKIP_ENV_FILE` | `0` | `1` にすると `migrate-mysql-to-postgres.sh` が `.env` / `.env.legacy` のどちらも読まない（呼び出し側の値を優先、`scripts/test-upgrade.sh` が使用） |
 
 ---
 
@@ -516,7 +565,7 @@ pgloader は `id` の値をそのまま COPY しますが、シーケンスは 1
   テーブルが残っているケースです（`SELECT name FROM settings WHERE name LIKE
   'plugin_%'` に出てこないのに `information_schema.tables` には出てくる場合、
   これに該当します）。この場合はプラグインを追加/アンインストールする必要は
-  なく、`--exclude-tables <table1>,<table2>,...`（または `.env` の
+  なく、`--exclude-tables <table1>,<table2>,...`（または `.env.legacy` の
   `MIGRATE_EXCLUDE_TABLES`）でそのテーブルを移行対象から除外してください。
   `schema` / `data`（pgloader の `EXCLUDING TABLE NAMES MATCHING` 句）/
   `verify` の全ステップで自動的に除外されます。そのテーブルのデータは移行され
@@ -562,7 +611,9 @@ Redmine の `Gemfile` は `config/database.yml` に現れる `adapter:` 行を�
 実施済み:
 
 - `shellcheck` によるシェルスクリプトの静的検査
-- `docker compose -f compose.legacy.yaml config` / `compose.dev.yaml config` の構文検証
+- `docker compose --env-file .env.legacy -f compose.legacy.yaml config` /
+  `compose.dev.yaml config` / override 込みの `compose.legacy-on-postgres.yaml`
+  の構文検証
 - 上流ソースの確認（Redmine 5.1.1 / 6.1.3 / 7.0.0 の `Gemfile` の DB gem 解決ロジック、
   公式 redmine イメージの `Dockerfile.template` がダミー `database.yml` で全アダプタを
   事前インストールしている実装、`redmine:5.1.1` タグの存在、`mysql:8.0` の `*_FILE` 対応、
@@ -570,7 +621,7 @@ Redmine の `Gemfile` は `config/database.yml` に現れる `adapter:` 行を�
 
 未実施（実機で必ず行ってください）:
 
-- イメージのビルド（`compose.legacy.yaml build`、Redmine 7 イメージ）
+- イメージのビルド（`compose.legacy.yaml build`（`--env-file .env.legacy`）、Redmine 7 イメージ）
 - 段階 1〜3 の通し実行 → **`bash scripts/test-upgrade.sh`**
 - 実データ（本番相当のサイズ・文字コード）でのコンバート時間とエラーの確認
 

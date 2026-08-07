@@ -16,11 +16,22 @@
 #     移行元: redmine-legacy-db / redmine-legacy-web / redmine-legacy-net / :8081
 #     移行先: redmine-db        / redmine-web        / redmine-net        / :8080
 #
+# ★ 環境変数ファイルは compose.dev.yaml の .env とは別に、専用の .env.legacy を
+#   使います（--env-file を明示しないと Compose は既定の .env を自動読み込み
+#   してしまうため）。2 つのスタックの変数を混在させないでください
+#   （.env.legacy.example のヘッダ参照）。
+#
 # 使い方:
 #   bash scripts/generate-secrets.sh                       # ./secrets/*.txt を生成
-#   docker compose -f compose.legacy.yaml up --build -d
-#   docker compose -f compose.legacy.yaml logs -f redmine-web
+#   cp .env.legacy.example .env.legacy                      # 初回のみ
+#   docker compose --env-file .env.legacy -f compose.legacy.yaml up --build -d
+#   docker compose --env-file .env.legacy -f compose.legacy.yaml logs -f redmine-web
 #   http://localhost:8081/redmine/ を開く（初期ログイン: admin / admin）
+#
+# 移行元のバージョン・プラグイン構成のまま DB だけ PostgreSQL へ恒久的に切り替える
+# 場合（Redmine 6/7 へのアップグレードを保留する場合）は
+# compose.legacy-on-postgres.yaml を重ねます（docs/Upgrade.md §4.1、
+# .env.legacy.example のヘッダ参照）。
 
 name: redmine-legacy
 

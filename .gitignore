@@ -6,9 +6,11 @@
 /secrets/
 secrets/*.txt
 
-# ── Environment file (non-secret SMTP/TZ overrides) ──────────────────────────
-# Optional. Use .env.example as a reference.
+# ── Environment files (non-secret overrides) ─────────────────────────────────
+# Optional. .env is for compose.dev.yaml (use .env.example as a reference);
+# .env.legacy is for compose.legacy.yaml (use .env.legacy.example as a reference).
 .env
+.env.legacy
 
 # ── Backup files ──────────────────────────────────────────────────────────────
 # Backup archives are stored under /opt/redmine/backup/ on the host, not in the repo
