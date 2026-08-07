@@ -33,6 +33,13 @@
 #   bash scripts/migrate-mysql-to-postgres.sh --steps verify  # 検証だけ
 #   bash scripts/migrate-mysql-to-postgres.sh --steps schema,data,sequences
 #   bash scripts/migrate-mysql-to-postgres.sh --yes           # 確認プロンプトを省略
+#   bash scripts/migrate-mysql-to-postgres.sh \
+#       --exclude-tables client_applications,oauth_nonces,oauth_tokens
+#     移行元に、既にアンインストール済みのプラグインが残したテーブル（プラグイン
+#     フォルダは無いがマイグレーションだけ残っている「孤立テーブル」）がある場合に
+#     指定します。schema ステップの突き合わせと data ステップの pgloader 転送、
+#     verify ステップの件数比較のすべてで対象テーブルを除外します（そのデータは
+#     移行されません）。.env の MIGRATE_EXCLUDE_TABLES でも指定できます。
 #
 # 開発/リハーサル用スクリプトのため、docker / podman のどちらでも動きます
 # （CONTAINER_CLI で明示指定も可能）。
@@ -97,6 +104,10 @@ STEPS="${STEPS_DEFAULT}"
 ASSUME_YES=0
 NATIVE_USER=1
 KEEP_PGLOADER_USER=0
+# 既にアンインストール済みのプラグインが残した孤立テーブル（コード無し・
+# マイグレーションの痕跡だけ有り）をカンマ区切りで指定します。preflight/schema
+# の突き合わせ、pgloader の転送、verify の件数比較のすべてから除外されます。
+EXCLUDE_TABLES="${MIGRATE_EXCLUDE_TABLES:-}"
 
 while [ "$#" -gt 0 ]; do
     case "$1" in
@@ -107,8 +118,12 @@ while [ "$#" -gt 0 ]; do
         --yes|-y) ASSUME_YES=1 ;;
         --no-native-user) NATIVE_USER=0 ;;
         --keep-pgloader-user) KEEP_PGLOADER_USER=1 ;;
+        --exclude-tables)
+            [ "$#" -ge 2 ] || die "--exclude-tables requires an argument"
+            EXCLUDE_TABLES="$2"; shift ;;
+        --exclude-tables=*) EXCLUDE_TABLES="${1#--exclude-tables=}" ;;
         -h|--help)
-            sed -n '2,45p' "${BASH_SOURCE[0]}"
+            sed -n '2,50p' "${BASH_SOURCE[0]}"
             exit 0 ;;
         *) die "Unknown option: $1" ;;
     esac
@@ -117,6 +132,13 @@ done
 
 has_step() {
     case ",${STEPS}," in
+        *",$1,"*) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+is_excluded_table() {
+    case ",${EXCLUDE_TABLES}," in
         *",$1,"*) return 0 ;;
         *) return 1 ;;
     esac
@@ -220,23 +242,46 @@ if has_step schema; then
         "${LEGACY_WEB_IMAGE}" \
         || die "Schema creation failed (see the output above)."
 
-    # 移行元にあって移行先に無いテーブルがあると pgloader が落ちます。
-    # 典型的な原因は「移行元にこのイメージが同梱していないプラグインが入っている」ことです。
+    # 移行元にあって移行先に無いテーブルがあると pgloader が落ちます。典型的な原因は
+    # (a) 移行元にこのイメージが同梱していないプラグインが入っている、または
+    # (b) 移行元で過去にアンインストールされたプラグインが、マイグレーションを
+    #     ロールバックせずにコード（plugins/ 配下）だけ削除されたため、テーブルが
+    #     孤立している、のどちらかです。(b) は --exclude-tables で除外できます。
     SRC_TABLES="$(mysql_q "SELECT table_name FROM information_schema.tables
         WHERE table_schema = '${DB_NAME}' AND table_type = 'BASE TABLE' ORDER BY table_name")"
     DST_TABLES="$(psql_q "SELECT tablename FROM pg_tables WHERE schemaname = 'public' ORDER BY tablename")"
     MISSING=""
+    SKIPPED=""
     while IFS= read -r t; do
         [ -n "${t}" ] || continue
-        echo "${DST_TABLES}" | grep -qx "${t}" || MISSING="${MISSING} ${t}"
+        if echo "${DST_TABLES}" | grep -qx "${t}"; then
+            continue
+        fi
+        if is_excluded_table "${t}"; then
+            SKIPPED="${SKIPPED} ${t}"
+            continue
+        fi
+        MISSING="${MISSING} ${t}"
     done <<< "${SRC_TABLES}"
+    if [ -n "${SKIPPED}" ]; then
+        warn "[schema] Excluding source tables not present on PostgreSQL (--exclude-tables):${SKIPPED}"
+        warn "[schema]   Their data will NOT be migrated."
+    fi
     if [ -n "${MISSING}" ]; then
+        MISSING_CSV="$(echo "${MISSING}" | xargs | tr ' ' ',')"
         die "These source tables do not exist on PostgreSQL:${MISSING}
   移行元に、このイメージが同梱していないプラグインのテーブルがあります。
-  そのプラグインを Containerfile.v5-mysql に足してイメージを作り直すか、
-  移行元で当該プラグインをアンインストールしてから再実行してください。"
+  次のいずれかで対応してください:
+    (a) そのプラグインが移行元でまだ使われているなら、Containerfile.v5-mysql に
+        足してイメージを作り直すか、移行元でアンインストールしてから再実行する
+    (b) 既にアンインストール済みのプラグインが残した孤立テーブルなら、
+        --exclude-tables ${MISSING_CSV} でこのテーブルを除外して再実行する"
     fi
-    log "[schema] Done (all $(echo "${SRC_TABLES}" | wc -l) source tables exist on PostgreSQL)."
+    SCHEMA_DONE_MSG="[schema] Done ($(echo "${SRC_TABLES}" | wc -l) source tables checked"
+    if [ -n "${SKIPPED}" ]; then
+        SCHEMA_DONE_MSG="${SCHEMA_DONE_MSG}, $(echo "${SKIPPED}" | wc -w) excluded"
+    fi
+    log "${SCHEMA_DONE_MSG})."
 fi
 
 # ── 3. data（pgloader） ────────────────────────────────────────────────────────
@@ -271,6 +316,15 @@ if has_step data; then
     trap cleanup_work EXIT
 
     log "[data] Rendering the pgloader command file ..."
+    # schema_migrations/ar_internal_metadata は常に除外（理由はテンプレートの
+    # ヘッダコメント参照）。--exclude-tables で指定された孤立テーブルも同様に
+    # EXCLUDING 句へ追加します。
+    EXCLUDE_TABLES_SQL="'schema_migrations', 'ar_internal_metadata'"
+    for t in ${EXCLUDE_TABLES//,/ }; do
+        [ -n "${t}" ] || continue
+        EXCLUDE_TABLES_SQL="${EXCLUDE_TABLES_SQL}, '${t}'"
+    done
+
     # envsubst に渡す変数名リストなので単一引用符のままで正しい。
     # shellcheck disable=SC2016
     MYSQL_USER="${PGLOADER_CONN_USER}" \
@@ -283,7 +337,8 @@ if has_step data; then
     PG_HOST="${PG_DB_CONTAINER}" \
     PG_PORT="${PG_DB_PORT}" \
     PG_DB="${DB_NAME}" \
-    envsubst '${MYSQL_USER} ${MYSQL_PASSWORD} ${MYSQL_HOST} ${MYSQL_PORT} ${MYSQL_DB} ${PG_USER} ${PG_PASSWORD} ${PG_HOST} ${PG_PORT} ${PG_DB}' \
+    EXCLUDE_TABLES_SQL="${EXCLUDE_TABLES_SQL}" \
+    envsubst '${MYSQL_USER} ${MYSQL_PASSWORD} ${MYSQL_HOST} ${MYSQL_PORT} ${MYSQL_DB} ${PG_USER} ${PG_PASSWORD} ${PG_HOST} ${PG_PORT} ${PG_DB} ${EXCLUDE_TABLES_SQL}' \
         < "${SCRIPT_DIR}/pgloader/redmine-data-only.load.tmpl" \
         > "${WORK_DIR}/redmine.load"
     chmod 600 "${WORK_DIR}/redmine.load"
@@ -353,6 +408,13 @@ if has_step verify; then
 
     while IFS= read -r t; do
         [ -n "${t}" ] || continue
+        # --exclude-tables で除外したテーブルは移行先に存在しないため、
+        # 件数比較そのものをスキップします（psql が「relation does not exist」で
+        # 落ちるのを避けるため、count(*) を投げる前に判定します）。
+        if is_excluded_table "${t}"; then
+            warn "  SKIP (excluded via --exclude-tables, not migrated) ${t}"
+            continue
+        fi
         src="$(mysql_q "SELECT count(*) FROM \`${t}\`" | tr -d '[:space:]')"
         dst="$(psql_q "SELECT count(*) FROM \"${t}\"" | tr -d '[:space:]')"
         if [ "${src}" != "${dst}" ]; then
@@ -388,9 +450,15 @@ if has_step verify; then
     SRC_MIG="$(mysql_q 'SELECT count(*) FROM schema_migrations' | tr -d '[:space:]')"
     DST_MIG="$(psql_q 'SELECT count(*) FROM schema_migrations' | tr -d '[:space:]')"
     if [ "${SRC_MIG}" != "${DST_MIG}" ]; then
-        warn "  schema_migrations differ: mysql=${SRC_MIG} postgres=${DST_MIG}"
-        warn "  移行元と移行先で Redmine/プラグイン構成が違う可能性があります。"
-        FAILED=$((FAILED + 1))
+        if [ -n "${EXCLUDE_TABLES}" ]; then
+            # --exclude-tables を使った場合、除外したテーブル分のプラグイン
+            # マイグレーションは移行元にしか無いため、この差は想定内です。
+            warn "  schema_migrations differ: mysql=${SRC_MIG} postgres=${DST_MIG} (--exclude-tables 使用時は想定内)"
+        else
+            warn "  schema_migrations differ: mysql=${SRC_MIG} postgres=${DST_MIG}"
+            warn "  移行元と移行先で Redmine/プラグイン構成が違う可能性があります。"
+            FAILED=$((FAILED + 1))
+        fi
     fi
 
     if [ "${FAILED}" -ne 0 ]; then

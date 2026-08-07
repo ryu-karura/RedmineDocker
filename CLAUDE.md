@@ -458,7 +458,16 @@ wants off MySQL, not onto a newer Redmine. Things worth not re-deriving:
   (PostGIS-only), `redmine_login_audit2` and `redmine_solid_queue` (both need
   Redmine ≥ 6.0 / Rails ≥ 7.1). Anything the *source* database has beyond the
   image's 16 plugins makes the load fail — the `schema` step diffs the table sets
-  and stops first.
+  and stops first. That's not always a missing-plugin problem, though: a plugin
+  that was uninstalled from the source long ago without rolling back its
+  migrations leaves orphaned tables with no plugin code behind them (verifiable
+  via `SELECT name FROM settings WHERE name LIKE 'plugin_%'` on the source,
+  which won't list it even though `information_schema.tables` does). For that
+  case `migrate-mysql-to-postgres.sh --exclude-tables <name>,...` (or `.env`'s
+  `MIGRATE_EXCLUDE_TABLES`) skips the named tables in the `schema` diff, the
+  pgloader `EXCLUDING TABLE NAMES MATCHING` clause, and `verify`'s row-count
+  comparison — no image rebuild and no destructive `DROP TABLE` on the source
+  needed.
 - **`redmine_banner` must be uninstalled before switching to the v7 image**
   (`rake redmine:plugins:migrate NAME=redmine_banner VERSION=0`), because v7 does
   not ship it and plugin migrations can't be rolled back once the code is gone.
