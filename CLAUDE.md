@@ -110,7 +110,9 @@ plugin/theme versions that actually work differ per series:
 | 7 | `Containerfile.v7` | `redmine:7.0.0` | 4.0 / 8.1.3 | 12 |
 
 A fourth Containerfile, `Containerfile.v5-mysql` (Redmine 5.1.6 + MySQL 8.0 CE,
-10 plugins), exists **only to rehearse the upgrade** from a legacy MySQL install
+16 plugins — the 10 shared with `Containerfile.v5` minus `redmine_gtt`, plus 6
+more pinned to match a real legacy production plugin set), exists **only to
+rehearse the upgrade** from a legacy MySQL install
 — see "Upgrade rehearsal path" below and `docs/Upgrade.md`. It is not part of
 the normal dev/prod stack and has no Quadlet unit.
 
@@ -443,7 +445,7 @@ and then upgrade straight to Redmine 7.0.0. Things worth not re-deriving:
 - **The legacy image excludes plugins that can't work there**: `redmine_gtt`
   (PostGIS-only), `redmine_login_audit2` and `redmine_solid_queue` (both need
   Redmine ≥ 6.0 / Rails ≥ 7.1). Anything the *source* database has beyond the
-  image's 10 plugins makes the load fail — the `schema` step diffs the table sets
+  image's 16 plugins makes the load fail — the `schema` step diffs the table sets
   and stops first.
 - **`redmine_banner` must be uninstalled before switching to the v7 image**
   (`rake redmine:plugins:migrate NAME=redmine_banner VERSION=0`), because v7 does

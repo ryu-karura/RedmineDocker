@@ -41,7 +41,8 @@
 #
 # サブ URI: /redmine（RAILS_RELATIVE_URL_ROOT）
 #
-# 導入プラグイン（10）— Containerfile.v5 の 11 個から redmine_gtt を除いたもの:
+# 導入プラグイン（16）— Containerfile.v5 の 11 個から redmine_gtt を除いた 10 個に、
+#   実際の移行元環境（本番相当）のプラグイン構成に合わせて 6 個を追加したもの:
 #   1.  redmine_wiki_lists        (tkusukawa, 0.0.11)
 #   2.  redmine_banner            (agileware-jp, 0.3.5)
 #   3.  redmine_issues_panel      (redmica, v1.0.4)
@@ -52,6 +53,12 @@
 #   8.  view_customize            (onozaty, v3.6.0、ディレクトリ名は必ず 'view_customize')
 #   9.  redmine_logs              (haru, 0.3.0)
 #  10.  redmine_wiki_extensions   (haru, 0.9.5)
+#  11.  redmine_xlsx_format_issue_exporter (two-pack, 0.2.1)
+#  12.  redmine_issue_assign_notice        (onozaty, v2.2.1)
+#  13.  redmine_theme_changer              (haru, 0.6.0)
+#  14.  redmine_absolute_dates             (suer, 0.0.4)
+#  15.  redmine_vividtone_my_page_blocks   (vividtone, 1.3)
+#  16.  redmine_hide_sidebar               (nanego, 既定ブランチ = master、タグ無し)
 #
 # 未対応のため除外したプラグイン:
 #   - redmine_gtt          … PostGIS 必須（geometry 型・PostGIS 関数を使う）。
@@ -183,6 +190,30 @@ RUN git clone --depth 1 --branch 0.3.0 \
 # 10. redmine_wiki_extensions (0.9.5) — Wiki 拡張（マクロ、コメント、タグ、投票）
 RUN git clone --depth 1 --branch 0.9.5 \
         https://github.com/haru/redmine_wiki_extensions.git redmine_wiki_extensions
+
+# 11. redmine_xlsx_format_issue_exporter (0.2.1) — 課題一覧の xlsx エクスポート
+RUN git clone --depth 1 --branch 0.2.1 \
+        https://github.com/two-pack/redmine_xlsx_format_issue_exporter.git redmine_xlsx_format_issue_exporter
+
+# 12. redmine_issue_assign_notice (2.2.1) — 担当者変更時の通知
+RUN git clone --depth 1 --branch v2.2.1 \
+        https://github.com/onozaty/redmine_issue_assign_notice.git redmine_issue_assign_notice
+
+# 13. redmine_theme_changer (0.6.0) — ユーザーごとのテーマ切り替え
+RUN git clone --depth 1 --branch 0.6.0 \
+        https://github.com/haru/redmine_theme_changer.git redmine_theme_changer
+
+# 14. redmine_absolute_dates (0.0.4) — 日付の絶対値表示
+RUN git clone --depth 1 --branch 0.0.4 \
+        https://github.com/suer/redmine_absolute_dates.git redmine_absolute_dates
+
+# 15. redmine_vividtone_my_page_blocks (1.3) — マイページ用ブロック追加
+RUN git clone --depth 1 --branch 1.3 \
+        https://github.com/vividtone/redmine_vividtone_my_page_blocks.git redmine_vividtone_my_page_blocks
+
+# 16. redmine_hide_sidebar — サイドバー非表示（タグ無し、既定ブランチ = master）
+RUN git clone --depth 1 \
+        https://github.com/nanego/redmine_hide_sidebar.git redmine_hide_sidebar
 
 # ── プラグイン gem のインストール ─────────────────────────────────────────────
 # プラグイン依存 gem をイメージ内 bundle（/usr/local/bundle）へ焼き込みます。

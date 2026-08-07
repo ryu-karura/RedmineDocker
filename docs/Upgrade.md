@@ -98,9 +98,10 @@ docker compose -f compose.legacy.yaml logs -f redmine-legacy-web
 通常の開発スタック（`compose.dev.yaml`、`:8080`）とは、コンテナ名・ネットワーク・
 ボリューム・ポートがすべて別なので同時起動できます。段階 2 では実際に両方を起動します。
 
-### 2.1 プラグイン構成（10 個）と、除外したもの
+### 2.1 プラグイン構成（16 個）と、除外したもの
 
-`Containerfile.v5` の 11 個から `redmine_gtt` を除いた 10 個です。
+`Containerfile.v5` の 11 個から `redmine_gtt` を除いた 10 個に、実際の移行元環境
+（本番相当）のプラグイン構成に合わせて 6 個を追加したものです。
 
 | # | プラグイン | バージョン |
 |---|-----------|-----------|
@@ -114,6 +115,12 @@ docker compose -f compose.legacy.yaml logs -f redmine-legacy-web
 | 8 | view_customize | v3.6.0 |
 | 9 | redmine_logs | 0.3.0 |
 | 10 | redmine_wiki_extensions | 0.9.5 |
+| 11 | redmine_xlsx_format_issue_exporter | 0.2.1 |
+| 12 | redmine_issue_assign_notice | v2.2.1 |
+| 13 | redmine_theme_changer | 0.6.0 |
+| 14 | redmine_absolute_dates | 0.0.4 |
+| 15 | redmine_vividtone_my_page_blocks | 1.3 |
+| 16 | redmine_hide_sidebar | master（タグ無し） |
 
 **未対応のため除外したプラグイン**
 
@@ -157,7 +164,7 @@ docker run --rm -v redmine_legacy_web_files:/to -v /path/to/files:/from:ro \
 docker compose -f compose.legacy.yaml start redmine-legacy-web
 ```
 
-> **重要**: 実データの Redmine に、上の 10 個以外のプラグインが入っていた場合、その
+> **重要**: 実データの Redmine に、上の 16 個以外のプラグインが入っていた場合、その
 > プラグインのテーブルが移行先に存在せずコンバートが失敗します。
 > `scripts/migrate-mysql-to-postgres.sh` の `schema` ステップがこれを検出して止めるので、
 > 検出されたら「そのプラグインを `Containerfile.v5-mysql` に追加して再ビルドする」か
@@ -401,7 +408,7 @@ bash scripts/test-upgrade.sh --skip-build # 既存イメージを再利用
 
 検査する内容:
 
-1. 移行元スタックが起動し、Redmine 5.1.6 / プラグイン 10 個 / mysql2 アダプタで動く
+1. 移行元スタックが起動し、Redmine 5.1.6 / プラグイン 16 個 / mysql2 アダプタで動く
 2. 検証データ（日本語・boolean を含む）を投入できる
 3. コンバートが成功し、件数・シーケンス・boolean 型が一致する
 4. コンバート後の DB で 5.1.6 が起動し、データが見え、新規チケットを作成できる
