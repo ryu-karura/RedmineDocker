@@ -11,7 +11,7 @@
 #
 # 公式イメージに対して次を追加します:
 #   - 日本語 CJK フォント（fonts-noto-cjk）
-#   - RedmineDocker のプラグイン/テーマ構成（12 plugins + farend_fancy）
+#   - RedmineDocker のプラグイン/テーマ構成（13 plugins + farend_fancy）
 #
 # アプリ配置は /usr/src/redmine（公式イメージ標準）です。
 # Apache が :80 で受け、REDMINE_WEB_SERVER に応じて次のどちらかで処理します:
@@ -34,7 +34,7 @@
 #
 # サブ URI: /redmine（RAILS_RELATIVE_URL_ROOT）
 #
-# 導入プラグイン（12）:
+# 導入プラグイン（13）:
 #   1.  redmine_wiki_lists        (tkusukawa, 0.0.11)
 #   2.  redmine_issues_panel      (redmica, v1.2.1)
 #   3.  redmica_ui_extension      (redmica, v0.6.0)
@@ -47,6 +47,10 @@
 #  10.  redmine_wiki_extensions   (haru, 1.3.0)
 #  11.  redmine_solid_queue       (nishidayuya, v1.0.0)
 #  12.  redmine_gtt               (gtt-project, v7.1.0) ← PostGIS が必要
+#  13.  redmine_xlsx_format_issue_exporter (two-pack, 0.2.1) — 課題一覧などの
+#       XLSX 出力。requires_redmine 4.2 以上（上限指定なし）。最終タグは
+#       2024-01 で、7 系リリース（2026）より前のため CI 実績はありません。
+#       事前検証推奨。
 #
 # 6 系にあって 7 系で外したプラグイン:
 #   - redmine_banner … master は Redmine 7 未対応です。7.0 向け修正は
@@ -228,6 +232,14 @@ RUN curl -fsSL -o /tmp/redmine_gtt.tar.gz \
     && tar -xzf /tmp/redmine_gtt.tar.gz -C . \
     && rm -f /tmp/redmine_gtt.tar.gz \
     && test -f redmine_gtt/assets/javascripts/main.js
+
+# 13. redmine_xlsx_format_issue_exporter (0.2.1) — 課題一覧などの XLSX 出力
+#     requires_redmine 4.2 以上（上限指定なし）。最終タグは 2024-01 で、
+#     7 系リリース（2026）より前のため CI 実績はありません。事前検証推奨。
+RUN git clone --depth 1 --branch 0.2.1 \
+        https://github.com/two-pack/redmine_xlsx_format_issue_exporter.git redmine_xlsx_format_issue_exporter \
+    || git clone --depth 1 \
+        https://github.com/two-pack/redmine_xlsx_format_issue_exporter.git redmine_xlsx_format_issue_exporter
 
 # ── プラグイン gem のインストール ─────────────────────────────────────────────
 # プラグイン依存 gem をイメージ内 bundle（/usr/local/bundle）へ焼き込みます。

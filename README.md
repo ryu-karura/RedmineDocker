@@ -49,10 +49,11 @@
 | Passenger | `REDMINE_WEB_SERVER=passenger` 用。5 / 6 系は Debian trixie の `libapache2-mod-passenger` (6.0.26)、7 系は Ruby 4.0 のため forky (Debian 14) の 6.1.x |
 | Node.js / Yarn | Debian `nodejs` + Yarn 1.22.22（5 系のみ。redmine_gtt 6.0.3 の webpack ビルド用） |
 
-`redmine-web` に焼き込まれているプラグイン (6 系は 13 個): redmine_wiki_lists, redmine_banner,
+`redmine-web` に焼き込まれているプラグイン (6 系は 14 個): redmine_wiki_lists, redmine_banner,
 redmine_issues_panel, redmica_ui_extension, redmine_ip_filter,
 redmine_message_customize, redmine_issue_templates, view_customize, redmine_logs,
-redmine_login_audit2, redmine_wiki_extensions, redmine_solid_queue, redmine_gtt。
+redmine_login_audit2, redmine_wiki_extensions, redmine_solid_queue, redmine_gtt,
+redmine_xlsx_format_issue_exporter。
 テーマ: farend_fancy。`redmine_gtt` には PostGIS と `postgis` アダプタが必要です（`containers/redmine-web/database.yml.tmpl` で設定）。
 
 ### Redmine のメジャーバージョン系列
@@ -65,9 +66,9 @@ redmine_login_audit2, redmine_wiki_extensions, redmine_solid_queue, redmine_gtt�
 
 | 系列 | Containerfile | ベースイメージ | プラグイン | 備考 |
 |------|---------------|----------------|-----------|------|
-| Redmine 5 | `Containerfile.v5` | `redmine:5.1.12` | 11 個 | 公式イメージは 5.1.12 で打ち切り（Ruby 3.2 EOL）。login_audit2 / solid_queue は 5.1 で導入不可 |
-| Redmine 6 | `Containerfile.v6` | `redmine:6.1.3` | 13 個 | 既定 |
-| Redmine 7 | `Containerfile.v7` | `redmine:7.0.0` | 12 個 | banner は 7.0 未対応のため非同梱。Ruby 4.0 のため mod_passenger は forky の 6.1.x を APT pin して導入 |
+| Redmine 5 | `Containerfile.v5` | `redmine:5.1.12` | 12 個 | 公式イメージは 5.1.12 で打ち切り（Ruby 3.2 EOL）。login_audit2 / solid_queue は 5.1 で導入不可 |
+| Redmine 6 | `Containerfile.v6` | `redmine:6.1.3` | 14 個 | 既定 |
+| Redmine 7 | `Containerfile.v7` | `redmine:7.0.0` | 13 個 | banner は 7.0 未対応のため非同梱。Ruby 4.0 のため mod_passenger は forky の 6.1.x を APT pin して導入 |
 
 既存の Redmine 5.1.1 + MySQL からの移行（例外的な作業）は
 **[アップグレード手順](docs/Upgrade.md)** を参照してください。
