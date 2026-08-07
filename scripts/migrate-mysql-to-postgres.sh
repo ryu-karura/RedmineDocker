@@ -23,7 +23,8 @@
 #   実行には RESTORE 同様の明示確認（MIGRATE と入力）が必要です（--yes で省略可）。
 #
 # 前提:
-#   - 移行元スタックが起動していること   docker compose -f compose.legacy.yaml up -d
+#   - .env.legacy が用意されていること   cp .env.legacy.example .env.legacy
+#   - 移行元スタックが起動していること   docker compose --env-file .env.legacy -f compose.legacy.yaml up -d
 #   - 移行先 DB が起動していること       docker compose -f compose.dev.yaml up -d redmine-db
 #   - 移行先 Web は停止していること      （起動していると migrate が競合します）
 #   - secrets/ が生成済みであること      bash scripts/generate-secrets.sh
@@ -39,21 +40,31 @@
 #     フォルダは無いがマイグレーションだけ残っている「孤立テーブル」）がある場合に
 #     指定します。schema ステップの突き合わせと data ステップの pgloader 転送、
 #     verify ステップの件数比較のすべてで対象テーブルを除外します（そのデータは
-#     移行されません）。.env の MIGRATE_EXCLUDE_TABLES でも指定できます。
+#     移行されません）。.env.legacy の MIGRATE_EXCLUDE_TABLES でも指定できます。
 #
 # 開発/リハーサル用スクリプトのため、docker / podman のどちらでも動きます
 # （CONTAINER_CLI で明示指定も可能）。
+#
+# このスクリプトは移行元と移行先の橋渡し役なので、両方の環境変数ファイル
+# （.env = compose.dev.yaml 側、.env.legacy = compose.legacy.yaml 側）を読みます
+# — compose.dev.yaml / compose.legacy.yaml それぞれは互いのファイルを読みません
+# （混在させない設計。.env.example / .env.legacy.example のヘッダ参照）。
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(dirname "${SCRIPT_DIR}")"
-# .env（非シークレット設定）を読み込みます。SKIP_ENV_FILE=1 のときは読みません
-# — `set -a; source` は既に export 済みの値まで上書きしてしまうため、
-# 独自の識別子を渡してくる呼び出し元（scripts/test-upgrade.sh）が使います。
-if [ -f "${ROOT_DIR}/.env" ] && [ "${SKIP_ENV_FILE:-0}" != "1" ]; then
-    # shellcheck disable=SC1091
-    set -a; source "${ROOT_DIR}/.env"; set +a
+# .env と .env.legacy（非シークレット設定）を読み込みます。SKIP_ENV_FILE=1 の
+# ときは読みません — `set -a; source` は既に export 済みの値まで上書きして
+# しまうため、独自の識別子を渡してくる呼び出し元（scripts/test-upgrade.sh）が
+# 使います。
+if [ "${SKIP_ENV_FILE:-0}" != "1" ]; then
+    for env_file in "${ROOT_DIR}/.env" "${ROOT_DIR}/.env.legacy"; do
+        if [ -f "${env_file}" ]; then
+            # shellcheck disable=SC1090
+            set -a; source "${env_file}"; set +a
+        fi
+    done
 fi
 
 LOG_PREFIX="[$(date -u '+%Y-%m-%dT%H:%M:%SZ')] [migrate-db]"
@@ -204,7 +215,7 @@ if has_step preflight; then
         || die "Target PostgreSQL container '${PG_DB_CONTAINER}' is not running (compose.dev.yaml)."
 
     cli image inspect "${LEGACY_WEB_IMAGE}" >/dev/null 2>&1 \
-        || die "Legacy web image '${LEGACY_WEB_IMAGE}' not found. Build it with: ${CONTAINER_CLI} compose -f compose.legacy.yaml build"
+        || die "Legacy web image '${LEGACY_WEB_IMAGE}' not found. Build it with: ${CONTAINER_CLI} compose --env-file .env.legacy -f compose.legacy.yaml build"
 
     mysql_q 'SELECT 1' >/dev/null 2>&1 \
         || die "Cannot query MySQL as '${DB_USER}' (database ${DB_NAME})."

@@ -103,11 +103,11 @@ services:
       # イメージには両方同梱してあるため、再起動のみで切り替わります。
       REDMINE_WEB_SERVER: ${REDMINE_WEB_SERVER:-puma}
       REDMINE_PUMA_PORT: ${REDMINE_PUMA_PORT:-3000}
-      # postgis (既定、Containerfile.v5/.v6/.v7) 以外に切り替えるのは、移行元の
-      # Redmine バージョン/プラグイン構成のまま DB だけ PostgreSQL へ切り替えて
-      # 運用する場合（REDMINE_WEB_CONTAINERFILE=Containerfile.v5-mysql と組み合わせ、
-      # postgresql を指定）だけです。docs/Upgrade.md 参照。
-      REDMINE_DB_ADAPTER: ${REDMINE_DB_ADAPTER:-postgis}
+      # このスタックは常に postgis です。移行元のバージョン/プラグイン構成の
+      # まま DB だけ PostgreSQL へ恒久的に切り替える場合は、こちらではなく
+      # compose.legacy.yaml + compose.legacy-on-postgres.yaml を使います
+      # （docs/Upgrade.md §4.1 — .env と .env.legacy を混在させない設計のため）。
+      REDMINE_DB_ADAPTER: postgis
       REDMINE_DB_HOST: ${REDMINE_DB_CONTAINER:-redmine-db}
       REDMINE_DB_NAME: ${REDMINE_DB_NAME:-redmine}
       REDMINE_DB_USER: ${REDMINE_DB_USER:-redmine}

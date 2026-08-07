@@ -1,0 +1,43 @@
+# compose.legacy-on-postgres.yaml — 移行元のバージョン・プラグイン構成のまま、
+# DB だけ PostgreSQL へ恒久的に切り替えて運用するための compose.legacy.yaml の
+# override（Redmine 6/7 へのアップグレードを保留する場合）。単独では使えません。
+#
+# 前提: scripts/migrate-mysql-to-postgres.sh でデータのコンバートが完了していること
+#   （compose.dev.yaml の redmine-db に、移行元と同じデータが入っている状態）。
+#
+# 使い方（詳細は docs/Upgrade.md §4.1）:
+#   docker compose --env-file .env --env-file .env.legacy \
+#       -f compose.legacy.yaml -f compose.legacy-on-postgres.yaml \
+#       up --build -d --no-deps redmine-legacy-web
+#   docker compose --env-file .env.legacy -f compose.legacy.yaml stop redmine-legacy-db
+#
+# --env-file を 2 つ渡すのは、REDMINE_NETWORK / REDMINE_DB_CONTAINER /
+# REDMINE_DB_NAME / REDMINE_DB_USER（接続先の compose.dev.yaml 側の識別子）が
+# .env にしかなく、.env.legacy には重複定義していないためです。
+#
+# --no-deps が必要な理由: compose.legacy.yaml の redmine-legacy-web は
+# redmine-legacy-db (MySQL) の healthy を条件に依存しますが、この運用では
+# その MySQL は不要になり停止するため、依存関係の自動起動をスキップします。
+#
+# redmine-legacy-web を、compose.dev.yaml が作る redmine-net（external 参照）
+# にも接続し、redmine-db (PostgreSQL 18 + PostGIS 3.6) へ postgresql アダプタ
+# で接続します。redmine_gtt を積まない構成のため postgis 固有機能は不要で、
+# postgresql アダプタで機能的に十分です（詳細は
+# containers/redmine-web/database.postgresql.yml.tmpl のヘッダコメント参照）。
+# redmine-net は compose.dev.yaml が先に作成している必要があります
+# （redmine-db が起動済みであること）。
+
+networks:
+  redmine-net:
+    name: ${REDMINE_NETWORK:-redmine-net}
+    external: true
+
+services:
+  redmine-legacy-web:
+    networks:
+      - redmine-legacy-net
+      - redmine-net
+    environment:
+      REDMINE_DB_ADAPTER: postgresql
+      REDMINE_DB_HOST: ${REDMINE_DB_CONTAINER:-redmine-db}
+      REDMINE_DB_PORT: "5432"
