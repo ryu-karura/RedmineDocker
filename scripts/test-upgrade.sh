@@ -228,6 +228,15 @@ check "seed data created (2 issues)" \
 check "seed data has one private issue" \
     runner_equals "${REDMINE_LEGACY_WEB_CONTAINER}" 'puts Issue.where(is_private: true).count' "1"
 
+# ここまでの検査は rails runner（モデル層）なので、実際に画面から操作できるかを
+# Web UI 経由でも確かめます。アップグレード後に同じものが表示されるかを見るため、
+# ここで作ったプロジェクト/チケットは tag 'before' で残します。
+log "Checking the legacy stack through the web UI ..."
+check "legacy: login / project creation / issue creation via the web UI" \
+    bash "${SCRIPT_DIR}/test-webflow.sh" \
+        --url "http://localhost:${REDMINE_LEGACY_WEB_HOST_PORT}/redmine" \
+        --label "legacy 5.1.1" --tag before
+
 # ── 3. 移行先 DB（PostgreSQL 18 + PostGIS 3.6）を起動 ──────────────────────────
 if [ "${SKIP_BUILD}" -eq 0 ]; then
     log "Building the target PostgreSQL image ..."
@@ -328,6 +337,14 @@ restart_count_zero() {
 }
 check "no crash loop on the Redmine 7 container" \
     restart_count_zero "${REDMINE_WEB_CONTAINER}"
+
+# アップグレード後も Web UI から操作できること、かつアップグレード前 (tag 'before')
+# に画面から作ったプロジェクト/チケットがそのまま表示されることを確認します。
+log "Checking the upgraded stack through the web UI ..."
+check "upgraded: pre-upgrade data still displays, and new project/issue can be created" \
+    bash "${SCRIPT_DIR}/test-webflow.sh" \
+        --url "http://localhost:${REDMINE_WEB_HOST_PORT}/redmine" \
+        --label "upgraded 7.0.0" --tag after --expect-tag before
 
 # ── まとめ ─────────────────────────────────────────────────────────────────────
 echo ""

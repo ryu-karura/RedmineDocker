@@ -481,10 +481,44 @@ bash scripts/test-upgrade.sh --skip-build # 既存イメージを再利用
 
 1. 移行元スタックが起動し、Redmine 5.1.1 / プラグイン 16 個 / mysql2 アダプタで動く
 2. 検証データ（日本語・boolean を含む）を投入できる
-3. コンバートが成功し、件数・シーケンス・boolean 型が一致する
-4. コンバート後の DB で 5.1.1 が起動し、データが見え、新規チケットを作成できる
-5. `redmine_banner` をアンインストールできる
-6. Redmine 7.0.0 が起動し、マイグレーションが完了し、データが保持されている
+3. **アップグレード前**に Web UI からログイン・プロジェクト作成・チケット作成ができ、
+   作成したものが画面に表示される（`scripts/test-webflow.sh --tag before`）
+4. コンバートが成功し、件数・シーケンス・boolean 型が一致する
+5. コンバート後の DB で 5.1.1 が起動し、データが見え、新規チケットを作成できる
+6. `redmine_banner` をアンインストールできる
+7. Redmine 7.0.0 が起動し、マイグレーションが完了し、データが保持されている
+8. **アップグレード後**も Web UI からログインでき、アップグレード前に画面から作った
+   プロジェクト/チケットがそのまま表示され、さらに新規作成もできる
+   （`scripts/test-webflow.sh --tag after --expect-tag before`）
+
+### 7.1 Web UI の確認だけを単体で流す
+
+`scripts/test-webflow.sh` は稼働中の Redmine に対して HTTP でログインし、
+プロジェクトとチケットを作って「実際に画面に表示されるか」を確認します。
+`test-upgrade.sh` の `rails runner` による検査がモデル層の確認なのに対し、
+こちらはブラウザ操作と同じ経路をたどります。系列 (5 / 6 / 7) を問わず使えます。
+
+```bash
+# 作成して表示を確認する（--tag がこの実行分の識別子になります）
+bash scripts/test-webflow.sh --url http://localhost:8081/redmine --tag before
+
+# アップグレード後: 以前作ったものが残っているかを確認しつつ、新規作成もする
+bash scripts/test-webflow.sh --url http://localhost:8080/redmine \
+    --tag after --expect-tag before
+
+# 作成せず、既存の表示確認だけ
+bash scripts/test-webflow.sh --url http://localhost:8080/redmine \
+    --skip-create --expect-tag before
+```
+
+初回ログイン時の強制パスワード変更（Redmine の admin は `must_change_passwd` が
+立っています）にも対応しており、変更後のパスワードでも自動的に入り直すため、
+アップグレードの前後で同じ引数のまま実行できます。
+
+> チケット作成には既定データ（トラッカー・ステータス・優先度）が必要です。
+> 未投入だと Redmine は新規チケット画面で 500 を返します。移行元スタックは
+> `compose.legacy.yaml` が `REDMINE_LOAD_DEFAULT_DATA=1` /
+> `REDMINE_DEFAULT_DATA_LANG=ja` を渡すので初回起動時に投入されます。
 
 ---
 

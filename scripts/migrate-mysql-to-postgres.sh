@@ -61,8 +61,10 @@ ROOT_DIR="$(dirname "${SCRIPT_DIR}")"
 if [ "${SKIP_ENV_FILE:-0}" != "1" ]; then
     for env_file in "${ROOT_DIR}/.env" "${ROOT_DIR}/.env.legacy"; do
         if [ -f "${env_file}" ]; then
+            set -a
             # shellcheck disable=SC1090
-            set -a; source "${env_file}"; set +a
+            source "${env_file}"
+            set +a
         fi
     done
 fi
@@ -193,6 +195,18 @@ psql_q() {
     cli exec -e PGPASSWORD="${DB_PASSWORD}" "${PG_DB_CONTAINER}" \
         psql -h 127.0.0.1 -p "${PG_DB_PORT}" -U "${DB_USER}" -d "${DB_NAME}" -tAc "$1"
 }
+
+# ホスト側に必要なコマンドがあるかを、実際に使う直前ではなく最初に確かめます。
+# data ステップは pgloader のコマンドファイルを envsubst で描画するため、
+# gettext-base が入っていないと「転送直前まで進んでから落ちる」ことになります
+# （移行先を truncate した後に落ちると分かりづらいので、開始前に止めます）。
+require_host_cmd() {
+    command -v "$1" >/dev/null 2>&1 \
+        || die "'$1' not found on the host. Install it first ($2)."
+}
+if has_step data; then
+    require_host_cmd envsubst "Debian/Ubuntu: apt-get install gettext-base / RHEL: dnf install gettext"
+fi
 
 # ── 0. 確認 ────────────────────────────────────────────────────────────────────
 if has_step data && [ "${ASSUME_YES}" -eq 0 ]; then

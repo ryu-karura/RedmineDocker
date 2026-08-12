@@ -493,15 +493,33 @@ to duplicate.
 
 ## Verification (no CI pipeline; one integration test script)
 
-There is no CI pipeline, but two self-contained integration tests exist:
-`scripts/test-stack.sh` for the normal dev (Compose) path, and
+There is no CI pipeline, but three self-contained integration tests exist:
+`scripts/test-stack.sh` for the normal dev (Compose) path,
 `scripts/test-upgrade.sh` for the legacy-MySQL upgrade path (builds the 5.1.1 +
 MySQL stack, seeds Japanese/boolean test data, runs
 `scripts/migrate-mysql-to-postgres.sh`, boots 5.1.1 on the converted PostgreSQL,
 uninstalls `redmine_banner`, then upgrades to 7.0.0 and re-checks the data —
 run it after touching `compose.legacy.yaml`, `Containerfile.v5-mysql`, the
-`database.*.yml.tmpl` files, or the migration script). It uses its own project,
-DB name, volumes and ports (8081/8082/8083), so it never touches a real stack.
+`database.*.yml.tmpl` files, or the migration script; it uses its own project,
+DB name, volumes and ports (8081/8082/8083), so it never touches a real stack),
+and `scripts/test-webflow.sh`, which drives a **running** Redmine over HTTP the
+way a browser would: log in, create a project, create an issue, and assert each
+one actually renders. `test-upgrade.sh` calls it twice — `--tag before` on the
+legacy stack and `--tag after --expect-tag before` on the upgraded one — so the
+suite covers "the pre-upgrade data still displays after the upgrade", which the
+`rails runner` (model-level) checks cannot show. It works against any series
+(5/6/7) and can be pointed at any instance standalone.
+
+Two things that script had to get right, both easy to reintroduce:
+- **Never pass `-X POST` to curl together with `-L`.** `-X` forces the method on
+  every hop of the redirect chain, so curl re-sends `POST` to the 302 target;
+  Redmine answers `422` on the CSRF check and **resets the session**, leaving you
+  silently anonymous even though the login itself succeeded. Supplying
+  `--data-urlencode` alone makes curl POST and then correctly switch to `GET`.
+- **Issue creation needs Redmine's default data** (trackers/statuses/priorities).
+  Without it `GET /projects/<id>/issues/new` returns a bare `500`. That is why
+  `compose.legacy.yaml` sets `REDMINE_LOAD_DEFAULT_DATA=1` — it is load-bearing,
+  not decoration.
 
 `scripts/test-stack.sh` is a self-contained
 integration test for the dev (Compose) path — run it after any change to
