@@ -36,7 +36,7 @@
 【段階 1】移行元の再現                    【段階 2】DB コンバート          【段階 3】アップグレード
 
  redmine-legacy-web (5.1.1)                                              redmine-web (7.0.0)
-   plugins x16                                                            plugins x12
+   plugins x16                                                            plugins x14
         │ mysql2                                                               │ postgis
         ▼                                                                      ▼
  redmine-legacy-db  ──── pgloader (data only) ────►  redmine-db (PostgreSQL 18 + PostGIS 3.6)
@@ -44,7 +44,7 @@
                             │                              │
                      ① 空 DB に 5.1.1 のまま          ② 5.1.1 のまま起動して確認
                        rake db:migrate でスキーマ作成    → そのまま本運用も可能（4.1）
-                                                          → banner を外して 7.0.0 へ
+                                                          → 7 系に無いプラグインを外して 7.0.0 へ
                                                             （起動時に 5.1→7.0 の
                                                               マイグレーションが走る）
 ```
@@ -378,18 +378,32 @@ DB は既に PostgreSQL へ移行済みなので、通常スタック側（`.env
 
 ### 5.1 事前: Redmine 7 に無いプラグインをアンインストールする
 
-`redmine_banner` は Redmine 7 イメージ (`Containerfile.v7`) に含まれません（master が
-7.0 未対応で、対応は未マージのブランチにしかないため）。**プラグインを外す前に、
-そのプラグインのマイグレーションを戻しておく必要があります。**
-プラグイン本体が消えた後では戻せません。
+移行元 (`Containerfile.v5-mysql`) の 16 個のうち、Redmine 7 イメージ
+(`Containerfile.v7`) に無いのは次の 5 個です（実際の移行元環境に合わせて追加した
+プラグイン群で、7 系では同梱していません）。
+
+| プラグイン | db/migrate | アンインストール時の作業 |
+|-----------|:---:|------|
+| redmine_theme_changer | あり | **マイグレーションを戻す**（下のコマンド） |
+| redmine_issue_assign_notice | なし | 外すだけ |
+| redmine_absolute_dates | なし | 外すだけ |
+| redmine_vividtone_my_page_blocks | なし | 外すだけ |
+| redmine_hide_sidebar | なし | 外すだけ |
+
+**マイグレーションを持つプラグインは、外す前にそのマイグレーションを戻しておく
+必要があります。** プラグイン本体が消えた後では戻せません。
 
 ```bash
 # 上の redmine-legacy-on-pg コンテナ（5.1.1、プラグインを持っている）で実行する
 docker exec redmine-legacy-on-pg \
-  bundle exec rake redmine:plugins:migrate NAME=redmine_banner VERSION=0 RAILS_ENV=production
+  bundle exec rake redmine:plugins:migrate NAME=redmine_theme_changer VERSION=0 RAILS_ENV=production
 
 docker rm -f redmine-legacy-on-pg
 ```
+
+> `redmine_banner` は以前ここでアンインストールが必要でしたが、2026-08-25 に
+> Redmine 7 対応が upstream の master へマージされ、7 系イメージにも同梱された
+> ため不要になりました（`docs/Design.md`「プラグイン / テーマの対応状況」参照）。
 
 ### 5.2 バックアップ（切り戻し用）
 
@@ -429,7 +443,7 @@ docker compose -f compose.dev.yaml logs -f redmine-web
 | プラグイン | 5.1.1 (移行元) | 7.0.0 (移行先) | 備考 |
 |-----------|:---:|:---:|------|
 | redmine_wiki_lists | 0.0.11 | 0.0.11 | |
-| redmine_banner | 0.3.5 | — | **7.0 未対応。事前にアンインストール（5.1 参照）** |
+| redmine_banner | 0.3.5 | master | 7.0 対応は 0.3.5 より後の master にのみ存在 |
 | redmine_issues_panel | v1.0.4 | v1.2.1 | |
 | redmica_ui_extension | v0.3.10 | v0.6.0 | |
 | redmine_ip_filter | v1.1.0 | v1.2.0 | |
@@ -441,12 +455,18 @@ docker compose -f compose.dev.yaml logs -f redmine-web
 | redmine_login_audit2 | — | 1.0.2 | 新規（5.1 では導入不可だった） |
 | redmine_solid_queue | — | v1.0.0 | 新規（5.1 では導入不可だった） |
 | redmine_gtt | — | v7.1.0 | 新規（PostGIS が必要なため MySQL 環境では不可だった） |
+| redmine_xlsx_format_issue_exporter | 0.2.1 | 0.2.1 | |
+| redmine_issue_assign_notice | v2.2.1 | — | **7 系イメージに無い（5.1 参照）** |
+| redmine_theme_changer | 0.6.0 | — | **7 系イメージに無い。マイグレーションを戻してから外す（5.1 参照）** |
+| redmine_absolute_dates | 0.0.4 | — | **7 系イメージに無い（5.1 参照）** |
+| redmine_vividtone_my_page_blocks | 1.3 | — | **7 系イメージに無い（5.1 参照）** |
+| redmine_hide_sidebar | master | — | **7 系イメージに無い（5.1 参照）** |
 
 ### 5.5 確認項目
 
 - [ ] `docker compose -f compose.dev.yaml ps` で `redmine-web` が `healthy`
 - [ ] `http://localhost:8080/redmine/` にログインできる
-- [ ] 管理 → 情報 で Redmine 7.0.0、プラグイン 12 個が表示される
+- [ ] 管理 → 情報 で Redmine 7.0.0、プラグイン 14 個が表示される
 - [ ] チケット・Wiki・添付ファイル・ユーザーが移行前と同じ件数
 - [ ] 新規チケットを作成できる
 - [ ] `docker compose -f compose.dev.yaml logs redmine-web | grep -iE "LoadError|No route matches"` が空
@@ -485,7 +505,7 @@ bash scripts/test-upgrade.sh --skip-build # 既存イメージを再利用
    作成したものが画面に表示される（`scripts/test-webflow.sh --tag before`）
 4. コンバートが成功し、件数・シーケンス・boolean 型が一致する
 5. コンバート後の DB で 5.1.1 が起動し、データが見え、新規チケットを作成できる
-6. `redmine_banner` をアンインストールできる
+6. `redmine_theme_changer`（7 系に無いプラグイン）をアンインストールできる
 7. Redmine 7.0.0 が起動し、マイグレーションが完了し、データが保持されている
 8. **アップグレード後**も Web UI からログインでき、アップグレード前に画面から作った
    プロジェクト/チケットがそのまま表示され、さらに新規作成もできる

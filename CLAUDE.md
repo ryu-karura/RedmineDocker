@@ -109,7 +109,7 @@ plugin/theme versions that actually work differ per series:
 |--------|---------------|------------|--------------|---------|
 | 5 | `Containerfile.v5` | `redmine:5.1.12` | 3.2 / 6.1.7.10 | 12 |
 | 6 (default) | `Containerfile.v6` | `redmine:6.1.3` | 3.4 / 7.2.3.1 | 14 |
-| 7 | `Containerfile.v7` | `redmine:7.0.0` | 4.0 / 8.1.3 | 13 |
+| 7 | `Containerfile.v7` | `redmine:7.0.0` | 4.0 / 8.1.3 | 14 |
 
 A fourth Containerfile, `Containerfile.v5-mysql` (Redmine 5.1.1 + MySQL 8.0 CE,
 16 plugins — the 10 shared with `Containerfile.v5` minus `redmine_gtt`, plus 6
@@ -140,8 +140,11 @@ Series-specific facts that are easy to get wrong (full evidence in
 - `redmine_solid_queue` cannot run on Redmine 5 (the `solid_queue` gem needs
   activerecord >= 7.1, Redmine 5.1 is Rails 6.1) and `redmine_login_audit2`
   declares `requires_redmine 6.0.0` in every release — both are omitted from v5.
-- `redmine_banner` is omitted from v7: master has no Redmine 7 support and the
-  fix lives only in the unmerged branch `test_fix_for_redmine_7_0`.
+- `redmine_banner` is pinned to **master** in v7, not to a tag: its Redmine 7
+  fixes (routes.rb `only: %i[preview off]` → `only: []`, which Rails 8.1 rejects
+  at route-draw time and which takes the whole app down; plus the admin-menu
+  icon CSS) landed on master via PR #15 on 2026-08-25, after the latest tag
+  0.3.5. v5/v6 stay on 0.3.5. Move v7 to a tag once one contains the fix.
 - `redmine_gtt` 6.0.3 on Redmine 5 needs the geo gem stack pinned via
   **`ENV`** (not ARG — Redmine re-evaluates `plugins/*/Gemfile` on every
   bundler run, including at runtime): `GEM_RGEO_ACTIVERECORD_VERSION=7.0.1`,
@@ -498,7 +501,8 @@ There is no CI pipeline, but three self-contained integration tests exist:
 `scripts/test-upgrade.sh` for the legacy-MySQL upgrade path (builds the 5.1.1 +
 MySQL stack, seeds Japanese/boolean test data, runs
 `scripts/migrate-mysql-to-postgres.sh`, boots 5.1.1 on the converted PostgreSQL,
-uninstalls `redmine_banner`, then upgrades to 7.0.0 and re-checks the data —
+uninstalls `redmine_theme_changer` (the one plugin with migrations that v7 does
+not ship), then upgrades to 7.0.0 and re-checks the data —
 run it after touching `compose.legacy.yaml`, `Containerfile.v5-mysql`, the
 `database.*.yml.tmpl` files, or the migration script; it uses its own project,
 DB name, volumes and ports (8081/8082/8083), so it never touches a real stack),

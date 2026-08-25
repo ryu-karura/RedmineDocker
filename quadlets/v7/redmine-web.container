@@ -20,10 +20,11 @@
 #   `bash scripts/test-stack.sh --series 7 --web-server passenger` を
 #   実行して動作を確認してください。
 #
-# ★ 同梱プラグインが 6 系と異なります（12 個）
-#   redmine_banner は master が Redmine 7 未対応（修正は未マージのブランチ
-#   test_fix_for_redmine_7_0 のみ）のため同梱していません
-#   （containers/redmine-web/Containerfile.v7 参照）。
+# ★ 同梱プラグインは 6 系と同じ 14 個です
+#   以前は redmine_banner が Redmine 7 未対応のため 7 系だけ非同梱でしたが、
+#   2026-08-25 に対応が upstream の master へマージされたため同梱に戻しました
+#   （バージョンは 6 系の 0.3.5 ではなく master。
+#   containers/redmine-web/Containerfile.v7 参照）。
 #
 # DB パスワードと secret_key_base は Podman シークレットです（docs/Setup.md 参照）。
 

@@ -258,7 +258,7 @@ systemctl --user daemon-reload
 | redmine_message_customize | v1.0.1（CI に RedMica 3.0） | v1.1.0 | v1.1.0（宣言 6.0+。CI 実績は 2024-11 時点で 7.0 の検証なし） |
 | redmine_issue_templates | master（宣言 4.0+） | master | master（7.0 向けアイコン互換コミットあり） |
 | redmine_logs | 0.3.0（宣言 3.0+、CI は 5.0 まで） | 0.4.0 | 0.4.0（CI は 6.1 まで） |
-| redmine_banner | 0.3.5（宣言 4.0+） | 0.3.5 | **非同梱**（master 未対応、修正は未マージ枝のみ） |
+| redmine_banner | 0.3.5（宣言 4.0+） | 0.3.5 | master（0.3.5 より後の 7.0 対応コミット。対応を含むタグは未リリース） |
 | redmine_wiki_lists | 0.0.11（宣言 3.4+、2021 年で更新停止） | 0.0.11 | 0.0.11（同左） |
 | redmine_login_audit2 | **非同梱**（全版が 6.0.0 以上を要求） | v1.0.0 | 1.0.2（"Redmine 7.0 support" コミット） |
 | redmine_solid_queue | **非同梱**（solid_queue gem が activerecord >= 7.1 要求、5.1 は Rails 6.1） | v1.0.0 | v1.0.0（宣言なし・CI なし） |
@@ -266,6 +266,23 @@ systemctl --user daemon-reload
 | テーマ farend_fancy | tag `redmine5.1`（`public/themes/` 配下） | master | master（Redmine trunk 追従コミットあり） |
 
 宣言だけで CI 実績がないもの（上表の「宣言 …+」と書いたもの）は本番投入前に動作確認してください。
+
+`redmine_banner` の 7 系だけタグではなく master を pin しているのは、Redmine 7 対応が
+最新タグ 0.3.5 より後のコミットにしかないためです（PR #15 `test_fix_for_redmine_7_0`、
+2026-08-25 マージ）。修正は 2 点あり、いずれも 7.0 固有です。
+
+- `config/routes.rb`: `resources :banner, only: %i[preview off]` のように RESTful でない
+  アクションを `only:` に渡していた箇所を `only: []` へ修正。Rails 8.1 はルーティング
+  定義時に例外を投げるため、**このプラグインを置くだけで Redmine 全体が起動不能**でした
+  （実際に 0.3.5 を Redmine 7.0.0 に載せると
+  `Route 'resources :banner' - :only and :except must include only [...]` で終了します）。
+- `assets/stylesheets/banner.css`: Redmine 7.0 でコアの `.icon` から `background-repeat`
+  等が `legacy-icons-compat.css` へ分離されたことによる、管理画面メニューのアイコンの
+  敷き詰め表示を修正。
+
+upstream の `init.rb` は `version '0.3.4'` のままなので、管理画面のプラグイン一覧では
+0.3.4 と表示されます（実体は master）。7.0 対応を含むタグが出たらそのタグへ
+差し替えてください。
 
 ### 系列固有の注意点
 
