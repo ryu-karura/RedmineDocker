@@ -11,7 +11,7 @@
 #
 # 公式イメージに対して次を追加します:
 #   - 日本語 CJK フォント（fonts-noto-cjk）
-#   - RedmineDocker のプラグイン/テーマ構成（13 plugins + farend_fancy）
+#   - RedmineDocker のプラグイン/テーマ構成（14 plugins + farend_fancy）
 #
 # アプリ配置は /usr/src/redmine（公式イメージ標準）です。
 # Apache が :80 で受け、REDMINE_WEB_SERVER に応じて次のどちらかで処理します:
@@ -34,29 +34,28 @@
 #
 # サブ URI: /redmine（RAILS_RELATIVE_URL_ROOT）
 #
-# 導入プラグイン（13）:
+# 導入プラグイン（14）:
 #   1.  redmine_wiki_lists        (tkusukawa, 0.0.11)
-#   2.  redmine_issues_panel      (redmica, v1.2.1)
-#   3.  redmica_ui_extension      (redmica, v0.6.0)
-#   4.  redmine_ip_filter         (redmica, v1.2.0)
-#   5.  redmine_message_customize (redmica/farend, v1.1.0)
-#   6.  redmine_issue_templates   (redmica, master = 1.2.2)
-#   7.  view_customize            (onozaty, v3.6.0、ディレクトリ名は必ず 'view_customize')
-#   8.  redmine_logs              (haru, 0.4.0)
-#   9.  redmine_login_audit2      (seraph3000, 1.0.2 ← タグに v 接頭辞なし)
-#  10.  redmine_wiki_extensions   (haru, 1.3.0)
-#  11.  redmine_solid_queue       (nishidayuya, v1.0.0)
-#  12.  redmine_gtt               (gtt-project, v7.1.0) ← PostGIS が必要
-#  13.  redmine_xlsx_format_issue_exporter (two-pack, 0.2.1) — 課題一覧などの
+#   2.  redmine_banner            (agileware-jp, master ← 7.0 対応は未タグ)
+#   3.  redmine_issues_panel      (redmica, v1.2.1)
+#   4.  redmica_ui_extension      (redmica, v0.6.0)
+#   5.  redmine_ip_filter         (redmica, v1.2.0)
+#   6.  redmine_message_customize (redmica/farend, v1.1.0)
+#   7.  redmine_issue_templates   (redmica, master = 1.2.2)
+#   8.  view_customize            (onozaty, v3.6.0、ディレクトリ名は必ず 'view_customize')
+#   9.  redmine_logs              (haru, 0.4.0)
+#  10.  redmine_login_audit2      (seraph3000, 1.0.2 ← タグに v 接頭辞なし)
+#  11.  redmine_wiki_extensions   (haru, 1.3.0)
+#  12.  redmine_solid_queue       (nishidayuya, v1.0.0)
+#  13.  redmine_gtt               (gtt-project, v7.1.0) ← PostGIS が必要
+#  14.  redmine_xlsx_format_issue_exporter (two-pack, 0.2.1) — 課題一覧などの
 #       XLSX 出力。requires_redmine 4.2 以上（上限指定なし）。最終タグは
 #       2024-01 で、7 系リリース（2026）より前のため CI 実績はありません。
 #       事前検証推奨。
 #
-# 6 系にあって 7 系で外したプラグイン:
-#   - redmine_banner … master は Redmine 7 未対応です。7.0 向け修正は
-#     未マージのブランチ test_fix_for_redmine_7_0（2026-07-21/22、
-#     config/routes.rb 修正）にのみ存在し、リリースタグにも master にも
-#     入っていないため、対応が取り込まれるまで同梱しません。
+# 6 系にあって 7 系で外したプラグイン: なし
+#   redmine_banner は 2026-08-25 に PR #15 (test_fix_for_redmine_7_0) が master
+#   へマージされ、Redmine 7 対応が入ったため同梱に戻しました（詳細は下の 2.）。
 #
 # テーマ: farend_fancy（farend、既定ブランチ master）
 
@@ -156,61 +155,78 @@ RUN git clone --depth 1 --branch 0.0.11 \
     || git clone --depth 1 \
         https://github.com/tkusukawa/redmine_wiki_lists.git redmine_wiki_lists
 
-# 2. redmine_issues_panel (1.2.1) — かんばん風課題パネル
+# 2. redmine_banner (master) — サイト全体/プロジェクト単位のお知らせバナー
+#    リリースタグは 0.3.5 が最新ですが、Redmine 7 対応は 0.3.5 より後の
+#    master にしかありません（PR #15 test_fix_for_redmine_7_0、2026-08-25
+#    マージ）。内容は次の 2 点で、いずれも Redmine 7.0 固有の修正です:
+#      - config/routes.rb: `resources :banner, only: %i[preview off]` のように
+#        RESTful でないアクション名を only: に渡していた箇所を only: [] へ修正。
+#        Rails 8.1 ではルーティング定義時に例外となり、アプリ全体が起動不能
+#        （= プラグインを置くだけで Redmine が落ちる）でした。
+#      - assets/stylesheets/banner.css: Redmine 7.0 でコアの .icon から
+#        background-repeat 等が legacy-icons-compat.css へ分離されたため、
+#        管理画面メニューのアイコンが敷き詰め表示になる問題を自前 CSS で修正。
+#    なお upstream の init.rb は version '0.3.4' のままなので、管理画面の
+#    プラグイン一覧では 0.3.4 と表示されます（実体は master）。
+#    7.0 対応を含むタグが出たらそのタグへ差し替えてください。
+RUN git clone --depth 1 \
+        https://github.com/agileware-jp/redmine_banner.git redmine_banner
+
+# 3. redmine_issues_panel (1.2.1) — かんばん風課題パネル
 #    CI が redmine/redmine master（= 7.0-devel）を対象にしています。
 RUN git clone --depth 1 --branch v1.2.1 \
         https://github.com/redmica/redmine_issues_panel.git redmine_issues_panel
 
-# 3. redmica_ui_extension (0.6.0) — UI 拡張（Select2, mermaid, burndown）
+# 4. redmica_ui_extension (0.6.0) — UI 拡張（Select2, mermaid, burndown）
 #    CI が redmine/redmine master（= 7.0-devel）を対象にしています。
 RUN git clone --depth 1 --branch v0.6.0 \
         https://github.com/redmica/redmica_ui_extension.git redmica_ui_extension
 
-# 4. redmine_ip_filter (1.2.0) — IP ベースアクセス制御
+# 5. redmine_ip_filter (1.2.0) — IP ベースアクセス制御
 #    6 系の v1.1.1 より新しく、CI が redmine/redmine master を対象にしています。
 RUN git clone --depth 1 --branch v1.2.0 \
         https://github.com/redmica/redmine_ip_filter.git redmine_ip_filter
 
-# 5. redmine_message_customize (1.1.0) — UI 文字列カスタマイズ
+# 6. redmine_message_customize (1.1.0) — UI 文字列カスタマイズ
 #    最終更新は 2024-11 で、Redmine 7 に対する CI 実績はありません
 #    （宣言は requires_redmine 6.0 以上）。事前検証推奨。
 RUN git clone --depth 1 --branch v1.1.0 \
         https://github.com/redmica/redmine_message_customize.git redmine_message_customize
 
-# 6. redmine_issue_templates (master = 1.2.2) — 課題テンプレート
+# 7. redmine_issue_templates (master = 1.2.2) — 課題テンプレート
 #    "Load legacy-icons-compat.css to keep raster icons visible on Redmine 7.0
 #    and later" のコミットが入っており、7.0 を意識した対応が済んでいます。
 RUN git clone --depth 1  \
         https://github.com/redmica/redmine_issue_templates.git redmine_issue_templates
 
-# 7. view_customize (3.6.0) — ディレクトリ名は必ず 'view_customize'（init.rb の要件）
+# 8. view_customize (3.6.0) — ディレクトリ名は必ず 'view_customize'（init.rb の要件）
 #    "Avoid Redmine 7.0 ActiveSupport::Configurable deprecation warning" 対応済み。
 RUN git clone --depth 1 --branch v3.6.0 \
         https://github.com/onozaty/redmine-view-customize.git view_customize \
     || git clone --depth 1 \
         https://github.com/onozaty/redmine-view-customize.git view_customize
 
-# 8. redmine_logs (0.4.0) — 管理画面ログビューア
+# 9. redmine_logs (0.4.0) — 管理画面ログビューア
 #    CI の対象は 6.0-stable / 6.1-stable / master（2025 年時点）で、
 #    7.0-stable は含まれていません。事前検証推奨。
 RUN git clone --depth 1 --branch 0.4.0 \
         https://github.com/haru/redmine_logs.git redmine_logs
 
-# 9. redmine_login_audit2 (1.0.2) — ログイン/API 監査ログ
-#    "v1.0.2: Redmine 7.0 support; migrate filters to core Query API" 対応版。
-#    このリポジトリのタグは v1.0.0 と 1.0.2 で接頭辞が揺れているため、
-#    1.0.2 は v なしで指定します。
+# 10. redmine_login_audit2 (1.0.2) — ログイン/API 監査ログ
+#     "v1.0.2: Redmine 7.0 support; migrate filters to core Query API" 対応版。
+#     このリポジトリのタグは v1.0.0 と 1.0.2 で接頭辞が揺れているため、
+#     1.0.2 は v なしで指定します。
 RUN git clone --depth 1 --branch 1.0.2 \
         https://github.com/seraph3000/redmine_login_audit2.git redmine_login_audit2 \
     || git clone --depth 1 \
         https://github.com/seraph3000/redmine_login_audit2.git redmine_login_audit2
 
-# 10. redmine_wiki_extensions (1.3.0) — Wiki 拡張（マクロ、コメント、タグ、投票）
+# 11. redmine_wiki_extensions (1.3.0) — Wiki 拡張（マクロ、コメント、タグ、投票）
 #     CI マトリクスに 7.0-stable と ruby 4.0 が含まれています。
 RUN git clone --depth 1 --branch 1.3.0 \
         https://github.com/haru/redmine_wiki_extensions.git redmine_wiki_extensions
 
-# 11. redmine_solid_queue (1.0.0) — Redmine バックグラウンドジョブに Solid Queue を利用
+# 12. redmine_solid_queue (1.0.0) — Redmine バックグラウンドジョブに Solid Queue を利用
 #     init.rb に requires_redmine の宣言がなく、CI もありません。solid_queue gem
 #     自体は activerecord >= 7.1 要求のため Rails 8.1 で解決可能です。事前検証推奨。
 RUN git clone --depth 1 --branch v1.0.0 \
@@ -218,7 +234,7 @@ RUN git clone --depth 1 --branch v1.0.0 \
     || git clone --depth 1 \
         https://github.com/nishidayuya/redmine_solid_queue.git redmine_solid_queue
 
-# 12. redmine_gtt (7.1.0) — Geo-Task-Tracker（PostGIS が必要）
+# 13. redmine_gtt (7.1.0) — Geo-Task-Tracker（PostGIS が必要）
 #     CI マトリクスに redmine 7.0-stable × ruby 3.4 / 4.0 が含まれています。
 #     他のプラグインと違い git clone ではなくリリース tarball を展開します:
 #     gtt 7.0 でフロントエンドが webpack+yarn から Vite+pnpm へ移行し、
@@ -233,7 +249,7 @@ RUN curl -fsSL -o /tmp/redmine_gtt.tar.gz \
     && rm -f /tmp/redmine_gtt.tar.gz \
     && test -f redmine_gtt/assets/javascripts/main.js
 
-# 13. redmine_xlsx_format_issue_exporter (0.2.1) — 課題一覧などの XLSX 出力
+# 14. redmine_xlsx_format_issue_exporter (0.2.1) — 課題一覧などの XLSX 出力
 #     requires_redmine 4.2 以上（上限指定なし）。最終タグは 2024-01 で、
 #     7 系リリース（2026）より前のため CI 実績はありません。事前検証推奨。
 RUN git clone --depth 1 --branch 0.2.1 \

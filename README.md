@@ -68,7 +68,7 @@ redmine_xlsx_format_issue_exporter。
 |------|---------------|----------------|-----------|------|
 | Redmine 5 | `Containerfile.v5` | `redmine:5.1.12` | 12 個 | 公式イメージは 5.1.12 で打ち切り（Ruby 3.2 EOL）。login_audit2 / solid_queue は 5.1 で導入不可 |
 | Redmine 6 | `Containerfile.v6` | `redmine:6.1.3` | 14 個 | 既定 |
-| Redmine 7 | `Containerfile.v7` | `redmine:7.0.0` | 13 個 | banner は 7.0 未対応のため非同梱。Ruby 4.0 のため mod_passenger は forky の 6.1.x を APT pin して導入 |
+| Redmine 7 | `Containerfile.v7` | `redmine:7.0.0` | 14 個 | banner は 7.0 対応が master にのみ入っているため master を pin。Ruby 4.0 のため mod_passenger は forky の 6.1.x を APT pin して導入 |
 
 既存の Redmine 5.1.1 + MySQL からの移行（例外的な作業）は
 **[アップグレード手順](docs/Upgrade.md)** を参照してください。

@@ -206,8 +206,9 @@ systemctl --user restart redmine-db redmine-web
 - 移行元は `compose.legacy.yaml` でコンテナとして再現できます（`:8081`。通常スタックと同時起動可）。
 - DB のコンバートは `bash scripts/migrate-mysql-to-postgres.sh`
   （スキーマは Rails のマイグレーションで作り、データだけ pgloader で転送します）。
-- Redmine 7 へ上げる前に `redmine_banner` をアンインストールしてください
-  （7 系イメージに含まれないため。`rake redmine:plugins:migrate NAME=redmine_banner VERSION=0`）。
+- Redmine 7 へ上げる前に、7 系イメージに無いプラグインをアンインストールしてください
+  （マイグレーションを持つのは `redmine_theme_changer` だけです。
+  `rake redmine:plugins:migrate NAME=redmine_theme_changer VERSION=0`）。
 - アプリを公開せずにマイグレーションだけ先に流したい場合は `REDMINE_MIGRATE_ONLY=1` で単発起動します。
 - 通しの自動検証は `bash scripts/test-upgrade.sh`。
 
@@ -349,7 +350,7 @@ podman healthcheck run redmine-web
 ```
 
 系列ごとの同梱プラグインの違い（5 系は `redmine_login_audit2` と `redmine_solid_queue` が
-入らない、7 系は `redmine_banner` が入らない等）は `docs/Design.md`
+入らない、7 系の `redmine_banner` はタグではなく master 固定、等）は `docs/Design.md`
 「Redmine シリーズの切り替え」を参照してください。6 系 → 7 系では `redmine_gtt` が
 6.0.3 から 7.1.0 に上がるため、MDI グリフを直接指定していたトラッカーアイコンは
 既定マーカーに戻ります。管理画面のトラッカー設定で選び直してください。

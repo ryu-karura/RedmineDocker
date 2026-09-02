@@ -13,7 +13,7 @@
 #   3. scripts/migrate-mysql-to-postgres.sh で PostgreSQL 18 へコンバートできる
 #      （件数一致・シーケンス・boolean 型まで検証）
 #   4. コンバート後の DB に対し 5.1.1 のまま Redmine が起動し、データが見える
-#   5. Redmine 7 に無いプラグイン（redmine_banner）をアンインストールできる
+#   5. Redmine 7 に無いプラグイン（redmine_theme_changer）をアンインストールできる
 #   6. Redmine 7.0.0 イメージへ差し替えて起動でき、マイグレーションが通り、
 #      データが保持されている
 #
@@ -294,13 +294,20 @@ check "sequences work (a new issue can be created)" \
         "3"
 
 # ── 6. Redmine 7 に無いプラグインのアンインストール ───────────────────────────
-log "Uninstalling redmine_banner (not shipped in the Redmine 7 image) ..."
+# 移行元 (Containerfile.v5-mysql) にあって Redmine 7 イメージに無いプラグインの
+# うち、マイグレーションを持つのは redmine_theme_changer だけです（他の
+# redmine_issue_assign_notice / redmine_absolute_dates /
+# redmine_vividtone_my_page_blocks / redmine_hide_sidebar は db/migrate を
+# 持たないため、外すだけで済みます）。プラグイン本体が消えた後ではロール
+# バックできないので、アップグレード前にここで戻します。
+# （redmine_banner は 7 系イメージにも入っているのでアンインストール不要です）
+log "Uninstalling redmine_theme_changer (not shipped in the Redmine 7 image) ..."
 if cli exec "${ON_PG_CONTAINER}" \
-    bundle exec rake redmine:plugins:migrate NAME=redmine_banner VERSION=0 RAILS_ENV=production; then
-    log "  OK   - redmine_banner migrations rolled back"
+    bundle exec rake redmine:plugins:migrate NAME=redmine_theme_changer VERSION=0 RAILS_ENV=production; then
+    log "  OK   - redmine_theme_changer migrations rolled back"
 else
-    warn "  FAIL - redmine_banner rollback"
-    FAILURES+=("redmine_banner rollback")
+    warn "  FAIL - redmine_theme_changer rollback"
+    FAILURES+=("redmine_theme_changer rollback")
 fi
 cli rm -f "${ON_PG_CONTAINER}" >/dev/null 2>&1 || true
 
