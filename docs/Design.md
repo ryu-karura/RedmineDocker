@@ -261,11 +261,17 @@ systemctl --user daemon-reload
 | redmine_banner | 0.3.5（宣言 4.0+） | 0.3.5 | master（0.3.5 より後の 7.0 対応コミット。対応を含むタグは未リリース） |
 | redmine_wiki_lists | 0.0.11（宣言 3.4+、2021 年で更新停止） | 0.0.11 | 0.0.11（同左） |
 | redmine_login_audit2 | **非同梱**（全版が 6.0.0 以上を要求） | v1.0.0 | 1.0.2（"Redmine 7.0 support" コミット） |
-| redmine_solid_queue | **非同梱**（solid_queue gem が activerecord >= 7.1 要求、5.1 は Rails 6.1） | v1.0.0 | v1.0.0（宣言なし・CI なし） |
+| redmine_solid_queue | **非同梱**（solid_queue gem が Rails 7 以上を要求。最古の 0.1.1 でも rails >= 7.0.3.1 のため古い版へ落としても不可） | v1.0.0 | v1.0.0（宣言なし・CI なし） |
 | redmine_xlsx_format_issue_exporter | 0.2.1（宣言 4.2+、CI なし） | 0.2.1（同左） | 0.2.1（同左） |
 | テーマ farend_fancy | tag `redmine5.1`（`public/themes/` 配下） | master | master（Redmine trunk 追従コミットあり） |
 
 宣言だけで CI 実績がないもの（上表の「宣言 …+」と書いたもの）は本番投入前に動作確認してください。
+
+5 系で **非同梱** とした 2 つは 2026-09 に再確認済みで、いずれも技術的に導入できない
+ままです（`redmine:5.1.12` に載せて実際に確認）。`redmine_login_audit2` 1.0.2 は起動時に
+`Redmine::PluginRequirementError: ... requires Redmine 6.0.0 or higher` で停止し、
+`redmine_solid_queue` は bundler が `solid_queue < 0.3.0 requires rails >= 7.0.3.1` で
+解決に失敗します。
 
 `redmine_banner` の 7 系だけタグではなく master を pin しているのは、Redmine 7 対応が
 最新タグ 0.3.5 より後のコミットにしかないためです（PR #15 `test_fix_for_redmine_7_0`、

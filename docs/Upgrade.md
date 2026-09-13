@@ -151,11 +151,11 @@ docker compose --env-file .env.legacy -f compose.legacy.yaml logs -f redmine-leg
 
 **未対応のため除外したプラグイン**
 
-| プラグイン | 除外理由 |
+| プラグイン | 除外理由（実機で再現した挙動） |
 |-----------|---------|
-| `redmine_gtt` | **PostGIS 必須**。geometry 型と PostGIS 関数を使うため MySQL では動作しません。DB を PostgreSQL へ移したあと、段階 3 の Redmine 7 イメージで導入されます。 |
-| `redmine_login_audit2` | 全リリースが `requires_redmine 6.0.0` を宣言しており、5.1 対応版がありません。 |
-| `redmine_solid_queue` | 依存する `solid_queue` gem が activerecord >= 7.1 を要求します（Redmine 5.1 は Rails 6.1）。 |
+| `redmine_gtt` | **PostGIS 必須**。`db/migrate/001_enable_postgis.rb` が `enable_extension :postgis` を、以降が `add_column :issues, :geom, :geometry, srid: 4326` を実行するため MySQL では動きません（README にも "require PostgreSQL/PostGIS" と明記）。DB を PostgreSQL へ移したあと、段階 3 の Redmine 7 イメージで導入されます。 |
+| `redmine_login_audit2` | 全リリースが `requires_redmine 6.0.0` を宣言しており、5.1 対応版がありません。最新の 1.0.2 を `redmine:5.1.12` に載せると起動時に `Redmine::PluginRequirementError: redmine_login_audit2 plugin requires Redmine 6.0.0 or higher but current is 5.1.12.stable` で停止します。 |
+| `redmine_solid_queue` | 依存する `solid_queue` gem が Rails 7 以上を要求します。5.1 に載せると bundler が `Could not find compatible versions / solid_queue < 0.3.0 requires rails >= 7.0.3.1` で解決に失敗します（1.x は activerecord >= 7.1、最古の 0.1.1 でも rails >= 7.0.3.1 のため、古い版へ落としても解決しません）。 |
 
 `redmine_gtt` を外したことで、このイメージには `libgeos-dev` / `libproj-dev` /
 yarn / webpack も不要になっています（`Containerfile.v5` との差分）。
@@ -379,16 +379,17 @@ DB は既に PostgreSQL へ移行済みなので、通常スタック側（`.env
 ### 5.1 事前: Redmine 7 に無いプラグインをアンインストールする
 
 移行元 (`Containerfile.v5-mysql`) の 16 個のうち、Redmine 7 イメージ
-(`Containerfile.v7`) に無いのは次の 5 個です（実際の移行元環境に合わせて追加した
-プラグイン群で、7 系では同梱していません）。
+(`Containerfile.v7`) に無いのは次の 5 個です。**これらは Redmine 7 非対応だから
+外すのではなく、実際の移行元環境に合わせて 5.1 再現イメージにだけ足したもので、
+通常スタック（5/6/7 系）のプラグイン構成に含めていない**ためです。
 
-| プラグイン | db/migrate | アンインストール時の作業 |
-|-----------|:---:|------|
-| redmine_theme_changer | あり | **マイグレーションを戻す**（下のコマンド） |
-| redmine_issue_assign_notice | なし | 外すだけ |
-| redmine_absolute_dates | なし | 外すだけ |
-| redmine_vividtone_my_page_blocks | なし | 外すだけ |
-| redmine_hide_sidebar | なし | 外すだけ |
+| プラグイン | 移行元の版 | db/migrate | アンインストール時の作業 |
+|-----------|:---:|:---:|------|
+| redmine_theme_changer | 0.6.0 | あり | **マイグレーションを戻す**（下のコマンド） |
+| redmine_issue_assign_notice | v2.2.1 | なし | 外すだけ |
+| redmine_absolute_dates | 0.0.4 | なし | 外すだけ |
+| redmine_vividtone_my_page_blocks | 1.3 | なし | 外すだけ |
+| redmine_hide_sidebar | master | なし | 外すだけ |
 
 **マイグレーションを持つプラグインは、外す前にそのマイグレーションを戻しておく
 必要があります。** プラグイン本体が消えた後では戻せません。
@@ -404,6 +405,27 @@ docker rm -f redmine-legacy-on-pg
 > `redmine_banner` は以前ここでアンインストールが必要でしたが、2026-08-25 に
 > Redmine 7 対応が upstream の master へマージされ、7 系イメージにも同梱された
 > ため不要になりました（`docs/Design.md`「プラグイン / テーマの対応状況」参照）。
+
+#### 5.1.1 アップグレード後もこの 5 個を使いたい場合
+
+5 個とも **Redmine 6.1.4 / 7.0.1 で動く版が存在します**（2026-09 時点。公式イメージ
+`redmine:6.1.4` / `redmine:7.0.1` に載せて起動・`/admin/plugins`・各プラグインの
+設定画面/マイページ/チケット画面まで確認済み）。使い続けたい場合は
+`Containerfile.v7`（または `.v6`）に下表の版を追加してイメージを焼き直してください。
+
+| プラグイン | 追加する版 | 6.1.4 | 7.0.1 | 備考 |
+|-----------|-----------|:---:|:---:|------|
+| redmine_theme_changer | **0.7.1** | OK | OK | CI に 6.0/6.1-stable と master を含む |
+| redmine_issue_assign_notice | **v2.3.0** | OK | OK | 2026-08 更新。dev container が `redmine:6.1.3` |
+| redmine_vividtone_my_page_blocks | **v1.4.1** | OK | OK | 2026-05 更新。Redmine 6.0 の SVG アイコン対応済み |
+| redmine_absolute_dates | 0.0.4 | OK | OK | 2022 年で更新停止。動作はするが無保守 |
+| redmine_hide_sidebar | master | OK | OK | タグ無し。CI は 2024 年（master = 当時の 6.0-devel）まで |
+
+> ⚠ **移行元の版のまま持ち込まないでください。** `redmine_theme_changer` **0.6.0**
+> を `redmine:7.0.1` に載せると、Rails から削除された `unloadable` を呼ぶため
+> `undefined local variable or method 'unloadable' for class ThemeChangerUserSetting
+> (NameError)` で **Redmine 全体が起動不能**になります（0.7.1 で解消）。残り 4 個は
+> 移行元の版のままでも 7.0.1 で起動しますが、更新のある 3 個は上表の版を推奨します。
 
 ### 5.2 バックアップ（切り戻し用）
 

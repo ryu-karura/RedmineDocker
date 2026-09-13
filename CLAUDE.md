@@ -137,9 +137,11 @@ Series-specific facts that are easy to get wrong (full evidence in
 - The official 5.1 image line ended at **5.1.12** (docker-library commit
   `ac72cc3` "Remove 5.1 (Ruby 3.2 EOL)", 2026-04-20). Redmine source has
   5.1.13 but no image, so the v5 image is pinned to an unmaintained base.
-- `redmine_solid_queue` cannot run on Redmine 5 (the `solid_queue` gem needs
-  activerecord >= 7.1, Redmine 5.1 is Rails 6.1) and `redmine_login_audit2`
-  declares `requires_redmine 6.0.0` in every release — both are omitted from v5.
+- `redmine_solid_queue` cannot run on Redmine 5 (every `solid_queue` version
+  needs Rails 7+: 1.x wants activerecord >= 7.1 and even the oldest 0.1.1 wants
+  rails >= 7.0.3.1, so downgrading the gem does not help) and
+  `redmine_login_audit2` declares `requires_redmine 6.0.0` in every release —
+  both are omitted from v5, re-verified against `redmine:5.1.12` in 2026-09.
 - `redmine_banner` is pinned to **master** in v7, not to a tag: its Redmine 7
   fixes (routes.rb `only: %i[preview off]` → `only: []`, which Rails 8.1 rejects
   at route-draw time and which takes the whole app down; plus the admin-menu
