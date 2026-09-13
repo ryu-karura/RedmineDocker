@@ -128,7 +128,7 @@ podman images | grep -E 'redmine-(db|web)'
 ```
 
 `REDMINE_WEB_CONTAINERFILE` は Redmine の系列に対応します
-（`Containerfile.v5` / `Containerfile.v6`（既定）/ `Containerfile.v7`）。
+（`Containerfile.v5` / `Containerfile.v6` / `Containerfile.v7`（既定））。
 
 ### Docker Compose (開発)
 
@@ -317,9 +317,10 @@ podman exec redmine-web dpkg-query -W -f='${Version}\n' libapache2-mod-passenger
 # 0) 事前バックアップ（系列を戻せるようにするため必須）
 bash scripts/backup.sh
 
-# 1) .env を 2 つセットで変更（例: 6 系 → 7 系）
-#      REDMINE_VERSION=7.0.1
-#      REDMINE_WEB_CONTAINERFILE=Containerfile.v7
+# 1) .env を 2 つセットで変更（例: 既定の 7 系から 6 系へ下げる）
+#      REDMINE_VERSION=6.1.4
+#      REDMINE_WEB_CONTAINERFILE=Containerfile.v6
+#    ※ 6 系 → 7 系へ上げる場合は .env から 2 行を消して既定に戻すだけでも構いません
 
 # 2) 再ビルドして再作成
 docker compose -f compose.dev.yaml up --build -d
@@ -335,7 +336,8 @@ bash /opt/redmine/containers/scripts/backup.sh
 # 1) .env を変更してイメージを再ビルド（「イメージビルド手順」参照）
 
 # 2) 系列に対応する web ユニットへ差し替え（db / network は共通）
-cp quadlets/v7/redmine-web.container ~/.config/containers/systemd/
+#    既定の 7 系は quadlets/redmine-web.container そのものです
+cp quadlets/v6/redmine-web.container ~/.config/containers/systemd/
 systemctl --user daemon-reload
 systemctl --user restart redmine-web
 systemctl --user status redmine-web

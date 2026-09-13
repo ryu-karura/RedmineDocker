@@ -1,7 +1,7 @@
 # redmine-web (Redmine 7 系): Redmine 7.0.1（公式イメージ）+ プラグイン/テーマ一式
 #
-# シリーズ別 Containerfile のうち Redmine 7 用です。
-# 5 系は Containerfile.v5、6 系（既定）は Containerfile.v6 を参照してください。
+# シリーズ別 Containerfile のうち Redmine 7 用です（既定）。
+# 5 系は Containerfile.v5、6 系は Containerfile.v6 を参照してください。
 # 切り替えは .env の REDMINE_WEB_CONTAINERFILE / REDMINE_VERSION で行います
 # （docs/Design.md「Redmine シリーズの切り替え」参照）。
 #

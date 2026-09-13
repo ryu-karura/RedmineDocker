@@ -1,13 +1,18 @@
 # quadlets/redmine-web.container
 #
-# redmine-web 用の Podman Quadlet ユニットです: Redmine 6.1.4 + plugin stack。
-# これは Redmine 6 系（既定）用です。5 系・7 系を動かす場合は、このファイルを
+# redmine-web 用の Podman Quadlet ユニットです: Redmine 7.0.1 + plugin stack。
+# これは Redmine 7 系（既定）用です。5 系・6 系を動かす場合は、このファイルを
 # コピーしたあとに quadlets/v5/redmine-web.container または
-# quadlets/v7/redmine-web.container で上書きしてください
+# quadlets/v6/redmine-web.container で上書きしてください
 # （redmine-db.container と redmine.network は系列共通です）。
 # 起動できるシリーズは一度に 1 つだけです（コンテナ名・ポート・データが共通）。
 # /etc/containers/systemd/redmine-web.container に配置し、次を実行します:
 #   systemctl daemon-reload && systemctl start redmine-web
+#
+# ★ 既に 6 系で運用している環境をこのユニットに差し替えると、起動時に
+#   6.1 → 7.0 のマイグレーションが**片道で**走ります。切り戻すには
+#   scripts/backup.sh のダンプからのリストアが必要です。手順は
+#   docs/Manual.md「Redmine シリーズを切り替える」を参照してください。
 #
 # DB パスワードと secret_key_base は Podman シークレットです（docs/Setup.md 参照）。
 # Apache フロントエンドが :80 で公開されます。その先のアプリサーバーは
@@ -16,16 +21,24 @@
 #   passenger        Apache + mod_passenger が Redmine を直接起動（:3000 なし）
 # 切り替えは下の Environment= を書き換えて再起動するだけです（イメージ再ビルド不要）。
 # SMTP 設定（あれば）には下の EnvironmentFile を使います。
+#
+# ★ mod_passenger は forky (Debian 14) の 6.1.x です
+#   7 系のベースは Ruby 4.0 で、Passenger の Ruby 4 対応は 6.1.1 以降のため、
+#   Debian trixie の 6.0.26 では足りません。Containerfile.v7 が APT pin で
+#   passenger 関連パッケージだけを forky から取得しています。下の
+#   Environment=REDMINE_WEB_SERVER= を passenger にする前に、開発環境で
+#   `bash scripts/test-stack.sh --series 7 --web-server passenger` を
+#   実行して動作を確認してください。
 
 [Unit]
-Description=redmine Redmine アプリケーション 6.1.4
+Description=redmine Redmine アプリケーション 7.0.1
 Documentation=file:///opt/redmine/containers/docs/Design.md
 After=network-online.target redmine-db.service
 Wants=network-online.target
 Requires=redmine-db.service
 
 [Container]
-Image=localhost/redmine-web:6.1.4
+Image=localhost/redmine-web:7.0.1
 ContainerName=redmine-web
 Network=redmine-net
 PublishPort=127.0.0.1:80:80
@@ -33,7 +46,7 @@ PublishPort=127.0.0.1:80:80
 Environment=RAILS_ENV=production
 Environment=RAILS_RELATIVE_URL_ROOT=/redmine
 Environment=RUBY_YJIT_ENABLE=1
-# アプリサーバー: puma（既定）または passenger。
+# アプリサーバー: puma（既定）または passenger（上記★の forky 版 6.1.x）。
 Environment=REDMINE_WEB_SERVER=puma
 Environment=REDMINE_PUMA_PORT=3000
 Environment=REDMINE_DB_HOST=redmine-db

@@ -5,10 +5,10 @@ Guidance for AI assistants working in this repository.
 ## What this repository is
 
 RedmineDocker (the **redmine stack**) is container infrastructure for running
-**Redmine 6.1.4** on RHEL 9.5+ in production (rehearsable on WSL AlmaLinux
+**Redmine 7.0.1** on RHEL 9.5+ in production (rehearsable on WSL AlmaLinux
 9.5+; see the three paths below). There is **no Redmine application
 source code here** — Redmine, its Ruby/Puma runtime, and its gems come from the
-official `redmine:6.1.4` image. This repo is the *packaging and operations*
+official `redmine:7.0.1` image. This repo is the *packaging and operations*
 layer around it: Containerfiles, rendered config templates, an entrypoint,
 systemd Quadlet units, host Apache config, and operational shell scripts.
 
@@ -36,7 +36,7 @@ box (both use the container names `redmine-db`/`redmine-web` and the network
 ## Architecture (two tiers)
 
 ```
-client ──443──► Host Apache ──/redmine──► redmine-web (Apache 2.4 + Redmine 6.1.4)
+client ──443──► Host Apache ──/redmine──► redmine-web (Apache 2.4 + Redmine 7.0.1)
                 (TLS, HSTS)   127.0.0.1:80  │  REDMINE_WEB_SERVER selects one of:
                                             │    puma      → ProxyPass to Puma :3000
                                             │    passenger → mod_passenger spawns the app
@@ -50,7 +50,7 @@ client ──443──► Host Apache ──/redmine──► redmine-web (Apach
 | Container | Build context | Base image | Role | Exposed |
 |-----------|---------------|------------|------|---------|
 | `redmine-db` | `containers/redmine-db/` | `postgis/postgis:18-3.6` | PostgreSQL 18 + PostGIS 3.6 | internal `:5432` only |
-| `redmine-web` | `containers/redmine-web/` | `redmine:6.1.4` | Redmine app + 14 plugins + theme, Apache 2.4 frontend, Puma | `127.0.0.1:80` |
+| `redmine-web` | `containers/redmine-web/` | `redmine:7.0.1` | Redmine app + 14 plugins + theme, Apache 2.4 frontend, Puma | `127.0.0.1:80` |
 
 **Only `redmine-web` is published**, and only to loopback. In production the
 host Apache terminates TLS on 443 and forwards `/redmine` there. PostgreSQL
@@ -87,14 +87,14 @@ RedmineDocker/
 | Component | Value |
 |-----------|-------|
 | Host OS | Production: RHEL 9.5+ / Dev A: WSL AlmaLinux 9.5+ / Dev B: Codespaces |
-| Redmine | 6.1.4 (`docker.io/library/redmine:6.1.4`) |
+| Redmine | 7.0.1 (`docker.io/library/redmine:7.0.1`) |
 | PostgreSQL / PostGIS | 18 + 3.6 (`postgis/postgis:18-3.6`) |
 | Web tier | Apache httpd 2.4 (Debian `apt` package baked into `redmine-web`, not version-pinned) |
 | App server | Puma (default) or Passenger (`libapache2-mod-passenger`: 6.0.26 from trixie on v5/v6, 6.1.x from forky on v7), selected by `REDMINE_WEB_SERVER` |
 | Node.js / Yarn | Debian `nodejs` + Yarn 1.22.22 — **Redmine 5 series only**, for `redmine_gtt` 6.0.3's webpack build |
 
 `redmine-web` bakes in 14 plugins (see the numbered list in
-`containers/redmine-web/Containerfile.v6`) plus the `farend_fancy` theme. All
+`containers/redmine-web/Containerfile.v7`) plus the `farend_fancy` theme. All
 plugins/themes are `git clone`d **at build time** so they are reproducible in
 the image — update a plugin by editing the Containerfile and rebuilding, not by
 mounting a volume. The one exception is `redmine_gtt` in the 6/7-series images,
@@ -108,8 +108,8 @@ plugin/theme versions that actually work differ per series:
 | Series | Containerfile | Base image | Ruby / Rails | Plugins |
 |--------|---------------|------------|--------------|---------|
 | 5 | `Containerfile.v5` | `redmine:5.1.12` | 3.2 / 6.1.7.10 | 12 |
-| 6 (default) | `Containerfile.v6` | `redmine:6.1.4` | 3.4 / 7.2.3.2 | 14 |
-| 7 | `Containerfile.v7` | `redmine:7.0.1` | 4.0 / 8.1.3.1 | 14 |
+| 6 | `Containerfile.v6` | `redmine:6.1.4` | 3.4 / 7.2.3.2 | 14 |
+| 7 (default) | `Containerfile.v7` | `redmine:7.0.1` | 4.0 / 8.1.3.1 | 14 |
 
 A fourth Containerfile, `Containerfile.v5-mysql` (Redmine 5.1.1 + MySQL 8.0 CE,
 16 plugins — the 10 shared with `Containerfile.v5` minus `redmine_gtt`, plus 6
@@ -122,10 +122,14 @@ the normal dev/prod stack and has no Quadlet unit.
 `redmine-db` are shared by all three — keep it that way; series differences
 belong in the Containerfiles only. Selection is `.env`'s
 `REDMINE_WEB_CONTAINERFILE` + `REDMINE_VERSION` (always change both), compose
-reads it as `dockerfile: ${REDMINE_WEB_CONTAINERFILE:-Containerfile.v6}`,
-production has `quadlets/v5/` and `quadlets/v7/` drop-in replacements for the
-web unit only, and `scripts/test-stack.sh --series 5|6|7` sets the whole
-triple. **Only one series can run at a time** (shared container names, ports,
+reads it as `dockerfile: ${REDMINE_WEB_CONTAINERFILE:-Containerfile.v7}`,
+production ships the 7-series unit as `quadlets/redmine-web.container` itself
+with `quadlets/v5/` as a drop-in replacement for the web unit only, and
+`scripts/test-stack.sh --series 5|6|7` (default 7) sets the whole triple.
+**Switching the default is one-way for a live database** — a 6-series stack
+that boots the 7 image migrates 6.1 -> 7.0 on startup and cannot go back
+without restoring a dump, so an existing deployment must pin
+`REDMINE_VERSION` + `REDMINE_WEB_CONTAINERFILE` in `.env` to stay on 6. **Only one series can run at a time** (shared container names, ports,
 volumes) and the database is not backward-compatible across series.
 
 Series-specific facts that are easy to get wrong (full evidence in
@@ -411,10 +415,11 @@ Start/stop order is enforced by `Requires=`/`After=` in the units:
   via `--env-file`) as long as `COMPOSE_PROJECT_NAME`, `REDMINE_NETWORK`,
   `REDMINE_DB_CONTAINER`/`REDMINE_WEB_CONTAINER`, `REDMINE_DB_VOLUME`/`REDMINE_FILES_VOLUME`,
   and `REDMINE_WEB_HOST_PORT` all differ — see `docs/Design.md`, "設定パラメータ (.env)".
-- **`redmine:6.1.4`'s Ruby 3.4 ships YJIT compiled in but disabled by default**, and Redmine's
+- **`redmine:7.0.1`'s Ruby 4.0 ships YJIT compiled in but disabled by default**, and Redmine's
   own `config/environments/production.rb` never sets `config.yjit`, so JIT never turns on
   unless something asks for it (verified: `ruby -e "puts RubyVM::YJIT.enabled?"` prints
-  `false` with no flags, `true` with `RUBY_YJIT_ENABLE=1`, including through `bundle exec`).
+  `false` with no flags, `true` with `RUBY_YJIT_ENABLE=1`, including through `bundle exec` —
+  re-verified on the 7.0.1 base image, Ruby 4.0.6, in 2026-09).
   `RUBY_YJIT_ENABLE` is a Ruby-native env var — no entrypoint.sh or Containerfile change is
   needed, it just has to reach the Puma process env. Set to `1` by default in both
   `compose.dev.yaml` and `quadlets/redmine-web.container` (override via `.env`'s
@@ -536,7 +541,7 @@ bash scripts/test-stack.sh                # build, boot, verify, tear down (dest
 bash scripts/test-stack.sh --keep         # ... and leave the stack running
 bash scripts/test-stack.sh --skip-build   # reuse existing images for faster iteration
 bash scripts/test-stack.sh --web-server passenger --skip-build   # same image, Passenger mode
-bash scripts/test-stack.sh --series 7      # Redmine 7 image (5 / 6 / 7, default 6)
+bash scripts/test-stack.sh --series 6      # Redmine 6 image (5 / 6 / 7, default 7)
 ```
 
 It rebuilds both images, boots them, and checks every boot-time bug this
@@ -549,8 +554,8 @@ boot sequence against `REDMINE_WEB_SERVER=passenger` and swaps the Puma-direct
 check for "nothing is listening on `:3000`", "`passenger_module` is loaded",
 and "Apache serves a static asset out of `public/`" (`public/404.html` — the
 only static file present in all three series, since Redmine 6.0 moved
-stylesheets out of `public/`); on `--series 7` it additionally asserts the
-container's `libapache2-mod-passenger` is 6.1+ (the forky pin) — both modes
+stylesheets out of `public/`); on the default `--series 7` it additionally asserts
+the container's `libapache2-mod-passenger` is 6.1+ (the forky pin) — both modes
 share one image, so run it with
 `--skip-build` right after the default run. `--series 5|6|7` swaps the
 Containerfile, base image and image tag together; because each series has its
