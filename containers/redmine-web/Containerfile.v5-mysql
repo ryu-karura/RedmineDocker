@@ -17,7 +17,7 @@
 #   参照するのは compose.legacy.yaml / compose.dev.yaml のみで、quadlets（本番）
 #   にはまだありません。
 #
-#   通常構成は Containerfile.v5 (5.1.12) / .v6 (6.1.4、既定) / .v7 (7.0.1) で、
+#   通常構成は Containerfile.v5 (5.1.12) / .v6 (6.1.4) / .v7 (7.0.1、既定) で、
 #   いずれも PostgreSQL 18 + PostGIS 3.6 接続（postgis アダプタ）です。
 #
 # ベースイメージ: docker.io/library/redmine:5.1.1

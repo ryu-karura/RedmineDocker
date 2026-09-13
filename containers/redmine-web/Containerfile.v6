@@ -1,7 +1,10 @@
 # redmine-web (Redmine 6 系): Redmine 6.1.4（公式イメージ）+ プラグイン/テーマ一式
 #
-# シリーズ別 Containerfile のうち Redmine 6 用です（既定）。
-# 5 系は Containerfile.v5、7 系は Containerfile.v7 を参照してください。
+# シリーズ別 Containerfile のうち Redmine 6 用です。
+# 5 系は Containerfile.v5、7 系（既定）は Containerfile.v7 を参照してください。
+# 既定は 7 系なので、6 系を使うときは .env で REDMINE_VERSION=6.1.4 と
+# REDMINE_WEB_CONTAINERFILE=Containerfile.v6 を必ず明示してください
+# （本番の Quadlet は quadlets/v6/redmine-web.container で差し替えます）。
 # 切り替えは .env の REDMINE_WEB_CONTAINERFILE / REDMINE_VERSION で行います
 # （docs/Design.md「Redmine シリーズの切り替え」参照）。
 #

@@ -19,8 +19,8 @@ description: >-
 The `redmine-web` image layers a plugin/theme stack and native-gem build
 tooling onto an official `redmine` base image. There is **one Containerfile per
 Redmine major series** — `Containerfile.v5` (`redmine:5.1.12`),
-`Containerfile.v6` (`redmine:6.1.4`, the default) and `Containerfile.v7`
-(`redmine:7.0.1`) — because the plugin versions that actually work differ per
+`Containerfile.v6` (`redmine:6.1.4`) and `Containerfile.v7`
+(`redmine:7.0.1`, the default) — because the plugin versions that actually work differ per
 series. Everything else (`entrypoint.sh`, `healthcheck.sh`, `config.ru`, the
 `*.tmpl` files) is shared. Pick the file matching the series you are building;
 when a change is generic, apply it to all three. Two classes of mistake break

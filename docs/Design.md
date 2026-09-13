@@ -2,7 +2,7 @@
 
 ## 1. 概要
 
-RedmineDocker は 2 つのコンテナが連携して Redmine 6.1.4 を動作させます。設計は [redmine.jp の Docker ガイド](https://blog.redmine.jp/articles/6_1/redmine-6_1-docker/) を踏襲しており、**公式** の `redmine` イメージを使い、認証情報は **ファイルベースのシークレット** で管理し、Compose / Quadlet の単一定義から運用するようにしています。Apache フロントエンドを `redmine-web` に統合し、この環境で求められる設定値に合わせています。
+RedmineDocker は 2 つのコンテナが連携して Redmine 7.0.1 を動作させます。設計は [redmine.jp の Docker ガイド](https://blog.redmine.jp/articles/6_1/redmine-6_1-docker/) を踏襲しており、**公式** の `redmine` イメージを使い、認証情報は **ファイルベースのシークレット** で管理し、Compose / Quadlet の単一定義から運用するようにしています。Apache フロントエンドを `redmine-web` に統合し、この環境で求められる設定値に合わせています。
 
 | 項目 | 値 |
 |------|----|
@@ -12,7 +12,7 @@ RedmineDocker は 2 つのコンテナが連携して Redmine 6.1.4 を動作さ
 | Linux 管理ユーザー | `redmine` |
 | Linux ルートディレクトリ | `/opt/redmine` |
 | Rootless Podman ネットワーク | `redmine-net` |
-| Redmine イメージ | `docker.io/library/redmine:6.1.4` |
+| Redmine イメージ | `docker.io/library/redmine:7.0.1` |
 | PostgreSQL / PostGIS | `docker.io/postgis/postgis:18-3.6` |
 | Apache フロントエンド | `httpd` 2.4（`redmine-web` に内蔵） |
 | DB 名 / 所有者 | `redmine` / `redmine` |
@@ -57,7 +57,7 @@ RedmineDocker は 2 つのコンテナが連携して Redmine 6.1.4 を動作さ
 - 1 つの `redmine` ロールが `redmine` データベースを所有する（ブログの単一ユーザーモデル）構成です。`init-redmine.sh` は `postgis` / `postgis_topology` 拡張機能が存在することを確認します（冪等で、ベースイメージ側で初回初期化時に有効化済みです）。
 
 ### redmine-web (`containers/redmine-web/`)
-- ベースイメージは `redmine:6.1.4`（公式、Ruby / Bundler / Puma / gem も含む）です。Redmine のメジャーバージョン系列ごとに Containerfile を分けており、既定は 6 系（`Containerfile.v6`）です。5 系 / 7 系については「9. Redmine シリーズの切り替え」を参照してください。
+- ベースイメージは `redmine:7.0.1`（公式、Ruby / Bundler / Puma / gem も含む）です。Redmine のメジャーバージョン系列ごとに Containerfile を分けており、既定は 7 系（`Containerfile.v7`）です。5 系 / 6 系については「9. Redmine シリーズの切り替え」を参照してください。
 - 日本語 CJK フォント（PDF / Gantt 用）、14 プラグイン + `farend_fancy` テーマを追加します。プラグイン gem は `bundle install` でイメージに焼き込みます。`redmine_gtt` は 7.x でフロントエンドが webpack+yarn から Vite+pnpm へ移行したため、ビルド済み資産を同梱する公式リリース tarball を展開しています（6 系 / 7 系。Node ツールチェーンは不要）。5 系だけは webpack 時代の 6.0.3 を使うため yarn + webpack のビルドが残ります。
 - Apache フロントエンドを組み込み、`127.0.0.1:80` で `/redmine` リクエストを受けます。その先の処理は `REDMINE_WEB_SERVER` で切り替わります（下記「アプリサーバーの切り替え」）。
 - `entrypoint.sh` はシークレット解決（`*_FILE` 対応）、`config/database.yml` の描画（**`postgis`** アダプタ使用、redmine_gtt 必須）、`config/configuration.yml`（SMTP）の描画、Apache 設定の描画、DB 待機、コア / プラグインのマイグレーション実行、アプリサーバーの起動を行います。マイグレーションの実行可否は公式イメージと同じ環境変数で制御します（`REDMINE_NO_DB_MIGRATE` に値を設定するとコアの `db:migrate` をスキップ、`REDMINE_PLUGINS_MIGRATE` が非空なら `redmine:plugins:migrate` を実行。本スタックは 14 プラグインを内蔵するため既定で `REDMINE_PLUGINS_MIGRATE=1`）。
@@ -126,8 +126,8 @@ RedmineDocker は 2 つのコンテナが連携して Redmine 6.1.4 を動作さ
 
 | 用途 | 変数 | 既定値 |
 |------|------|--------|
-| Redmine バージョン | `REDMINE_VERSION` | `6.1.4` |
-| Web の Containerfile | `REDMINE_WEB_CONTAINERFILE` | `Containerfile.v6` |
+| Redmine バージョン | `REDMINE_VERSION` | `7.0.1` |
+| Web の Containerfile | `REDMINE_WEB_CONTAINERFILE` | `Containerfile.v7` |
 | PostgreSQL メジャー | `REDMINE_DB_PG_MAJOR` | `18` |
 | PostGIS バージョン | `REDMINE_DB_POSTGIS_VERSION` | `3.6` |
 | Web イメージタグ | `REDMINE_WEB_IMAGE` | `localhost/redmine-web:${REDMINE_VERSION}` |
@@ -192,8 +192,8 @@ Redmine・PostgreSQL・プラグインのバージョン変更は、`git ls-remo
 | 系列 | Containerfile | ベースイメージ | Ruby / Rails | プラグイン数 |
 |------|---------------|----------------|--------------|--------------|
 | Redmine 5 | `Containerfile.v5` | `redmine:5.1.12` | Ruby 3.2 / Rails 6.1.7.10 | 12 |
-| Redmine 6（既定） | `Containerfile.v6` | `redmine:6.1.4` | Ruby 3.4 / Rails 7.2.3.2 | 14 |
-| Redmine 7 | `Containerfile.v7` | `redmine:7.0.1` | Ruby 4.0 / Rails 8.1.3.1 | 14 |
+| Redmine 6 | `Containerfile.v6` | `redmine:6.1.4` | Ruby 3.4 / Rails 7.2.3.2 | 14 |
+| Redmine 7（既定） | `Containerfile.v7` | `redmine:7.0.1` | Ruby 4.0 / Rails 8.1.3.1 | 14 |
 
 `entrypoint.sh` / `healthcheck.sh` / `config.ru` / 各 `*.tmpl` / `redmine-db` は 3 系列で共通です。
 系列間の差分は「ベースイメージ」「プラグインのピン」「テーマの配置先」だけに閉じています。
@@ -211,10 +211,10 @@ MySQL 8.0 CE、プラグイン 16 個）があります。通常構成では使�
 # 5 系
 REDMINE_VERSION=5.1.12
 REDMINE_WEB_CONTAINERFILE=Containerfile.v5
-# 6 系（既定）
+# 6 系
 REDMINE_VERSION=6.1.4
 REDMINE_WEB_CONTAINERFILE=Containerfile.v6
-# 7 系
+# 7 系（既定。.env で指定しなければこれになります）
 REDMINE_VERSION=7.0.1
 REDMINE_WEB_CONTAINERFILE=Containerfile.v7
 ```
@@ -222,15 +222,16 @@ REDMINE_WEB_CONTAINERFILE=Containerfile.v7
 変更後は `docker compose -f compose.dev.yaml up --build -d` で再ビルド・再作成します。
 
 **本番 (Quadlet)** — Quadlet は `Image=` を変数展開できないため、系列ごとにユニットを用意しています。
-`quadlets/*.container` をコピーしたあと、5 系 / 7 系では `redmine-web.container` だけを上書きします。
+`quadlets/redmine-web.container` がそのまま既定の 7 系ユニットで、5 系 / 6 系では
+コピーしたあとに `redmine-web.container` だけを上書きします。
 
 ```bash
-cp quadlets/*.container quadlets/*.network ~/.config/containers/systemd/
-cp quadlets/v7/redmine-web.container ~/.config/containers/systemd/   # 7 系の場合
+cp quadlets/*.container quadlets/*.network ~/.config/containers/systemd/   # 7 系（既定）
+cp quadlets/v6/redmine-web.container ~/.config/containers/systemd/         # 6 系にする場合
 systemctl --user daemon-reload
 ```
 
-**テスト** — `bash scripts/test-stack.sh --series 7`（`5` / `6` / `7`、既定 `6`）。
+**テスト** — `bash scripts/test-stack.sh --series 6`（`5` / `6` / `7`、既定 `7`）。
 系列でイメージタグが違うため、`--skip-build` は同じ系列のイメージにしか使えません。
 
 ### 同時起動はできません

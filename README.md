@@ -9,7 +9,7 @@
 ## アーキテクチャ
 
 ```
-  client ──443──► Host Apache ──/redmine──► redmine-web (Apache 2.4 + Redmine 6.1.4)
+  client ──443──► Host Apache ──/redmine──► redmine-web (Apache 2.4 + Redmine 7.0.1)
                   (TLS, HSTS)   127.0.0.1:80   │  REDMINE_WEB_SERVER で分岐
                                                   │
                                     puma (既定) ──┴── passenger
@@ -26,7 +26,7 @@
 | コンテナ | ビルドコンテキスト | イメージ | 役割 | 公開先 |
 |----------|-------------------|----------|------|--------|
 | `redmine-db` | `containers/redmine-db/` | `postgis/postgis:18-3.6` | PostgreSQL 18 + PostGIS 3.6 | なし（内部 5432） |
-| `redmine-web` | `containers/redmine-web/` | `docker.io/library/redmine:6.1.4` + plugin stack + Apache 2.4 | Redmine アプリ、Apache フロントエンド、Puma | `127.0.0.1:80` |
+| `redmine-web` | `containers/redmine-web/` | `docker.io/library/redmine:7.0.1` + plugin stack + Apache 2.4 | Redmine アプリ、Apache フロントエンド、Puma | `127.0.0.1:80` |
 
 `redmine-web` だけがループバックに公開されます。ホスト側 Apache が 443 で TLS を終端し、`/redmine` をその先へ転送します。PostgreSQL (5432) と Puma (3000) はホストからは到達できません。
 
@@ -42,7 +42,7 @@
 | コンポーネント | 値 |
 |---------------|----|
 | OS | 本番: RHEL9.5+ / 開発 A: WSL上のAlmaLinux9.5+ / 開発 B: Codespaces |
-| Redmine | 6.1.4 (`docker.io/library/redmine:6.1.4`)、5 系 / 7 系にも切り替え可 |
+| Redmine | 7.0.1 (`docker.io/library/redmine:7.0.1`)、5 系 / 6 系にも切り替え可 |
 | PostgreSQL | 18 + PostGIS 3.6 (`postgis/postgis:18-3.6`) |
 | Web 層 | Apache httpd 2.4 (redmine-web 内蔵) |
 | Ruby / Puma | 公式 Redmine イメージに同梱 |
@@ -67,8 +67,15 @@ redmine_xlsx_format_issue_exporter。
 | 系列 | Containerfile | ベースイメージ | プラグイン | 備考 |
 |------|---------------|----------------|-----------|------|
 | Redmine 5 | `Containerfile.v5` | `redmine:5.1.12` | 12 個 | 公式イメージは 5.1.12 で打ち切り（Ruby 3.2 EOL）。login_audit2 / solid_queue は 5.1 で導入不可 |
-| Redmine 6 | `Containerfile.v6` | `redmine:6.1.4` | 14 個 | 既定 |
-| Redmine 7 | `Containerfile.v7` | `redmine:7.0.1` | 14 個 | banner は 7.0 対応が master にのみ入っているため master を pin。Ruby 4.0 のため mod_passenger は forky の 6.1.x を APT pin して導入 |
+| Redmine 6 | `Containerfile.v6` | `redmine:6.1.4` | 14 個 | `.env` で切り替え |
+| Redmine 7 | `Containerfile.v7` | `redmine:7.0.1` | 14 個 | **既定**。banner は 7.0 対応が master にのみ入っているため master を pin。Ruby 4.0 のため mod_passenger は forky の 6.1.x を APT pin して導入 |
+
+> ⚠ **既定は Redmine 7 系です。** 6 系で運用中のスタックに対して `.env` を置かずに
+> `docker compose -f compose.dev.yaml up --build -d` を実行すると、7 系イメージが
+> ビルドされ起動時に 6.1 → 7.0 のマイグレーションが**片道で**走ります。6 系のまま
+> 動かし続けるなら `.env` に `REDMINE_VERSION=6.1.4` と
+> `REDMINE_WEB_CONTAINERFILE=Containerfile.v6` を明示してください（手順は
+> [docs/Manual.md](docs/Manual.md)「Redmine のメジャーバージョン系列切り替え」）。
 
 既存の Redmine 5.1.1 + MySQL からの移行（例外的な作業）は
 **[アップグレード手順](docs/Upgrade.md)** を参照してください。
@@ -86,15 +93,15 @@ RedmineDocker/
 │   ├── redmine-db-mysql/           # MySQL 8.0 CE（移行元の再現専用）
 │   └── redmine-web/            # Redmine + plugin/theme スタック + Apache フロントエンド
 │       ├── Containerfile.v5        #   Redmine 5.1.12 用
-│       ├── Containerfile.v6        #   Redmine 6.1.4 用（既定）
-│       ├── Containerfile.v7        #   Redmine 7.0.1 用
+│       ├── Containerfile.v6        #   Redmine 6.1.4 用
+│       ├── Containerfile.v7        #   Redmine 7.0.1 用（既定）
 │       └── Containerfile.v5-mysql  #   Redmine 5.1.1 + MySQL（移行元の再現専用）
 ├── quadlets/                     # 本番用 Podman Quadlet ユニット
 │   ├── redmine.network
 │   ├── redmine-db.container
-│   ├── redmine-web.container       #   Redmine 6 系（既定）
+│   ├── redmine-web.container       #   Redmine 7 系（既定）
 │   ├── v5/redmine-web.container    #   Redmine 5 系の差し替え用
-│   └── v7/redmine-web.container    #   Redmine 7 系の差し替え用
+│   └── v6/redmine-web.container    #   Redmine 6 系の差し替え用
 ├── host-apache/                  # ホスト Apache のリバースプロキシ (TLS)
 ├── scripts/                      # generate-secrets, backup, restore
 │   ├── migrate-mysql-to-postgres.sh  # MySQL → PostgreSQL 18 コンバート

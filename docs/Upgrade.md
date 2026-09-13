@@ -335,7 +335,9 @@ docker run -d --name redmine-legacy-on-pg \
 （`compose.legacy.yaml`）の `redmine-legacy-web` を、`compose.legacy-on-postgres.yaml`
 という override を重ねて恒久的に `redmine-db`（PostgreSQL 18 + PostGIS 3.6）へ
 つなぎ直せます。**通常スタックの `.env` / `compose.dev.yaml` 側は一切変更しません**
-— `REDMINE_WEB_CONTAINERFILE` は `Containerfile.v6`（既定）のままで構いません。
+— `REDMINE_WEB_CONTAINERFILE` は既定（`Containerfile.v7`）のままで構いません。
+この段で起動するのは移行元の 5.1.1 イメージだけなので、通常スタック側の既定が
+7 系であることは影響しません。
 恒久運用にはこの移行元スタック側の設定だけが関係します。
 
 ```bash
@@ -436,13 +438,16 @@ docker exec -e PGPASSWORD="$(cat secrets/db_password.txt)" redmine-db \
 
 ### 5.3 Redmine 7 イメージで起動する
 
-`.env` で系列を 7 に切り替えます（`REDMINE_VERSION` と `REDMINE_WEB_CONTAINERFILE` は
-必ずセットで変更。`docs/Design.md`「Redmine シリーズの切り替え」参照）。
+7 系は**既定**なので、`.env` から系列の 2 行を消す（＝既定に任せる）だけでも
+構いません。明示する場合は 2 つを必ずセットで書きます
+（`docs/Design.md`「Redmine シリーズの切り替え」参照）。
 
 ```ini
 REDMINE_VERSION=7.0.1
 REDMINE_WEB_CONTAINERFILE=Containerfile.v7
 ```
+
+`.env` を `.env.example` から作り直した場合も、既定でこの 2 つになります。
 
 ```bash
 docker compose -f compose.dev.yaml up --build -d
@@ -573,7 +578,7 @@ bash scripts/test-webflow.sh --url http://localhost:8080/redmine \
 
 | 変数 | 既定 | 意味 |
 |------|------|------|
-| `REDMINE_WEB_CONTAINERFILE` | `Containerfile.v6` | 段階 3 で `Containerfile.v7`（または `.v5`/`.v6`）に切り替える |
+| `REDMINE_WEB_CONTAINERFILE` | `Containerfile.v7` | 段階 3 の移行先そのもの。5 系 / 6 系に留める場合だけ `.v5` / `.v6` を明示する |
 | `REDMINE_DB_ADAPTER` | `postgis` | 通常構成では変更不要。段階 3 で `Containerfile.v7` に切り替えても既定の `postgis` のまま |
 | `REDMINE_MIGRATE_ONLY` | 未設定 | 設定するとマイグレーションだけ実行して終了（Web サーバーを起動しない） |
 | `REDMINE_NETWORK` / `REDMINE_DB_CONTAINER` | `redmine-net` / `redmine-db` | 4.1 の恒久運用 override（`compose.legacy-on-postgres.yaml`）が接続先として参照 |

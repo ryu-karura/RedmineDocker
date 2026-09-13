@@ -24,13 +24,13 @@
 #   bash scripts/test-stack.sh
 #   bash scripts/test-stack.sh --web-server passenger --skip-build
 #
-# The Redmine series under test is selected with --series (5 / 6 / 7, default 6).
+# The Redmine series under test is selected with --series (5 / 6 / 7, default 7).
 # Each series has its own Containerfile, base image and plugin set, so the flag
 # sets REDMINE_WEB_CONTAINERFILE / REDMINE_WEB_BASE_IMAGE / REDMINE_WEB_IMAGE
 # together (same triples as the .env.example presets):
 #   5 -> Containerfile.v5 / redmine:5.1.12
-#   6 -> Containerfile.v6 / redmine:6.1.4   (default)
-#   7 -> Containerfile.v7 / redmine:7.0.1
+#   6 -> Containerfile.v6 / redmine:6.1.4
+#   7 -> Containerfile.v7 / redmine:7.0.1   (default)
 # Series images have different tags, so --skip-build only reuses an image built
 # for that same series. With --series 7 --web-server passenger there is one
 # extra check: the Redmine 7 base is Ruby 4.0 and Passenger only supports it
@@ -57,7 +57,7 @@
 #   bash scripts/test-stack.sh --keep     # ... and leave the stack running
 #   bash scripts/test-stack.sh --skip-build   # reuse existing images (faster iteration)
 #   bash scripts/test-stack.sh --web-server passenger   # test the Passenger mode
-#   bash scripts/test-stack.sh --series 7 # test the Redmine 7 image (5 / 6 / 7)
+#   bash scripts/test-stack.sh --series 6 # test the Redmine 6 image (5 / 6 / 7, default 7)
 #
 # Runs with podman (podman compose / the podman-compose external provider).
 
@@ -87,7 +87,7 @@ pc() { podman compose -p "${PROJECT_NAME}" -f "${COMPOSE_FILE}" "$@"; }
 KEEP=0
 SKIP_BUILD=0
 WEB_SERVER="${TEST_STACK_WEB_SERVER:-puma}"
-SERIES="${TEST_STACK_SERIES:-6}"
+SERIES="${TEST_STACK_SERIES:-7}"
 while [ "$#" -gt 0 ]; do
     case "$1" in
         --keep) KEEP=1 ;;

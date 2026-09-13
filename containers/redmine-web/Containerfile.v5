@@ -1,7 +1,10 @@
 # redmine-web (Redmine 5 系): Redmine 5.1.12（公式イメージ）+ プラグイン/テーマ一式
 #
 # シリーズ別 Containerfile のうち Redmine 5 用です。
-# 6 系（既定）は Containerfile.v6、7 系は Containerfile.v7 を参照してください。
+# 6 系は Containerfile.v6、7 系（既定）は Containerfile.v7 を参照してください。
+# 既定は 7 系なので、5 系を使うときは .env で REDMINE_VERSION=5.1.12 と
+# REDMINE_WEB_CONTAINERFILE=Containerfile.v5 を必ず明示してください
+# （本番の Quadlet は quadlets/v5/redmine-web.container で差し替えます）。
 # 切り替えは .env の REDMINE_WEB_CONTAINERFILE / REDMINE_VERSION で行います
 # （docs/Design.md「Redmine シリーズの切り替え」参照）。
 #
@@ -14,7 +17,7 @@
 #   2026-04-20）。Redmine 本体のソースには 5.1.13 がありますが、対応する
 #   公式イメージは存在しません。つまり 5.1.12 に固定するということは、
 #   ベース OS と Ruby 3.2 のセキュリティ更新が止まった土台を使うことを
-#   意味します。新規構築では 6 系（既定）または 7 系を選んでください。
+#   意味します。新規構築では既定の 7 系（または 6 系）を選んでください。
 #
 # 公式イメージに対して次を追加します:
 #   - 日本語 CJK フォント（fonts-noto-cjk）
@@ -52,11 +55,15 @@
 #       2024-01（Redmine 5.1.x 対応コミット含む）ですが 5.1.12 での CI 実績
 #       までは確認できません。事前検証推奨。
 #
-# 6 系にあって 5 系で外したプラグイン（いずれも技術的に導入不可）:
+# 6 系 / 7 系にあって 5 系で外したプラグイン（いずれも技術的に導入不可。
+# 2026-09 に redmine:5.1.12 で再確認済み）:
 #   - redmine_login_audit2 … 全リリース（v1.0.0 / 1.0.2）が
 #     requires_redmine 6.0.0 を宣言しており、5.1 対応版が存在しません。
-#   - redmine_solid_queue  … 依存する solid_queue gem が activerecord >= 7.1 を
-#     要求します。Redmine 5.1 は Rails 6.1 のため bundle 解決ができません。
+#     載せると起動時に Redmine::PluginRequirementError で停止します。
+#   - redmine_solid_queue  … 依存する solid_queue gem が Rails 7 以上を要求します。
+#     bundler が "solid_queue < 0.3.0 requires rails >= 7.0.3.1" で解決に失敗し、
+#     1.x は activerecord >= 7.1、最古の 0.1.1 でも rails >= 7.0.3.1 のため
+#     古い版へ落としても回避できません（Redmine 5.1 は Rails 6.1）。
 #
 # 3〜10 のバージョンが 6 系より古いのは、それぞれ 5.1 を対象に CI が通っている
 # 最新タグを選んでいるためです（新しいタグは requires_redmine 6.0 以上を宣言）。
