@@ -1,7 +1,7 @@
 # quadlets/v5/redmine-web.container
 #
 # Redmine 5 系（5.1.12）用の redmine-web Quadlet ユニットです。
-# quadlets/redmine-web.container（6 系・既定）の差し替え版で、変更点は
+# quadlets/redmine-web.container（7 系・既定）の差し替え版で、変更点は
 # Image= のタグと、5 系特有の注意書きだけです。redmine-db.container と
 # redmine.network は系列共通なのでそのまま使います。
 #
@@ -15,9 +15,9 @@
 # ★ 5 系のメンテナンス状況
 #   公式 Docker イメージの 5.1 系は 5.1.12 で打ち切られています
 #   （Ruby 3.2 EOL のため）。ベース OS / Ruby のセキュリティ更新は
-#   止まっているので、新規構築では 6 系または 7 系を選んでください。
+#   止まっているので、新規構築では既定の 7 系（または 6 系）を選んでください。
 #
-# ★ 同梱プラグインが 6 系と異なります（11 個）
+# ★ 同梱プラグインが 6 系 / 7 系と異なります（12 個）
 #   redmine_login_audit2 と redmine_solid_queue は 5.1 では技術的に導入できず、
 #   他のプラグインも 5.1 対応の古いタグを使います
 #   （containers/redmine-web/Containerfile.v5 参照）。
@@ -53,7 +53,7 @@ Environment=REDMINE_PLUGINS_MIGRATE=1
 # 公式イメージ同様、値を設定するとコアの db:migrate をスキップします
 # （既定は未設定 = 起動時にマイグレーションを実行）。
 # Environment=REDMINE_NO_DB_MIGRATE=1
-# 初回起動時（trackers テーブルが空）のみ、日本語の既定データを投入します。
+# 初回起動時（roles テーブルが空）のみ、日本語の既定データを投入します。
 Environment=REDMINE_LOAD_DEFAULT_DATA=1
 Environment=REDMINE_DEFAULT_DATA_LANG=ja
 # オプションの非シークレット設定（SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASSWORD）。
