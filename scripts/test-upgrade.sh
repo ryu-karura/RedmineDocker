@@ -1,7 +1,7 @@
 #!/bin/bash
 # scripts/test-upgrade.sh
 #
-# 「Redmine 5.1.1 + MySQL 8.0 → PostgreSQL 18 へコンバート → Redmine 7.0.0 へ
+# 「Redmine 5.1.1 + MySQL 8.0 → PostgreSQL 18 へコンバート → Redmine 7.0.1 へ
 # アップグレード」の一連の手順を、実データを入れた状態で通しで検証します。
 # 手順そのものの説明は docs/Upgrade.md にあります。このスクリプトはその手順を
 # 自動化し、各段の結果を検査するものです。
@@ -14,7 +14,7 @@
 #      （件数一致・シーケンス・boolean 型まで検証）
 #   4. コンバート後の DB に対し 5.1.1 のまま Redmine が起動し、データが見える
 #   5. Redmine 7 に無いプラグイン（redmine_theme_changer）をアンインストールできる
-#   6. Redmine 7.0.0 イメージへ差し替えて起動でき、マイグレーションが通り、
+#   6. Redmine 7.0.1 イメージへ差し替えて起動でき、マイグレーションが通り、
 #      データが保持されている
 #
 # ★ 破壊的です。専用のプロジェクト名・ボリューム・DB 名を使うため通常の開発/本番
@@ -79,8 +79,8 @@ export REDMINE_DB_VOLUME="redmine_upgrade_pgdata"
 export REDMINE_FILES_VOLUME="redmine_upgrade_web_files"
 export REDMINE_WEB_HOST_PORT="${TEST_UPGRADE_TARGET_PORT:-8082}"
 export REDMINE_WEB_CONTAINERFILE="Containerfile.v7"
-export REDMINE_WEB_BASE_IMAGE="docker.io/library/redmine:7.0.0"
-export REDMINE_WEB_IMAGE="localhost/redmine-web:7.0.0"
+export REDMINE_WEB_BASE_IMAGE="docker.io/library/redmine:7.0.1"
+export REDMINE_WEB_IMAGE="localhost/redmine-web:7.0.1"
 
 # コンバート後の 5.1.1 動作確認に使う単発コンテナ
 ON_PG_CONTAINER="redmine-upgrade-legacy-on-pg"
@@ -311,19 +311,19 @@ else
 fi
 cli rm -f "${ON_PG_CONTAINER}" >/dev/null 2>&1 || true
 
-# ── 7. Redmine 7.0.0 へアップグレード ──────────────────────────────────────────
+# ── 7. Redmine 7.0.1 へアップグレード ──────────────────────────────────────────
 if [ "${SKIP_BUILD}" -eq 0 ]; then
-    log "Building the Redmine 7.0.0 image ..."
+    log "Building the Redmine 7.0.1 image ..."
     target_compose build redmine-web || die "Redmine 7 image build failed."
 fi
-log "Starting Redmine 7.0.0 against the converted database (runs the 5.1 -> 7.0 migrations) ..."
+log "Starting Redmine 7.0.1 against the converted database (runs the 5.1 -> 7.0 migrations) ..."
 target_compose up -d redmine-web >/dev/null || die "Redmine 7 failed to start."
 
 check "Redmine 7 becomes healthy" wait_healthy "${REDMINE_WEB_CONTAINER}" 900
 check "Redmine 7 serves the login page (:${REDMINE_WEB_HOST_PORT})" \
     http_200 "http://localhost:${REDMINE_WEB_HOST_PORT}/redmine/login"
-check "Redmine reports version 7.0.0" \
-    runner_equals "${REDMINE_WEB_CONTAINER}" 'puts Redmine::VERSION.to_s' "7.0.0"
+check "Redmine reports version 7.0.1" \
+    runner_equals "${REDMINE_WEB_CONTAINER}" 'puts Redmine::VERSION.to_s' "7.0.1"
 check "Redmine 7 is on the postgis adapter" \
     runner_equals "${REDMINE_WEB_CONTAINER}" \
         'puts ActiveRecord::Base.connection.adapter_name.downcase' "postgis"
@@ -351,7 +351,7 @@ log "Checking the upgraded stack through the web UI ..."
 check "upgraded: pre-upgrade data still displays, and new project/issue can be created" \
     bash "${SCRIPT_DIR}/test-webflow.sh" \
         --url "http://localhost:${REDMINE_WEB_HOST_PORT}/redmine" \
-        --label "upgraded 7.0.0" --tag after --expect-tag before
+        --label "upgraded 7.0.1" --tag after --expect-tag before
 
 # ── まとめ ─────────────────────────────────────────────────────────────────────
 echo ""

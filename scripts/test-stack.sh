@@ -29,8 +29,8 @@
 # sets REDMINE_WEB_CONTAINERFILE / REDMINE_WEB_BASE_IMAGE / REDMINE_WEB_IMAGE
 # together (same triples as the .env.example presets):
 #   5 -> Containerfile.v5 / redmine:5.1.12
-#   6 -> Containerfile.v6 / redmine:6.1.3   (default)
-#   7 -> Containerfile.v7 / redmine:7.0.0
+#   6 -> Containerfile.v6 / redmine:6.1.4   (default)
+#   7 -> Containerfile.v7 / redmine:7.0.1
 # Series images have different tags, so --skip-build only reuses an image built
 # for that same series. With --series 7 --web-server passenger there is one
 # extra check: the Redmine 7 base is Ruby 4.0 and Passenger only supports it
@@ -127,8 +127,8 @@ esac
 # イメージタグもここで決まります。
 case "${SERIES}" in
     5) REDMINE_SERIES_VERSION=5.1.12; REDMINE_SERIES_CONTAINERFILE=Containerfile.v5 ;;
-    6) REDMINE_SERIES_VERSION=6.1.3;  REDMINE_SERIES_CONTAINERFILE=Containerfile.v6 ;;
-    7) REDMINE_SERIES_VERSION=7.0.0;  REDMINE_SERIES_CONTAINERFILE=Containerfile.v7 ;;
+    6) REDMINE_SERIES_VERSION=6.1.4;  REDMINE_SERIES_CONTAINERFILE=Containerfile.v6 ;;
+    7) REDMINE_SERIES_VERSION=7.0.1;  REDMINE_SERIES_CONTAINERFILE=Containerfile.v7 ;;
     *) echo "--series must be '5', '6' or '7' (got '${SERIES}')" >&2; exit 2 ;;
 esac
 export REDMINE_WEB_CONTAINERFILE="${REDMINE_SERIES_CONTAINERFILE}"

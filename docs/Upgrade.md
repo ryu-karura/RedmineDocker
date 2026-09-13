@@ -1,7 +1,7 @@
-# アップグレード検証手順 — Redmine 5.1.1 + MySQL 8.0 → PostgreSQL 18 → Redmine 7.0.0
+# アップグレード検証手順 — Redmine 5.1.1 + MySQL 8.0 → PostgreSQL 18 → Redmine 7.0.1
 
 このドキュメントは、**既存の Redmine 5.1.1 (MySQL 8.0 CE) を、このリポジトリの標準構成
-である Redmine 7.0.0 + PostgreSQL 18 + PostGIS 3.6 へ移行する**ための手順書です。
+である Redmine 7.0.1 + PostgreSQL 18 + PostGIS 3.6 へ移行する**ための手順書です。
 
 移行を 3 段階に分け、各段階を単独で検証・切り戻しできるようにしています。
 
@@ -9,7 +9,7 @@
 |------|------|----------|
 | 1 | 移行元 (as-is) をコンテナで再現する | `.env.legacy` + `compose.legacy.yaml` + `containers/redmine-web/Containerfile.v5-mysql` + `containers/redmine-db-mysql/` |
 | 2 | DB を MySQL 8.0 → PostgreSQL 18 + PostGIS へコンバートする | `scripts/migrate-mysql-to-postgres.sh`（`.env` + `.env.legacy` の両方を読む）+ `scripts/pgloader/` |
-| 3 | Redmine 5.1.1 → 7.0.0 へアップグレードする | `.env` + `compose.dev.yaml`（`Containerfile.v7`） |
+| 3 | Redmine 5.1.1 → 7.0.1 へアップグレードする | `.env` + `compose.dev.yaml`（`Containerfile.v7`） |
 
 **ファイルの役割は 2 系統に分かれています。混在させないでください:**
 
@@ -35,7 +35,7 @@
 ```
 【段階 1】移行元の再現                    【段階 2】DB コンバート          【段階 3】アップグレード
 
- redmine-legacy-web (5.1.1)                                              redmine-web (7.0.0)
+ redmine-legacy-web (5.1.1)                                              redmine-web (7.0.1)
    plugins x16                                                            plugins x14
         │ mysql2                                                               │ postgis
         ▼                                                                      ▼
@@ -44,7 +44,7 @@
                             │                              │
                      ① 空 DB に 5.1.1 のまま          ② 5.1.1 のまま起動して確認
                        rake db:migrate でスキーマ作成    → そのまま本運用も可能（4.1）
-                                                          → 7 系に無いプラグインを外して 7.0.0 へ
+                                                          → 7 系に無いプラグインを外して 7.0.1 へ
                                                             （起動時に 5.1→7.0 の
                                                               マイグレーションが走る）
 ```
@@ -151,11 +151,11 @@ docker compose --env-file .env.legacy -f compose.legacy.yaml logs -f redmine-leg
 
 **未対応のため除外したプラグイン**
 
-| プラグイン | 除外理由 |
+| プラグイン | 除外理由（実機で再現した挙動） |
 |-----------|---------|
-| `redmine_gtt` | **PostGIS 必須**。geometry 型と PostGIS 関数を使うため MySQL では動作しません。DB を PostgreSQL へ移したあと、段階 3 の Redmine 7 イメージで導入されます。 |
-| `redmine_login_audit2` | 全リリースが `requires_redmine 6.0.0` を宣言しており、5.1 対応版がありません。 |
-| `redmine_solid_queue` | 依存する `solid_queue` gem が activerecord >= 7.1 を要求します（Redmine 5.1 は Rails 6.1）。 |
+| `redmine_gtt` | **PostGIS 必須**。`db/migrate/001_enable_postgis.rb` が `enable_extension :postgis` を、以降が `add_column :issues, :geom, :geometry, srid: 4326` を実行するため MySQL では動きません（README にも "require PostgreSQL/PostGIS" と明記）。DB を PostgreSQL へ移したあと、段階 3 の Redmine 7 イメージで導入されます。 |
+| `redmine_login_audit2` | 全リリースが `requires_redmine 6.0.0` を宣言しており、5.1 対応版がありません。最新の 1.0.2 を `redmine:5.1.12` に載せると起動時に `Redmine::PluginRequirementError: redmine_login_audit2 plugin requires Redmine 6.0.0 or higher but current is 5.1.12.stable` で停止します。 |
+| `redmine_solid_queue` | 依存する `solid_queue` gem が Rails 7 以上を要求します。5.1 に載せると bundler が `Could not find compatible versions / solid_queue < 0.3.0 requires rails >= 7.0.3.1` で解決に失敗します（1.x は activerecord >= 7.1、最古の 0.1.1 でも rails >= 7.0.3.1 のため、古い版へ落としても解決しません）。 |
 
 `redmine_gtt` を外したことで、このイメージには `libgeos-dev` / `libproj-dev` /
 yarn / webpack も不要になっています（`Containerfile.v5` との差分）。
@@ -374,21 +374,22 @@ DB は既に PostgreSQL へ移行済みなので、通常スタック側（`.env
 
 ---
 
-## 5. 段階 3 — Redmine 7.0.0 へのアップグレード
+## 5. 段階 3 — Redmine 7.0.1 へのアップグレード
 
 ### 5.1 事前: Redmine 7 に無いプラグインをアンインストールする
 
 移行元 (`Containerfile.v5-mysql`) の 16 個のうち、Redmine 7 イメージ
-(`Containerfile.v7`) に無いのは次の 5 個です（実際の移行元環境に合わせて追加した
-プラグイン群で、7 系では同梱していません）。
+(`Containerfile.v7`) に無いのは次の 5 個です。**これらは Redmine 7 非対応だから
+外すのではなく、実際の移行元環境に合わせて 5.1 再現イメージにだけ足したもので、
+通常スタック（5/6/7 系）のプラグイン構成に含めていない**ためです。
 
-| プラグイン | db/migrate | アンインストール時の作業 |
-|-----------|:---:|------|
-| redmine_theme_changer | あり | **マイグレーションを戻す**（下のコマンド） |
-| redmine_issue_assign_notice | なし | 外すだけ |
-| redmine_absolute_dates | なし | 外すだけ |
-| redmine_vividtone_my_page_blocks | なし | 外すだけ |
-| redmine_hide_sidebar | なし | 外すだけ |
+| プラグイン | 移行元の版 | db/migrate | アンインストール時の作業 |
+|-----------|:---:|:---:|------|
+| redmine_theme_changer | 0.6.0 | あり | **マイグレーションを戻す**（下のコマンド） |
+| redmine_issue_assign_notice | v2.2.1 | なし | 外すだけ |
+| redmine_absolute_dates | 0.0.4 | なし | 外すだけ |
+| redmine_vividtone_my_page_blocks | 1.3 | なし | 外すだけ |
+| redmine_hide_sidebar | master | なし | 外すだけ |
 
 **マイグレーションを持つプラグインは、外す前にそのマイグレーションを戻しておく
 必要があります。** プラグイン本体が消えた後では戻せません。
@@ -405,6 +406,27 @@ docker rm -f redmine-legacy-on-pg
 > Redmine 7 対応が upstream の master へマージされ、7 系イメージにも同梱された
 > ため不要になりました（`docs/Design.md`「プラグイン / テーマの対応状況」参照）。
 
+#### 5.1.1 アップグレード後もこの 5 個を使いたい場合
+
+5 個とも **Redmine 6.1.4 / 7.0.1 で動く版が存在します**（2026-09 時点。公式イメージ
+`redmine:6.1.4` / `redmine:7.0.1` に載せて起動・`/admin/plugins`・各プラグインの
+設定画面/マイページ/チケット画面まで確認済み）。使い続けたい場合は
+`Containerfile.v7`（または `.v6`）に下表の版を追加してイメージを焼き直してください。
+
+| プラグイン | 追加する版 | 6.1.4 | 7.0.1 | 備考 |
+|-----------|-----------|:---:|:---:|------|
+| redmine_theme_changer | **0.7.1** | OK | OK | CI に 6.0/6.1-stable と master を含む |
+| redmine_issue_assign_notice | **v2.3.0** | OK | OK | 2026-08 更新。dev container が `redmine:6.1.3` |
+| redmine_vividtone_my_page_blocks | **v1.4.1** | OK | OK | 2026-05 更新。Redmine 6.0 の SVG アイコン対応済み |
+| redmine_absolute_dates | 0.0.4 | OK | OK | 2022 年で更新停止。動作はするが無保守 |
+| redmine_hide_sidebar | master | OK | OK | タグ無し。CI は 2024 年（master = 当時の 6.0-devel）まで |
+
+> ⚠ **移行元の版のまま持ち込まないでください。** `redmine_theme_changer` **0.6.0**
+> を `redmine:7.0.1` に載せると、Rails から削除された `unloadable` を呼ぶため
+> `undefined local variable or method 'unloadable' for class ThemeChangerUserSetting
+> (NameError)` で **Redmine 全体が起動不能**になります（0.7.1 で解消）。残り 4 個は
+> 移行元の版のままでも 7.0.1 で起動しますが、更新のある 3 個は上表の版を推奨します。
+
 ### 5.2 バックアップ（切り戻し用）
 
 ```bash
@@ -418,7 +440,7 @@ docker exec -e PGPASSWORD="$(cat secrets/db_password.txt)" redmine-db \
 必ずセットで変更。`docs/Design.md`「Redmine シリーズの切り替え」参照）。
 
 ```ini
-REDMINE_VERSION=7.0.0
+REDMINE_VERSION=7.0.1
 REDMINE_WEB_CONTAINERFILE=Containerfile.v7
 ```
 
@@ -440,7 +462,7 @@ docker compose -f compose.dev.yaml logs -f redmine-web
 
 ### 5.4 プラグイン構成の変化
 
-| プラグイン | 5.1.1 (移行元) | 7.0.0 (移行先) | 備考 |
+| プラグイン | 5.1.1 (移行元) | 7.0.1 (移行先) | 備考 |
 |-----------|:---:|:---:|------|
 | redmine_wiki_lists | 0.0.11 | 0.0.11 | |
 | redmine_banner | 0.3.5 | master | 7.0 対応は 0.3.5 より後の master にのみ存在 |
@@ -466,7 +488,7 @@ docker compose -f compose.dev.yaml logs -f redmine-web
 
 - [ ] `docker compose -f compose.dev.yaml ps` で `redmine-web` が `healthy`
 - [ ] `http://localhost:8080/redmine/` にログインできる
-- [ ] 管理 → 情報 で Redmine 7.0.0、プラグイン 14 個が表示される
+- [ ] 管理 → 情報 で Redmine 7.0.1、プラグイン 14 個が表示される
 - [ ] チケット・Wiki・添付ファイル・ユーザーが移行前と同じ件数
 - [ ] 新規チケットを作成できる
 - [ ] `docker compose -f compose.dev.yaml logs redmine-web | grep -iE "LoadError|No route matches"` が空
@@ -506,7 +528,7 @@ bash scripts/test-upgrade.sh --skip-build # 既存イメージを再利用
 4. コンバートが成功し、件数・シーケンス・boolean 型が一致する
 5. コンバート後の DB で 5.1.1 が起動し、データが見え、新規チケットを作成できる
 6. `redmine_theme_changer`（7 系に無いプラグイン）をアンインストールできる
-7. Redmine 7.0.0 が起動し、マイグレーションが完了し、データが保持されている
+7. Redmine 7.0.1 が起動し、マイグレーションが完了し、データが保持されている
 8. **アップグレード後**も Web UI からログインでき、アップグレード前に画面から作った
    プロジェクト/チケットがそのまま表示され、さらに新規作成もできる
    （`scripts/test-webflow.sh --tag after --expect-tag before`）
@@ -668,10 +690,10 @@ Redmine の `Gemfile` は `config/database.yml` に現れる `adapter:` 行を�
 - `docker compose --env-file .env.legacy -f compose.legacy.yaml config` /
   `compose.dev.yaml config` / override 込みの `compose.legacy-on-postgres.yaml`
   の構文検証
-- 上流ソースの確認（Redmine 5.1.1 / 6.1.3 / 7.0.0 の `Gemfile` の DB gem 解決ロジック、
+- 上流ソースの確認（Redmine 5.1.1 / 6.1.4 / 7.0.1 の `Gemfile` の DB gem 解決ロジック、
   公式 redmine イメージの `Dockerfile.template` がダミー `database.yml` で全アダプタを
   事前インストールしている実装、`redmine:5.1.1` タグの存在、`mysql:8.0` の `*_FILE` 対応、
-  Redmine 7.0.0 が `db/migrate/001_setup.rb` から全マイグレーションを保持していること）
+  Redmine 7.0.1 が `db/migrate/001_setup.rb` から全マイグレーションを保持していること）
 
 未実施（実機で必ず行ってください）:
 

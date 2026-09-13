@@ -1,13 +1,13 @@
-# redmine-web (Redmine 7 系): Redmine 7.0.0（公式イメージ）+ プラグイン/テーマ一式
+# redmine-web (Redmine 7 系): Redmine 7.0.1（公式イメージ）+ プラグイン/テーマ一式
 #
 # シリーズ別 Containerfile のうち Redmine 7 用です。
 # 5 系は Containerfile.v5、6 系（既定）は Containerfile.v6 を参照してください。
 # 切り替えは .env の REDMINE_WEB_CONTAINERFILE / REDMINE_VERSION で行います
 # （docs/Design.md「Redmine シリーズの切り替え」参照）。
 #
-# ベースイメージ: docker.io/library/redmine:7.0.0
-#   ruby:4.0-slim-trixie ベース / Rails 8.1.3
-#   （Redmine 7.0.0 の Gemfile は ruby '>= 3.2.0', '< 4.1.0'、公式イメージは Ruby 4.0）
+# ベースイメージ: docker.io/library/redmine:7.0.1
+#   ruby:4.0-slim-trixie ベース / Rails 8.1.3.1
+#   （Redmine 7.0.1 の Gemfile は ruby '>= 3.2.0', '< 4.1.0'、公式イメージは Ruby 4.0）
 #
 # 公式イメージに対して次を追加します:
 #   - 日本語 CJK フォント（fonts-noto-cjk）
@@ -59,7 +59,7 @@
 #
 # テーマ: farend_fancy（farend、既定ブランチ master）
 
-ARG WEB_BASE_IMAGE=docker.io/library/redmine:7.0.0
+ARG WEB_BASE_IMAGE=docker.io/library/redmine:7.0.1
 FROM ${WEB_BASE_IMAGE}
 
 ARG REDMINE_HOME=/usr/src/redmine

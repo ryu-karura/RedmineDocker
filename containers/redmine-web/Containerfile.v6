@@ -1,11 +1,11 @@
-# redmine-web (Redmine 6 系): Redmine 6.1.3（公式イメージ）+ プラグイン/テーマ一式
+# redmine-web (Redmine 6 系): Redmine 6.1.4（公式イメージ）+ プラグイン/テーマ一式
 #
 # シリーズ別 Containerfile のうち Redmine 6 用です（既定）。
 # 5 系は Containerfile.v5、7 系は Containerfile.v7 を参照してください。
 # 切り替えは .env の REDMINE_WEB_CONTAINERFILE / REDMINE_VERSION で行います
 # （docs/Design.md「Redmine シリーズの切り替え」参照）。
 #
-# ベースイメージ: docker.io/library/redmine:6.1.3
+# ベースイメージ: docker.io/library/redmine:6.1.4
 # （Ruby 3.4 / Bundler / Puma / Redmine 実行時 gem を同梱。rbenv ビルド不要）
 #
 # 公式イメージに対して次を追加します:
@@ -47,7 +47,7 @@
 #
 # テーマ: farend_fancy（farend、既定ブランチは master。main は存在しない）
 
-ARG WEB_BASE_IMAGE=docker.io/library/redmine:6.1.3
+ARG WEB_BASE_IMAGE=docker.io/library/redmine:6.1.4
 FROM ${WEB_BASE_IMAGE}
 
 ARG REDMINE_HOME=/usr/src/redmine

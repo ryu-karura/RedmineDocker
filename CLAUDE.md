@@ -5,10 +5,10 @@ Guidance for AI assistants working in this repository.
 ## What this repository is
 
 RedmineDocker (the **redmine stack**) is container infrastructure for running
-**Redmine 6.1.3** on RHEL 9.5+ in production (rehearsable on WSL AlmaLinux
+**Redmine 6.1.4** on RHEL 9.5+ in production (rehearsable on WSL AlmaLinux
 9.5+; see the three paths below). There is **no Redmine application
 source code here** — Redmine, its Ruby/Puma runtime, and its gems come from the
-official `redmine:6.1.3` image. This repo is the *packaging and operations*
+official `redmine:6.1.4` image. This repo is the *packaging and operations*
 layer around it: Containerfiles, rendered config templates, an entrypoint,
 systemd Quadlet units, host Apache config, and operational shell scripts.
 
@@ -36,7 +36,7 @@ box (both use the container names `redmine-db`/`redmine-web` and the network
 ## Architecture (two tiers)
 
 ```
-client ──443──► Host Apache ──/redmine──► redmine-web (Apache 2.4 + Redmine 6.1.3)
+client ──443──► Host Apache ──/redmine──► redmine-web (Apache 2.4 + Redmine 6.1.4)
                 (TLS, HSTS)   127.0.0.1:80  │  REDMINE_WEB_SERVER selects one of:
                                             │    puma      → ProxyPass to Puma :3000
                                             │    passenger → mod_passenger spawns the app
@@ -50,7 +50,7 @@ client ──443──► Host Apache ──/redmine──► redmine-web (Apach
 | Container | Build context | Base image | Role | Exposed |
 |-----------|---------------|------------|------|---------|
 | `redmine-db` | `containers/redmine-db/` | `postgis/postgis:18-3.6` | PostgreSQL 18 + PostGIS 3.6 | internal `:5432` only |
-| `redmine-web` | `containers/redmine-web/` | `redmine:6.1.3` | Redmine app + 14 plugins + theme, Apache 2.4 frontend, Puma | `127.0.0.1:80` |
+| `redmine-web` | `containers/redmine-web/` | `redmine:6.1.4` | Redmine app + 14 plugins + theme, Apache 2.4 frontend, Puma | `127.0.0.1:80` |
 
 **Only `redmine-web` is published**, and only to loopback. In production the
 host Apache terminates TLS on 443 and forwards `/redmine` there. PostgreSQL
@@ -87,7 +87,7 @@ RedmineDocker/
 | Component | Value |
 |-----------|-------|
 | Host OS | Production: RHEL 9.5+ / Dev A: WSL AlmaLinux 9.5+ / Dev B: Codespaces |
-| Redmine | 6.1.3 (`docker.io/library/redmine:6.1.3`) |
+| Redmine | 6.1.4 (`docker.io/library/redmine:6.1.4`) |
 | PostgreSQL / PostGIS | 18 + 3.6 (`postgis/postgis:18-3.6`) |
 | Web tier | Apache httpd 2.4 (Debian `apt` package baked into `redmine-web`, not version-pinned) |
 | App server | Puma (default) or Passenger (`libapache2-mod-passenger`: 6.0.26 from trixie on v5/v6, 6.1.x from forky on v7), selected by `REDMINE_WEB_SERVER` |
@@ -108,8 +108,8 @@ plugin/theme versions that actually work differ per series:
 | Series | Containerfile | Base image | Ruby / Rails | Plugins |
 |--------|---------------|------------|--------------|---------|
 | 5 | `Containerfile.v5` | `redmine:5.1.12` | 3.2 / 6.1.7.10 | 12 |
-| 6 (default) | `Containerfile.v6` | `redmine:6.1.3` | 3.4 / 7.2.3.1 | 14 |
-| 7 | `Containerfile.v7` | `redmine:7.0.0` | 4.0 / 8.1.3 | 14 |
+| 6 (default) | `Containerfile.v6` | `redmine:6.1.4` | 3.4 / 7.2.3.2 | 14 |
+| 7 | `Containerfile.v7` | `redmine:7.0.1` | 4.0 / 8.1.3.1 | 14 |
 
 A fourth Containerfile, `Containerfile.v5-mysql` (Redmine 5.1.1 + MySQL 8.0 CE,
 16 plugins — the 10 shared with `Containerfile.v5` minus `redmine_gtt`, plus 6
@@ -137,9 +137,11 @@ Series-specific facts that are easy to get wrong (full evidence in
 - The official 5.1 image line ended at **5.1.12** (docker-library commit
   `ac72cc3` "Remove 5.1 (Ruby 3.2 EOL)", 2026-04-20). Redmine source has
   5.1.13 but no image, so the v5 image is pinned to an unmaintained base.
-- `redmine_solid_queue` cannot run on Redmine 5 (the `solid_queue` gem needs
-  activerecord >= 7.1, Redmine 5.1 is Rails 6.1) and `redmine_login_audit2`
-  declares `requires_redmine 6.0.0` in every release — both are omitted from v5.
+- `redmine_solid_queue` cannot run on Redmine 5 (every `solid_queue` version
+  needs Rails 7+: 1.x wants activerecord >= 7.1 and even the oldest 0.1.1 wants
+  rails >= 7.0.3.1, so downgrading the gem does not help) and
+  `redmine_login_audit2` declares `requires_redmine 6.0.0` in every release —
+  both are omitted from v5, re-verified against `redmine:5.1.12` in 2026-09.
 - `redmine_banner` is pinned to **master** in v7, not to a tag: its Redmine 7
   fixes (routes.rb `only: %i[preview off]` → `only: []`, which Rails 8.1 rejects
   at route-draw time and which takes the whole app down; plus the admin-menu
@@ -409,7 +411,7 @@ Start/stop order is enforced by `Requires=`/`After=` in the units:
   via `--env-file`) as long as `COMPOSE_PROJECT_NAME`, `REDMINE_NETWORK`,
   `REDMINE_DB_CONTAINER`/`REDMINE_WEB_CONTAINER`, `REDMINE_DB_VOLUME`/`REDMINE_FILES_VOLUME`,
   and `REDMINE_WEB_HOST_PORT` all differ — see `docs/Design.md`, "設定パラメータ (.env)".
-- **`redmine:6.1.3`'s Ruby 3.4 ships YJIT compiled in but disabled by default**, and Redmine's
+- **`redmine:6.1.4`'s Ruby 3.4 ships YJIT compiled in but disabled by default**, and Redmine's
   own `config/environments/production.rb` never sets `config.yjit`, so JIT never turns on
   unless something asks for it (verified: `ruby -e "puts RubyVM::YJIT.enabled?"` prints
   `false` with no flags, `true` with `RUBY_YJIT_ENABLE=1`, including through `bundle exec`).
@@ -502,7 +504,7 @@ There is no CI pipeline, but three self-contained integration tests exist:
 MySQL stack, seeds Japanese/boolean test data, runs
 `scripts/migrate-mysql-to-postgres.sh`, boots 5.1.1 on the converted PostgreSQL,
 uninstalls `redmine_theme_changer` (the one plugin with migrations that v7 does
-not ship), then upgrades to 7.0.0 and re-checks the data —
+not ship), then upgrades to 7.0.1 and re-checks the data —
 run it after touching `compose.legacy.yaml`, `Containerfile.v5-mysql`, the
 `database.*.yml.tmpl` files, or the migration script; it uses its own project,
 DB name, volumes and ports (8081/8082/8083), so it never touches a real stack),

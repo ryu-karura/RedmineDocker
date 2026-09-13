@@ -41,7 +41,7 @@ docker compose -f compose.dev.yaml logs --tail 100 redmine-db  # 直近100行だ
 
 ```bash
 podman images                                      # イメージ一覧（サイズ・作成日時を確認）
-podman rmi localhost/redmine-web:6.1.3             # 特定のイメージを削除（DB・添付ファイルには影響しません）
+podman rmi localhost/redmine-web:6.1.4             # 特定のイメージを削除（DB・添付ファイルには影響しません）
 docker compose -f compose.dev.yaml down --rmi all  # このスタックのイメージをまとめて削除（ボリュームは残る）
 podman image prune                                 # どのコンテナからも参照されていないイメージだけ安全に削除
 ```
@@ -64,7 +64,7 @@ docker compose -f compose.dev.yaml down -v   # 名前付きボリューム (pgda
 
 ```bash
 podman images
-podman rmi localhost/redmine-web:6.1.3   # サービスを停止していないと失敗します（先に systemctl --user stop redmine-web）
+podman rmi localhost/redmine-web:6.1.4   # サービスを停止していないと失敗します（先に systemctl --user stop redmine-web）
 podman image prune                        # 未使用イメージだけ安全に削除
 ```
 
@@ -197,7 +197,7 @@ systemctl --user restart redmine-db redmine-web
 ### ケース B-2: 別 DB 製品からの移行 / Redmine メジャーバージョンのアップグレード
 
 対象: 既存の **Redmine 5.1.1 + MySQL 8.0 CE** をこの構成（PostgreSQL 18 + PostGIS 3.6）へ
-移し、さらに Redmine 7.0.0 へ上げる場合。
+移し、さらに Redmine 7.0.1 へ上げる場合。
 
 手順は独立したドキュメントにまとめています → **[docs/Upgrade.md](Upgrade.md)**
 
@@ -318,7 +318,7 @@ podman exec redmine-web dpkg-query -W -f='${Version}\n' libapache2-mod-passenger
 bash scripts/backup.sh
 
 # 1) .env を 2 つセットで変更（例: 6 系 → 7 系）
-#      REDMINE_VERSION=7.0.0
+#      REDMINE_VERSION=7.0.1
 #      REDMINE_WEB_CONTAINERFILE=Containerfile.v7
 
 # 2) 再ビルドして再作成
@@ -458,7 +458,7 @@ podman exec -it redmine-web bundle exec rails console -e production
 | error log に native support のコンパイル警告が出る | 想定内です。Passenger は pure-Ruby 実装へフォールバックして動作を継続します（わずかに遅くなるのみ）。 |
 | 7 系のビルドが `ERROR: libapache2-mod-passenger <版> < 6.1` で止まる | forky の `libapache2-mod-passenger` が 6.1 未満に戻っています。`Containerfile.v7` の `ARG PASSENGER_APT_SUITE` を 6.1 以上を持つスイート（例: `sid`）へ変えるか、`docs/Design.md`「9. Redmine シリーズの切り替え」の代替案（Phusion の APT リポジトリ / 7 系は `puma` 専用）を検討してください。 |
 | 7 系のビルドが forky の `apt-get install` で依存関係エラーになる | forky の passenger が trixie では満たせない依存を要求しています。APT pin が意図どおり働いて部分アップグレードを止めた状態です（`libc6` 等が黙って上がることはありません）。上と同じ代替案を検討してください。 |
-| 7 系のビルドが forky の `apt-get update` で `NO_PUBKEY` になる | ベースイメージの `debian-archive-keyring` に forky の署名鍵が入っていません。ベースイメージを更新（`podman pull docker.io/library/redmine:7.0.0`）してから再ビルドしてください。 |
+| 7 系のビルドが forky の `apt-get update` で `NO_PUBKEY` になる | ベースイメージの `debian-archive-keyring` に forky の署名鍵が入っていません。ベースイメージを更新（`podman pull docker.io/library/redmine:7.0.1`）してから再ビルドしてください。 |
 
 現在有効な Apache 設定は次で確認できます:
 

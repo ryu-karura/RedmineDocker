@@ -2,7 +2,7 @@
 
 ## 1. 概要
 
-RedmineDocker は 2 つのコンテナが連携して Redmine 6.1.3 を動作させます。設計は [redmine.jp の Docker ガイド](https://blog.redmine.jp/articles/6_1/redmine-6_1-docker/) を踏襲しており、**公式** の `redmine` イメージを使い、認証情報は **ファイルベースのシークレット** で管理し、Compose / Quadlet の単一定義から運用するようにしています。Apache フロントエンドを `redmine-web` に統合し、この環境で求められる設定値に合わせています。
+RedmineDocker は 2 つのコンテナが連携して Redmine 6.1.4 を動作させます。設計は [redmine.jp の Docker ガイド](https://blog.redmine.jp/articles/6_1/redmine-6_1-docker/) を踏襲しており、**公式** の `redmine` イメージを使い、認証情報は **ファイルベースのシークレット** で管理し、Compose / Quadlet の単一定義から運用するようにしています。Apache フロントエンドを `redmine-web` に統合し、この環境で求められる設定値に合わせています。
 
 | 項目 | 値 |
 |------|----|
@@ -12,7 +12,7 @@ RedmineDocker は 2 つのコンテナが連携して Redmine 6.1.3 を動作さ
 | Linux 管理ユーザー | `redmine` |
 | Linux ルートディレクトリ | `/opt/redmine` |
 | Rootless Podman ネットワーク | `redmine-net` |
-| Redmine イメージ | `docker.io/library/redmine:6.1.3` |
+| Redmine イメージ | `docker.io/library/redmine:6.1.4` |
 | PostgreSQL / PostGIS | `docker.io/postgis/postgis:18-3.6` |
 | Apache フロントエンド | `httpd` 2.4（`redmine-web` に内蔵） |
 | DB 名 / 所有者 | `redmine` / `redmine` |
@@ -57,7 +57,7 @@ RedmineDocker は 2 つのコンテナが連携して Redmine 6.1.3 を動作さ
 - 1 つの `redmine` ロールが `redmine` データベースを所有する（ブログの単一ユーザーモデル）構成です。`init-redmine.sh` は `postgis` / `postgis_topology` 拡張機能が存在することを確認します（冪等で、ベースイメージ側で初回初期化時に有効化済みです）。
 
 ### redmine-web (`containers/redmine-web/`)
-- ベースイメージは `redmine:6.1.3`（公式、Ruby / Bundler / Puma / gem も含む）です。Redmine のメジャーバージョン系列ごとに Containerfile を分けており、既定は 6 系（`Containerfile.v6`）です。5 系 / 7 系については「9. Redmine シリーズの切り替え」を参照してください。
+- ベースイメージは `redmine:6.1.4`（公式、Ruby / Bundler / Puma / gem も含む）です。Redmine のメジャーバージョン系列ごとに Containerfile を分けており、既定は 6 系（`Containerfile.v6`）です。5 系 / 7 系については「9. Redmine シリーズの切り替え」を参照してください。
 - 日本語 CJK フォント（PDF / Gantt 用）、14 プラグイン + `farend_fancy` テーマを追加します。プラグイン gem は `bundle install` でイメージに焼き込みます。`redmine_gtt` は 7.x でフロントエンドが webpack+yarn から Vite+pnpm へ移行したため、ビルド済み資産を同梱する公式リリース tarball を展開しています（6 系 / 7 系。Node ツールチェーンは不要）。5 系だけは webpack 時代の 6.0.3 を使うため yarn + webpack のビルドが残ります。
 - Apache フロントエンドを組み込み、`127.0.0.1:80` で `/redmine` リクエストを受けます。その先の処理は `REDMINE_WEB_SERVER` で切り替わります（下記「アプリサーバーの切り替え」）。
 - `entrypoint.sh` はシークレット解決（`*_FILE` 対応）、`config/database.yml` の描画（**`postgis`** アダプタ使用、redmine_gtt 必須）、`config/configuration.yml`（SMTP）の描画、Apache 設定の描画、DB 待機、コア / プラグインのマイグレーション実行、アプリサーバーの起動を行います。マイグレーションの実行可否は公式イメージと同じ環境変数で制御します（`REDMINE_NO_DB_MIGRATE` に値を設定するとコアの `db:migrate` をスキップ、`REDMINE_PLUGINS_MIGRATE` が非空なら `redmine:plugins:migrate` を実行。本スタックは 14 プラグインを内蔵するため既定で `REDMINE_PLUGINS_MIGRATE=1`）。
@@ -126,7 +126,7 @@ RedmineDocker は 2 つのコンテナが連携して Redmine 6.1.3 を動作さ
 
 | 用途 | 変数 | 既定値 |
 |------|------|--------|
-| Redmine バージョン | `REDMINE_VERSION` | `6.1.3` |
+| Redmine バージョン | `REDMINE_VERSION` | `6.1.4` |
 | Web の Containerfile | `REDMINE_WEB_CONTAINERFILE` | `Containerfile.v6` |
 | PostgreSQL メジャー | `REDMINE_DB_PG_MAJOR` | `18` |
 | PostGIS バージョン | `REDMINE_DB_POSTGIS_VERSION` | `3.6` |
@@ -192,8 +192,8 @@ Redmine・PostgreSQL・プラグインのバージョン変更は、`git ls-remo
 | 系列 | Containerfile | ベースイメージ | Ruby / Rails | プラグイン数 |
 |------|---------------|----------------|--------------|--------------|
 | Redmine 5 | `Containerfile.v5` | `redmine:5.1.12` | Ruby 3.2 / Rails 6.1.7.10 | 12 |
-| Redmine 6（既定） | `Containerfile.v6` | `redmine:6.1.3` | Ruby 3.4 / Rails 7.2.3.1 | 14 |
-| Redmine 7 | `Containerfile.v7` | `redmine:7.0.0` | Ruby 4.0 / Rails 8.1.3 | 13 |
+| Redmine 6（既定） | `Containerfile.v6` | `redmine:6.1.4` | Ruby 3.4 / Rails 7.2.3.2 | 14 |
+| Redmine 7 | `Containerfile.v7` | `redmine:7.0.1` | Ruby 4.0 / Rails 8.1.3.1 | 14 |
 
 `entrypoint.sh` / `healthcheck.sh` / `config.ru` / 各 `*.tmpl` / `redmine-db` は 3 系列で共通です。
 系列間の差分は「ベースイメージ」「プラグインのピン」「テーマの配置先」だけに閉じています。
@@ -212,10 +212,10 @@ MySQL 8.0 CE、プラグイン 16 個）があります。通常構成では使�
 REDMINE_VERSION=5.1.12
 REDMINE_WEB_CONTAINERFILE=Containerfile.v5
 # 6 系（既定）
-REDMINE_VERSION=6.1.3
+REDMINE_VERSION=6.1.4
 REDMINE_WEB_CONTAINERFILE=Containerfile.v6
 # 7 系
-REDMINE_VERSION=7.0.0
+REDMINE_VERSION=7.0.1
 REDMINE_WEB_CONTAINERFILE=Containerfile.v7
 ```
 
@@ -261,11 +261,17 @@ systemctl --user daemon-reload
 | redmine_banner | 0.3.5（宣言 4.0+） | 0.3.5 | master（0.3.5 より後の 7.0 対応コミット。対応を含むタグは未リリース） |
 | redmine_wiki_lists | 0.0.11（宣言 3.4+、2021 年で更新停止） | 0.0.11 | 0.0.11（同左） |
 | redmine_login_audit2 | **非同梱**（全版が 6.0.0 以上を要求） | v1.0.0 | 1.0.2（"Redmine 7.0 support" コミット） |
-| redmine_solid_queue | **非同梱**（solid_queue gem が activerecord >= 7.1 要求、5.1 は Rails 6.1） | v1.0.0 | v1.0.0（宣言なし・CI なし） |
+| redmine_solid_queue | **非同梱**（solid_queue gem が Rails 7 以上を要求。最古の 0.1.1 でも rails >= 7.0.3.1 のため古い版へ落としても不可） | v1.0.0 | v1.0.0（宣言なし・CI なし） |
 | redmine_xlsx_format_issue_exporter | 0.2.1（宣言 4.2+、CI なし） | 0.2.1（同左） | 0.2.1（同左） |
 | テーマ farend_fancy | tag `redmine5.1`（`public/themes/` 配下） | master | master（Redmine trunk 追従コミットあり） |
 
 宣言だけで CI 実績がないもの（上表の「宣言 …+」と書いたもの）は本番投入前に動作確認してください。
+
+5 系で **非同梱** とした 2 つは 2026-09 に再確認済みで、いずれも技術的に導入できない
+ままです（`redmine:5.1.12` に載せて実際に確認）。`redmine_login_audit2` 1.0.2 は起動時に
+`Redmine::PluginRequirementError: ... requires Redmine 6.0.0 or higher` で停止し、
+`redmine_solid_queue` は bundler が `solid_queue < 0.3.0 requires rails >= 7.0.3.1` で
+解決に失敗します。
 
 `redmine_banner` の 7 系だけタグではなく master を pin しているのは、Redmine 7 対応が
 最新タグ 0.3.5 より後のコミットにしかないためです（PR #15 `test_fix_for_redmine_7_0`、
@@ -274,7 +280,7 @@ systemctl --user daemon-reload
 - `config/routes.rb`: `resources :banner, only: %i[preview off]` のように RESTful でない
   アクションを `only:` に渡していた箇所を `only: []` へ修正。Rails 8.1 はルーティング
   定義時に例外を投げるため、**このプラグインを置くだけで Redmine 全体が起動不能**でした
-  （実際に 0.3.5 を Redmine 7.0.0 に載せると
+  （実際に 0.3.5 を Redmine 7.0.1 に載せると
   `Route 'resources :banner' - :only and :except must include only [...]` で終了します）。
 - `assets/stylesheets/banner.css`: Redmine 7.0 でコアの `.icon` から `background-repeat`
   等が `legacy-icons-compat.css` へ分離されたことによる、管理画面メニューのアイコンの
@@ -287,7 +293,7 @@ upstream の `init.rb` は `version '0.3.4'` のままなので、管理画面�
 ### 系列固有の注意点
 
 - **テーマの置き場が 5 系だけ違います。** Redmine 6.0 でテーマが `public/themes/` から
-  `themes/` へ移動しました（5.1.13 のツリーには `public/themes`、6.1.3 / 7.0.0 には `themes`）。
+  `themes/` へ移動しました（5.1.13 のツリーには `public/themes`、6.1.4 / 7.0.1 には `themes`）。
   `Containerfile.v5` だけ `public/themes/farend_fancy` へ clone し、`chown` 対象も
   `public/` 配下で完結させています。
 - **5 系の geo gem スタックは固定が必要です。** `redmine_gtt` 6.0.3 の Gemfile は既定で
@@ -296,6 +302,13 @@ upstream の `init.rb` は `version '0.3.4'` のままなので、管理画面�
   （`GEM_RGEO_ACTIVERECORD_VERSION=7.0.1` / `GEM_ACTIVERECORD_POSTGIS_ADAPTER_VERSION=7.1.1`）を
   `ENV` で設定します。ARG ではなく ENV なのは、Redmine の Gemfile が `plugins/*/Gemfile` を
   bundler 実行のたびに評価するため、実行時にも同じ値が必要だからです。
+- **ベースイメージは Redmine のパッチリリースに追従します。** 現在の pin は 7.0.1 と 6.1.4
+  （どちらも公式イメージは 2026-08-30 公開）で、Redmine 本体の修正に加えて Rails を
+  8.1.3 → 8.1.3.1 / 7.2.3.1 → 7.2.3.2 へ上げるパッチリリースです。追従するときは
+  `.env`（`REDMINE_VERSION`）、各 `Containerfile.v*` の `ARG WEB_BASE_IMAGE`、
+  `compose.dev.yaml` の既定値、`quadlets/*.container` の `Image=` /`Description=`、
+  `scripts/test-stack.sh` の系列表を**同時に**変更してください（1 か所でも取り残すと、
+  ビルドしたイメージと起動するイメージのタグがずれます）。
 - **5 系の公式イメージはメンテナンスが終了しています。** docker-library/redmine は 2026-04-20 の
   commit `ac72cc3` "Remove 5.1 (Ruby 3.2 EOL)" で 5.1 を削除しました。Docker Hub に残る
   `redmine:5.1.12`（2026-04-14 push）が最後で、Redmine 本体のソースにある 5.1.13 に対応する

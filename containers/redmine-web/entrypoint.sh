@@ -2,7 +2,7 @@
 # containers/redmine-web/entrypoint.sh
 #
 # redmine-web コンテナ用 entrypoint
-# （Redmine 6.1.3 + 公式イメージ + プラグインスタック）。
+# （Redmine 6.1.4 + 公式イメージ + プラグインスタック）。
 # Apache が TCP :80 を bind するため root で起動し、
 # Puma は非特権 `redmine` ユーザーで起動します。
 #

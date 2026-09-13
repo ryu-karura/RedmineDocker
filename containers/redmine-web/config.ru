@@ -1,6 +1,6 @@
 # containers/redmine-web/config.ru
 #
-# 公式 redmine:6.1.3 イメージの config.ru（単純な `run Rails.application`）を
+# 公式 redmine:6.1.4 イメージの config.ru（単純な `run Rails.application`）を
 # 置き換え、Puma 自身が RAILS_RELATIVE_URL_ROOT（/redmine）配下で
 # アプリを配信できるようにします。
 #

@@ -32,7 +32,7 @@
 #
 # ★ テーマの配置が 6 系以降と異なります
 #   Redmine 6.0 でテーマの置き場が public/themes/ から themes/ へ移動しました
-#   （5.1.13 のツリーには public/themes、6.1.3 / 7.0.0 には themes があります）。
+#   （5.1.13 のツリーには public/themes、6.1.4 / 7.0.1 には themes があります）。
 #   このため 5 系だけ public/themes/farend_fancy へ配置します。
 #
 # 導入プラグイン（12）:
