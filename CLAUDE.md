@@ -124,7 +124,8 @@ belong in the Containerfiles only. Selection is `.env`'s
 `REDMINE_WEB_CONTAINERFILE` + `REDMINE_VERSION` (always change both), compose
 reads it as `dockerfile: ${REDMINE_WEB_CONTAINERFILE:-Containerfile.v7}`,
 production ships the 7-series unit as `quadlets/redmine-web.container` itself
-with `quadlets/v5/` as a drop-in replacement for the web unit only, and
+with `quadlets/v5/` and `quadlets/v6/` as drop-in replacements for the web unit
+only, and
 `scripts/test-stack.sh --series 5|6|7` (default 7) sets the whole triple.
 **Switching the default is one-way for a live database** — a 6-series stack
 that boots the 7 image migrates 6.1 -> 7.0 on startup and cannot go back
