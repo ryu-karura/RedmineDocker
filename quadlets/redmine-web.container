@@ -1,6 +1,6 @@
 # quadlets/redmine-web.container
 #
-# redmine-web 用の Podman Quadlet ユニットです: Redmine 6.1.3 + plugin stack。
+# redmine-web 用の Podman Quadlet ユニットです: Redmine 6.1.4 + plugin stack。
 # これは Redmine 6 系（既定）用です。5 系・7 系を動かす場合は、このファイルを
 # コピーしたあとに quadlets/v5/redmine-web.container または
 # quadlets/v7/redmine-web.container で上書きしてください
@@ -18,14 +18,14 @@
 # SMTP 設定（あれば）には下の EnvironmentFile を使います。
 
 [Unit]
-Description=redmine Redmine アプリケーション 6.1.3
+Description=redmine Redmine アプリケーション 6.1.4
 Documentation=file:///opt/redmine/containers/docs/Design.md
 After=network-online.target redmine-db.service
 Wants=network-online.target
 Requires=redmine-db.service
 
 [Container]
-Image=localhost/redmine-web:6.1.3
+Image=localhost/redmine-web:6.1.4
 ContainerName=redmine-web
 Network=redmine-net
 PublishPort=127.0.0.1:80:80

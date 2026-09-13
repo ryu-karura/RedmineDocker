@@ -1,6 +1,6 @@
 # quadlets/v7/redmine-web.container
 #
-# Redmine 7 系（7.0.0）用の redmine-web Quadlet ユニットです。
+# Redmine 7 系（7.0.1）用の redmine-web Quadlet ユニットです。
 # quadlets/redmine-web.container（6 系・既定）の差し替え版で、変更点は
 # Image= のタグと、7 系特有の注意書きだけです。redmine-db.container と
 # redmine.network は系列共通なのでそのまま使います。
@@ -29,14 +29,14 @@
 # DB パスワードと secret_key_base は Podman シークレットです（docs/Setup.md 参照）。
 
 [Unit]
-Description=redmine Redmine アプリケーション 7.0.0
+Description=redmine Redmine アプリケーション 7.0.1
 Documentation=file:///opt/redmine/containers/docs/Design.md
 After=network-online.target redmine-db.service
 Wants=network-online.target
 Requires=redmine-db.service
 
 [Container]
-Image=localhost/redmine-web:7.0.0
+Image=localhost/redmine-web:7.0.1
 ContainerName=redmine-web
 Network=redmine-net
 PublishPort=127.0.0.1:80:80
