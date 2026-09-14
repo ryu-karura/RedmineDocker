@@ -26,7 +26,7 @@
 #
 # ★ mod_passenger は Debian trixie の 6.0.26 です
 #   6 系のベースは Ruby 3.4 で、trixie の Passenger 6.0.26 が対応しています
-#   （forky から 6.1.x を取ってくるのは Ruby 4.0 の 7 系だけです）。
+#   （7 系も同じ版を使います。系列間で mod_passenger の入手元は変わりません）。
 #
 # DB パスワードと secret_key_base は Podman シークレットです（docs/Setup.md 参照）。
 # アプリサーバーは REDMINE_WEB_SERVER で切り替えます（puma / passenger）。

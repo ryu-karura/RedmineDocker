@@ -66,7 +66,7 @@ RedmineDocker は 2 つのコンテナが連携して Redmine 7.0.1 を動作さ
 
 イメージには Puma（公式イメージ同梱）と `mod_passenger` の **両方** が入っています。切り替えは環境変数の変更とコンテナ再起動のみで、イメージの再ビルドは不要です。
 
-`mod_passenger` の入手元は系列で異なります。5 系 / 6 系（Ruby 3.x）は Debian trixie の `libapache2-mod-passenger`（Passenger 6.0.26）を使い、7 系（Ruby 4.0）だけは Passenger の Ruby 4 対応が 6.1.1 以降であるため forky (Debian 14 / testing) の 6.1.x を APT pin で導入します（下記「9. Redmine シリーズの切り替え」参照）。
+`mod_passenger` は 3 系列とも Debian trixie の `libapache2-mod-passenger`（Passenger 6.0.26）です。7 系のベースは Ruby 4.0 ですが、この版のままで Redmine 7 を配信できることを実機で確認しています（検証根拠は下記「9. Redmine シリーズの切り替え」参照）。
 
 | | `puma`（既定） | `passenger` |
 |---|---|---|
@@ -314,28 +314,45 @@ upstream の `init.rb` は `version '0.3.4'` のままなので、管理画面�
   commit `ac72cc3` "Remove 5.1 (Ruby 3.2 EOL)" で 5.1 を削除しました。Docker Hub に残る
   `redmine:5.1.12`（2026-04-14 push）が最後で、Redmine 本体のソースにある 5.1.13 に対応する
   公式イメージはありません。ベース OS と Ruby 3.2 の更新は止まっています。
-- **7 系の `mod_passenger` だけ forky (Debian 14 / testing) から導入します。** Debian trixie の
-  `libapache2-mod-passenger` は 6.0.26 で、Passenger が Ruby 4 に対応したのは 6.1.1（CHANGELOG:
-  "[Ruby] Improve support for Ruby 4 and Frozen String Literals"）以降です。7 系のベースは
-  Ruby 4.0 なので、trixie のパッケージでは Ruby 4 対応が入りません。forky には 6.1.x があり、
-  依存ライブラリは trixie と同一バージョンで満たせるため、`Containerfile.v7` は forky を
-  APT pin して `libapache2-mod-passenger` だけを取得します。実装は次のとおりです
-  （`ARG PASSENGER_APT_SUITE` / `ARG PASSENGER_MIN_VERSION` で変更可）。
-  - `/etc/apt/sources.list.d/passenger-suite.list` に forky を一時的に追加する。
-  - `/etc/apt/preferences.d/passenger-suite.pref` で、forky 由来を既定 `Pin-Priority: -10`
-    （= 導入禁止）、`passenger` 関連パッケージのみ `990`（trixie の 500 より優先）にする。
-    こうすると forky から来るのは passenger 関連だけで、`libc6` 等が引きずられる部分
-    アップグレードは起こりません。依存が trixie 側で満たせない場合は、黙って混ざる代わりに
-    ビルドがその場で失敗します。
-  - `dpkg --compare-versions ... ge 6.1` で導入結果を検証し、6.1 未満ならビルドを失敗させる。
-  - 追加した sources.list / preferences は同じ `RUN` 内で削除し、実行時の apt に forky を
-    残さない。
-  検証は `bash scripts/test-stack.sh --series 7 --web-server passenger` で、稼働中コンテナの
-  `libapache2-mod-passenger` が 6.1 以上であることも含めて確認できます。
-  forky 側の版が 6.1 未満に戻る、あるいは依存が trixie で満たせなくなった場合の代替案:
+- **`mod_passenger` は 3 系列とも Debian trixie の 6.0.26 です（7 系も同じ）。** 以前は
+  7 系だけ forky (Debian 14 / testing) の 6.1.x を APT pin で導入していました。根拠は
+  Passenger の CHANGELOG 6.1.1 にある "[Ruby] Improve support for Ruby 4 and Frozen String
+  Literals" で、「Ruby 4 対応は 6.1.1 以降」と読んだためです。2026-09 に実機で検証した
+  結果、この pin は不要と判断して撤去しました。根拠は次の 3 点です。
+  1. **6.1.1 の該当コミットは frozen string literal 対応でした。** 該当は
+     `Deal with frozen string literals (#2620)` で、`buffer = ''` → `String.new`、
+     `result << ...` → `result += ...` といった置き換えです（`thread_handler.rb`、
+     `loader_shared_helpers.rb` ほか）。Ruby 4 固有の C API 変更への追従ではありません。
+  2. **Ruby 4.0.6 は文字列リテラルを凍結しません。** 公式イメージ `redmine:7.0.1` の
+     Ruby で `"".frozen?` は `false`、`s = ""; s << "x"` も通ります。つまり 6.0.26 が
+     壊れる前提（リテラル凍結）が現時点では成立しません。
+  3. **実際に配信できることを確認しました。** Debian trixie と同一 upstream 版の
+     Passenger 6.0.26（Ubuntu 25.10 の `libapache2-mod-passenger 6.0.26+ds-1.1`）に、
+     公式イメージから持ち込んだ Ruby 4.0.6 + Redmine 7.0.1 を載せ、本リポジトリの
+     `config.ru` と `httpd-redmine-passenger.conf.tmpl` をそのまま使って起動し、
+     `scripts/test-webflow.sh`（ログイン → プロジェクト作成 → チケット作成・表示）が
+     全項目通過しました。`public/` の静的配信、アプリが `redmine` ユーザーで動くこと、
+     Passenger 側の警告が出ないことも確認しています。
+
+  この結果、7 系は 5 / 6 系と同じ `apt-get install libapache2-mod-passenger` だけになり、
+  APT pin・preferences・バージョン assert（約 40 行）が不要になりました。
+  `scripts/test-stack.sh --web-server passenger` は 3 系列共通で、稼働中コンテナの
+  `libapache2-mod-passenger` が 6.0.25 以上（Ruby 3.4 対応が入った版）であることを検査します。
+
+  将来 Ruby がリテラル凍結を既定にした場合は 6.1.1 以上が必要になります。その時点で
+  Debian の安定版が 6.1 を持っていれば素の apt で足り、無ければ次のいずれかです。
   1. Phusion の APT リポジトリ（Passenger 6.1.0 で Debian 13 trixie パッケージが追加済み）から
      6.1.x を導入する。外部 APT リポジトリ依存が増えます。
   2. 7 系は `puma` 専用と割り切り、`Containerfile.v7` から `libapache2-mod-passenger` を外す。
+
+  なお「7 系を Ruby 3.4 ベースで自前ビルドして trixie の Passenger に合わせる」案も検討
+  しましたが、採りませんでした。Redmine 7 の公式イメージは全バリアント（trixie /
+  bookworm / alpine）が Ruby 4.0 のみで、Ruby 3.4 にするには公式イメージをやめて Redmine 
+  本体のビルド（tarball の SHA256 追跡、gosu、`cargo`/`rustc` の **trixie-backports** pin、
+  gem の全ビルド）を自前で抱えることになります。Redmine 7.0.1 自体は Ruby 3.4 でも動きます
+  （Gemfile は `ruby '>= 3.2.0', '< 4.1.0'`、Rails 8.1.3.1 は ruby >= 3.2 要求、
+  Ruby 4 以上を要求する gem もありません）が、pin を 1 つ消すために別の pin と
+  ビルド一式を抱える取引になるため、上記の実測により不要と結論しました。
 - **7 系の `redmine_gtt` は導入手順が変わりました。** gtt 7.0 でフロントエンドが
   webpack + yarn から Vite + pnpm（`corepack enable pnpm` → `pnpm install` → `pnpm build`、
   Node >= 22）へ移行しました。Debian trixie の `nodejs` は 20.19 で要件を満たさないため、

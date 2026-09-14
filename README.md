@@ -46,7 +46,7 @@
 | PostgreSQL | 18 + PostGIS 3.6 (`postgis/postgis:18-3.6`) |
 | Web 層 | Apache httpd 2.4 (redmine-web 内蔵) |
 | Ruby / Puma | 公式 Redmine イメージに同梱 |
-| Passenger | `REDMINE_WEB_SERVER=passenger` 用。5 / 6 系は Debian trixie の `libapache2-mod-passenger` (6.0.26)、7 系は Ruby 4.0 のため forky (Debian 14) の 6.1.x |
+| Passenger | `REDMINE_WEB_SERVER=passenger` 用。3 系列とも Debian trixie の `libapache2-mod-passenger` (6.0.26) |
 | Node.js / Yarn | Debian `nodejs` + Yarn 1.22.22（5 系のみ。redmine_gtt 6.0.3 の webpack ビルド用） |
 
 `redmine-web` に焼き込まれているプラグイン (6 系は 14 個): redmine_wiki_lists, redmine_banner,
@@ -68,7 +68,7 @@ redmine_xlsx_format_issue_exporter。
 |------|---------------|----------------|-----------|------|
 | Redmine 5 | `Containerfile.v5` | `redmine:5.1.12` | 12 個 | 公式イメージは 5.1.12 で打ち切り（Ruby 3.2 EOL）。login_audit2 / solid_queue は 5.1 で導入不可 |
 | Redmine 6 | `Containerfile.v6` | `redmine:6.1.4` | 14 個 | `.env` で切り替え |
-| Redmine 7 | `Containerfile.v7` | `redmine:7.0.1` | 14 個 | **既定**。banner は 7.0 対応が master にのみ入っているため master を pin。Ruby 4.0 のため mod_passenger は forky の 6.1.x を APT pin して導入 |
+| Redmine 7 | `Containerfile.v7` | `redmine:7.0.1` | 14 個 | **既定**。banner は 7.0 対応が master にのみ入っているため master を pin |
 
 > ⚠ **既定は Redmine 7 系です。** 6 系で運用中のスタックに対して `.env` を置かずに
 > `docker compose -f compose.dev.yaml up --build -d` を実行すると、7 系イメージが

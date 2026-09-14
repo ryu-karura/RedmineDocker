@@ -22,10 +22,10 @@
 # 切り替えは下の Environment= を書き換えて再起動するだけです（イメージ再ビルド不要）。
 # SMTP 設定（あれば）には下の EnvironmentFile を使います。
 #
-# ★ mod_passenger は forky (Debian 14) の 6.1.x です
-#   7 系のベースは Ruby 4.0 で、Passenger の Ruby 4 対応は 6.1.1 以降のため、
-#   Debian trixie の 6.0.26 では足りません。Containerfile.v7 が APT pin で
-#   passenger 関連パッケージだけを forky から取得しています。下の
+# ★ mod_passenger は 5 / 6 系と同じ Debian trixie の 6.0.26 です
+#   ベースが Ruby 4.0 でも trixie の版で動くことを実機で確認済みです
+#   （根拠は containers/redmine-web/Containerfile.v7 の★と
+#   docs/Design.md「9. Redmine シリーズの切り替え」）。下の
 #   Environment=REDMINE_WEB_SERVER= を passenger にする前に、開発環境で
 #   `bash scripts/test-stack.sh --series 7 --web-server passenger` を
 #   実行して動作を確認してください。
@@ -46,7 +46,7 @@ PublishPort=127.0.0.1:80:80
 Environment=RAILS_ENV=production
 Environment=RAILS_RELATIVE_URL_ROOT=/redmine
 Environment=RUBY_YJIT_ENABLE=1
-# アプリサーバー: puma（既定）または passenger（上記★の forky 版 6.1.x）。
+# アプリサーバー: puma（既定）または passenger（上記★の trixie 版 6.0.26）。
 Environment=REDMINE_WEB_SERVER=puma
 Environment=REDMINE_PUMA_PORT=3000
 Environment=REDMINE_DB_HOST=redmine-db

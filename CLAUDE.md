@@ -90,7 +90,7 @@ RedmineDocker/
 | Redmine | 7.0.1 (`docker.io/library/redmine:7.0.1`) |
 | PostgreSQL / PostGIS | 18 + 3.6 (`postgis/postgis:18-3.6`) |
 | Web tier | Apache httpd 2.4 (Debian `apt` package baked into `redmine-web`, not version-pinned) |
-| App server | Puma (default) or Passenger (`libapache2-mod-passenger`: 6.0.26 from trixie on v5/v6, 6.1.x from forky on v7), selected by `REDMINE_WEB_SERVER` |
+| App server | Puma (default) or Passenger (`libapache2-mod-passenger` 6.0.26 from Debian trixie on all three series), selected by `REDMINE_WEB_SERVER` |
 | Node.js / Yarn | Debian `nodejs` + Yarn 1.22.22 — **Redmine 5 series only**, for `redmine_gtt` 6.0.3's webpack build |
 
 `redmine-web` bakes in 14 plugins (see the numbered list in
@@ -164,19 +164,25 @@ Series-specific facts that are easy to get wrong (full evidence in
   release tarball (`redmine_gtt-v7.1.0.tar.gz`), which ships prebuilt
   `assets/javascripts/main.js` + `assets/stylesheets/main.css` and needs no
   Node toolchain at all. Don't reintroduce yarn/webpack there.
-- Redmine 7's `mod_passenger` comes from **forky (Debian 14 / testing), not
-  trixie**: trixie ships Passenger 6.0.26 and Ruby 4 support landed in 6.1.1, so
-  the v7 base (Ruby 4.0) needs forky's 6.1.x. `Containerfile.v7` adds a forky
-  apt source plus `/etc/apt/preferences.d/passenger-suite.pref` that pins
-  everything from forky to `-10` (uninstallable) except the `passenger`
-  packages at `990` — so a dependency that trixie cannot satisfy fails the
-  build instead of silently dragging in a forky `libc6`. Both files are removed
-  in the same `RUN`, and the layer asserts
-  `dpkg --compare-versions <installed> ge 6.1`. Suite and floor are
-  `ARG PASSENGER_APT_SUITE` / `ARG PASSENGER_MIN_VERSION`. v5/v6 keep trixie's
-  6.0.26 (Ruby 3.4). Verify with
-  `bash scripts/test-stack.sh --series 7 --web-server passenger`, which also
-  re-checks the installed version inside the running container.
+- **All three series take `mod_passenger` from Debian trixie (6.0.26)** — v7
+  included, even though its base is Ruby 4.0. v7 used to pin forky's 6.1.x on
+  the strength of Passenger's 6.1.1 CHANGELOG line "[Ruby] Improve support for
+  Ruby 4 and Frozen String Literals"; that pin was removed in 2026-09 after
+  measuring: the 6.1.1 work (commit "Deal with frozen string literals", #2620)
+  replaces `''`/`<<` literal mutation with `String.new`/`+=`, Ruby 4.0.6 does
+  not freeze literals (`"".frozen?` is false in `redmine:7.0.1`), and Passenger
+  6.0.26 was observed serving Redmine 7.0.1 on Ruby 4.0.6 end to end
+  (test-webflow.sh green, static assets from `public/`, app running as
+  `redmine`). Revisit only if a future Ruby freezes literals by default, which
+  then needs 6.1.1+. Don't reintroduce an extra apt suite without re-measuring;
+  full evidence is in `docs/Design.md`, "Redmine シリーズの切り替え".
+  `bash scripts/test-stack.sh --web-server passenger` asserts the running
+  container's package is 6.0.25+ (where Ruby 3.4 support landed) on every
+  series. Rebuilding v7 on a Ruby 3.4 base to "get stable Passenger" was
+  considered and rejected: every official Redmine 7 image variant is Ruby 4.0,
+  so that route means dropping the official base and owning the Redmine build
+  — including a `trixie-backports` pin for `cargo`/`rustc` that the 7.0 gem set
+  needs — i.e. trading one non-stable apt suite for another.
 
 ## Development workflow (Docker Compose: WSL or Codespaces)
 
@@ -264,10 +270,10 @@ Start/stop order is enforced by `Requires=`/`After=` in the units:
   actually served as-is. Edit the `.tmpl`, not a generated `.conf`.
 - **`REDMINE_WEB_SERVER` picks the app server at *runtime*: `puma` (default) or
   `passenger`.** The image bakes in *both* — the official image's Puma plus
-  `libapache2-mod-passenger` (v5/v6: Debian trixie's Passenger 6.0.26 — those
-  base images are `ruby:3.4-slim-trixie` and Ruby 3.4 support landed in 6.0.25;
-  v7: forky's 6.1.x, because that base is Ruby 4.0 — see the series section. No
-  third-party APT repo is involved either way). Switching is an env change plus a container
+  `libapache2-mod-passenger` (Debian trixie's Passenger 6.0.26 on all three
+  series — Ruby 3.4 support landed in 6.0.25 and the same package serves v7's
+  Ruby 4.0, see the series section. No third-party APT repo, and no extra apt
+  suite, is involved). Switching is an env change plus a container
   restart, never a rebuild — that is deliberate, because Quadlet units can pass
   `Environment=` but cannot template `Image=`, so a build-arg switch would be
   unusable in production. The Containerfile `a2dismod -f passenger`s at build
@@ -555,8 +561,8 @@ boot sequence against `REDMINE_WEB_SERVER=passenger` and swaps the Puma-direct
 check for "nothing is listening on `:3000`", "`passenger_module` is loaded",
 and "Apache serves a static asset out of `public/`" (`public/404.html` — the
 only static file present in all three series, since Redmine 6.0 moved
-stylesheets out of `public/`); on the default `--series 7` it additionally asserts
-the container's `libapache2-mod-passenger` is 6.1+ (the forky pin) — both modes
+stylesheets out of `public/`); it also asserts the container's
+`libapache2-mod-passenger` is 6.0.25+ on every series — both modes
 share one image, so run it with
 `--skip-build` right after the default run. `--series 5|6|7` swaps the
 Containerfile, base image and image tag together; because each series has its
