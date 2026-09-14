@@ -128,7 +128,7 @@ podman images | grep -E 'redmine-(db|web)'
 ```
 
 `REDMINE_WEB_CONTAINERFILE` は Redmine の系列に対応します
-（`Containerfile.v5` / `Containerfile.v6`（既定）/ `Containerfile.v7`）。
+（`Containerfile.v5` / `Containerfile.v6` / `Containerfile.v7`（既定））。
 
 ### Docker Compose (開発)
 
@@ -290,8 +290,8 @@ podman healthcheck run redmine-web                       # どちらのモード
 ヘルスチェックはイメージ内の `/usr/local/bin/redmine-healthcheck.sh` が担当し、
 モードに応じて Puma 直叩きの検証を自動で省きます。
 
-なお **Redmine 7 系の mod_passenger は forky (Debian 14) の 6.1.x** です（ベースが Ruby 4.0 で、
-Passenger の Ruby 4 対応が 6.1.1 以降のため。5 系 / 6 系は trixie の 6.0.26）。
+なお **mod_passenger は 3 系列とも Debian trixie の 6.0.26** です（Ruby 4.0 の 7 系でも
+同じ版で動作することを確認済み。根拠は `docs/Design.md`「9. Redmine シリーズの切り替え」）。
 稼働中のバージョンは次で確認できます。
 
 ```bash
@@ -317,9 +317,10 @@ podman exec redmine-web dpkg-query -W -f='${Version}\n' libapache2-mod-passenger
 # 0) 事前バックアップ（系列を戻せるようにするため必須）
 bash scripts/backup.sh
 
-# 1) .env を 2 つセットで変更（例: 6 系 → 7 系）
-#      REDMINE_VERSION=7.0.1
-#      REDMINE_WEB_CONTAINERFILE=Containerfile.v7
+# 1) .env を 2 つセットで変更（例: 既定の 7 系から 6 系へ下げる）
+#      REDMINE_VERSION=6.1.4
+#      REDMINE_WEB_CONTAINERFILE=Containerfile.v6
+#    ※ 6 系 → 7 系へ上げる場合は .env から 2 行を消して既定に戻すだけでも構いません
 
 # 2) 再ビルドして再作成
 docker compose -f compose.dev.yaml up --build -d
@@ -335,7 +336,8 @@ bash /opt/redmine/containers/scripts/backup.sh
 # 1) .env を変更してイメージを再ビルド（「イメージビルド手順」参照）
 
 # 2) 系列に対応する web ユニットへ差し替え（db / network は共通）
-cp quadlets/v7/redmine-web.container ~/.config/containers/systemd/
+#    既定の 7 系は quadlets/redmine-web.container そのものです
+cp quadlets/v6/redmine-web.container ~/.config/containers/systemd/
 systemctl --user daemon-reload
 systemctl --user restart redmine-web
 systemctl --user status redmine-web
@@ -456,9 +458,7 @@ podman exec -it redmine-web bundle exec rails console -e production
 | gem が見つからない / bundler エラーで起動しない | `PassengerRuby` が Debian のシステム Ruby (`/usr/bin/ruby`) を向いています。`redmine-passenger.conf` の `PassengerRuby /usr/local/bin/ruby` を確認してください。 |
 | CSS/JS/テーマだけ 404 になる | Apache が `public/` を配信できていません。`redmine-passenger.conf` の `Alias` と `<Directory>` の `Require all granted` を確認してください。 |
 | error log に native support のコンパイル警告が出る | 想定内です。Passenger は pure-Ruby 実装へフォールバックして動作を継続します（わずかに遅くなるのみ）。 |
-| 7 系のビルドが `ERROR: libapache2-mod-passenger <版> < 6.1` で止まる | forky の `libapache2-mod-passenger` が 6.1 未満に戻っています。`Containerfile.v7` の `ARG PASSENGER_APT_SUITE` を 6.1 以上を持つスイート（例: `sid`）へ変えるか、`docs/Design.md`「9. Redmine シリーズの切り替え」の代替案（Phusion の APT リポジトリ / 7 系は `puma` 専用）を検討してください。 |
-| 7 系のビルドが forky の `apt-get install` で依存関係エラーになる | forky の passenger が trixie では満たせない依存を要求しています。APT pin が意図どおり働いて部分アップグレードを止めた状態です（`libc6` 等が黙って上がることはありません）。上と同じ代替案を検討してください。 |
-| 7 系のビルドが forky の `apt-get update` で `NO_PUBKEY` になる | ベースイメージの `debian-archive-keyring` に forky の署名鍵が入っていません。ベースイメージを更新（`podman pull docker.io/library/redmine:7.0.1`）してから再ビルドしてください。 |
+| `scripts/test-stack.sh --web-server passenger` が `mod_passenger is 6.0.25+` で落ちる | ベースイメージの Debian が `libapache2-mod-passenger` を 6.0.25 より古い版へ戻しています（6.0.25 で Ruby 3.4 対応が入ったため下限にしています）。ベースイメージを更新して再ビルドし、それでも戻らない場合は `docs/Design.md`「9. Redmine シリーズの切り替え」の代替案（Phusion の APT リポジトリ / `puma` 専用運用）を検討してください。 |
 
 現在有効な Apache 設定は次で確認できます:
 

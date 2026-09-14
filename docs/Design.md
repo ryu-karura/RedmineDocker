@@ -2,7 +2,7 @@
 
 ## 1. 概要
 
-RedmineDocker は 2 つのコンテナが連携して Redmine 6.1.4 を動作させます。設計は [redmine.jp の Docker ガイド](https://blog.redmine.jp/articles/6_1/redmine-6_1-docker/) を踏襲しており、**公式** の `redmine` イメージを使い、認証情報は **ファイルベースのシークレット** で管理し、Compose / Quadlet の単一定義から運用するようにしています。Apache フロントエンドを `redmine-web` に統合し、この環境で求められる設定値に合わせています。
+RedmineDocker は 2 つのコンテナが連携して Redmine 7.0.1 を動作させます。設計は [redmine.jp の Docker ガイド](https://blog.redmine.jp/articles/6_1/redmine-6_1-docker/) を踏襲しており、**公式** の `redmine` イメージを使い、認証情報は **ファイルベースのシークレット** で管理し、Compose / Quadlet の単一定義から運用するようにしています。Apache フロントエンドを `redmine-web` に統合し、この環境で求められる設定値に合わせています。
 
 | 項目 | 値 |
 |------|----|
@@ -12,7 +12,7 @@ RedmineDocker は 2 つのコンテナが連携して Redmine 6.1.4 を動作さ
 | Linux 管理ユーザー | `redmine` |
 | Linux ルートディレクトリ | `/opt/redmine` |
 | Rootless Podman ネットワーク | `redmine-net` |
-| Redmine イメージ | `docker.io/library/redmine:6.1.4` |
+| Redmine イメージ | `docker.io/library/redmine:7.0.1` |
 | PostgreSQL / PostGIS | `docker.io/postgis/postgis:18-3.6` |
 | Apache フロントエンド | `httpd` 2.4（`redmine-web` に内蔵） |
 | DB 名 / 所有者 | `redmine` / `redmine` |
@@ -57,7 +57,7 @@ RedmineDocker は 2 つのコンテナが連携して Redmine 6.1.4 を動作さ
 - 1 つの `redmine` ロールが `redmine` データベースを所有する（ブログの単一ユーザーモデル）構成です。`init-redmine.sh` は `postgis` / `postgis_topology` 拡張機能が存在することを確認します（冪等で、ベースイメージ側で初回初期化時に有効化済みです）。
 
 ### redmine-web (`containers/redmine-web/`)
-- ベースイメージは `redmine:6.1.4`（公式、Ruby / Bundler / Puma / gem も含む）です。Redmine のメジャーバージョン系列ごとに Containerfile を分けており、既定は 6 系（`Containerfile.v6`）です。5 系 / 7 系については「9. Redmine シリーズの切り替え」を参照してください。
+- ベースイメージは `redmine:7.0.1`（公式、Ruby / Bundler / Puma / gem も含む）です。Redmine のメジャーバージョン系列ごとに Containerfile を分けており、既定は 7 系（`Containerfile.v7`）です。5 系 / 6 系については「9. Redmine シリーズの切り替え」を参照してください。
 - 日本語 CJK フォント（PDF / Gantt 用）、14 プラグイン + `farend_fancy` テーマを追加します。プラグイン gem は `bundle install` でイメージに焼き込みます。`redmine_gtt` は 7.x でフロントエンドが webpack+yarn から Vite+pnpm へ移行したため、ビルド済み資産を同梱する公式リリース tarball を展開しています（6 系 / 7 系。Node ツールチェーンは不要）。5 系だけは webpack 時代の 6.0.3 を使うため yarn + webpack のビルドが残ります。
 - Apache フロントエンドを組み込み、`127.0.0.1:80` で `/redmine` リクエストを受けます。その先の処理は `REDMINE_WEB_SERVER` で切り替わります（下記「アプリサーバーの切り替え」）。
 - `entrypoint.sh` はシークレット解決（`*_FILE` 対応）、`config/database.yml` の描画（**`postgis`** アダプタ使用、redmine_gtt 必須）、`config/configuration.yml`（SMTP）の描画、Apache 設定の描画、DB 待機、コア / プラグインのマイグレーション実行、アプリサーバーの起動を行います。マイグレーションの実行可否は公式イメージと同じ環境変数で制御します（`REDMINE_NO_DB_MIGRATE` に値を設定するとコアの `db:migrate` をスキップ、`REDMINE_PLUGINS_MIGRATE` が非空なら `redmine:plugins:migrate` を実行。本スタックは 14 プラグインを内蔵するため既定で `REDMINE_PLUGINS_MIGRATE=1`）。
@@ -66,7 +66,7 @@ RedmineDocker は 2 つのコンテナが連携して Redmine 6.1.4 を動作さ
 
 イメージには Puma（公式イメージ同梱）と `mod_passenger` の **両方** が入っています。切り替えは環境変数の変更とコンテナ再起動のみで、イメージの再ビルドは不要です。
 
-`mod_passenger` の入手元は系列で異なります。5 系 / 6 系（Ruby 3.x）は Debian trixie の `libapache2-mod-passenger`（Passenger 6.0.26）を使い、7 系（Ruby 4.0）だけは Passenger の Ruby 4 対応が 6.1.1 以降であるため forky (Debian 14 / testing) の 6.1.x を APT pin で導入します（下記「9. Redmine シリーズの切り替え」参照）。
+`mod_passenger` は 3 系列とも Debian trixie の `libapache2-mod-passenger`（Passenger 6.0.26）です。7 系のベースは Ruby 4.0 ですが、この版のままで Redmine 7 を配信できることを実機で確認しています（検証根拠は下記「9. Redmine シリーズの切り替え」参照）。
 
 | | `puma`（既定） | `passenger` |
 |---|---|---|
@@ -126,8 +126,8 @@ RedmineDocker は 2 つのコンテナが連携して Redmine 6.1.4 を動作さ
 
 | 用途 | 変数 | 既定値 |
 |------|------|--------|
-| Redmine バージョン | `REDMINE_VERSION` | `6.1.4` |
-| Web の Containerfile | `REDMINE_WEB_CONTAINERFILE` | `Containerfile.v6` |
+| Redmine バージョン | `REDMINE_VERSION` | `7.0.1` |
+| Web の Containerfile | `REDMINE_WEB_CONTAINERFILE` | `Containerfile.v7` |
 | PostgreSQL メジャー | `REDMINE_DB_PG_MAJOR` | `18` |
 | PostGIS バージョン | `REDMINE_DB_POSTGIS_VERSION` | `3.6` |
 | Web イメージタグ | `REDMINE_WEB_IMAGE` | `localhost/redmine-web:${REDMINE_VERSION}` |
@@ -192,8 +192,8 @@ Redmine・PostgreSQL・プラグインのバージョン変更は、`git ls-remo
 | 系列 | Containerfile | ベースイメージ | Ruby / Rails | プラグイン数 |
 |------|---------------|----------------|--------------|--------------|
 | Redmine 5 | `Containerfile.v5` | `redmine:5.1.12` | Ruby 3.2 / Rails 6.1.7.10 | 12 |
-| Redmine 6（既定） | `Containerfile.v6` | `redmine:6.1.4` | Ruby 3.4 / Rails 7.2.3.2 | 14 |
-| Redmine 7 | `Containerfile.v7` | `redmine:7.0.1` | Ruby 4.0 / Rails 8.1.3.1 | 14 |
+| Redmine 6 | `Containerfile.v6` | `redmine:6.1.4` | Ruby 3.4 / Rails 7.2.3.2 | 14 |
+| Redmine 7（既定） | `Containerfile.v7` | `redmine:7.0.1` | Ruby 4.0 / Rails 8.1.3.1 | 14 |
 
 `entrypoint.sh` / `healthcheck.sh` / `config.ru` / 各 `*.tmpl` / `redmine-db` は 3 系列で共通です。
 系列間の差分は「ベースイメージ」「プラグインのピン」「テーマの配置先」だけに閉じています。
@@ -211,10 +211,10 @@ MySQL 8.0 CE、プラグイン 16 個）があります。通常構成では使�
 # 5 系
 REDMINE_VERSION=5.1.12
 REDMINE_WEB_CONTAINERFILE=Containerfile.v5
-# 6 系（既定）
+# 6 系
 REDMINE_VERSION=6.1.4
 REDMINE_WEB_CONTAINERFILE=Containerfile.v6
-# 7 系
+# 7 系（既定。.env で指定しなければこれになります）
 REDMINE_VERSION=7.0.1
 REDMINE_WEB_CONTAINERFILE=Containerfile.v7
 ```
@@ -222,15 +222,16 @@ REDMINE_WEB_CONTAINERFILE=Containerfile.v7
 変更後は `docker compose -f compose.dev.yaml up --build -d` で再ビルド・再作成します。
 
 **本番 (Quadlet)** — Quadlet は `Image=` を変数展開できないため、系列ごとにユニットを用意しています。
-`quadlets/*.container` をコピーしたあと、5 系 / 7 系では `redmine-web.container` だけを上書きします。
+`quadlets/redmine-web.container` がそのまま既定の 7 系ユニットで、5 系 / 6 系では
+コピーしたあとに `redmine-web.container` だけを上書きします。
 
 ```bash
-cp quadlets/*.container quadlets/*.network ~/.config/containers/systemd/
-cp quadlets/v7/redmine-web.container ~/.config/containers/systemd/   # 7 系の場合
+cp quadlets/*.container quadlets/*.network ~/.config/containers/systemd/   # 7 系（既定）
+cp quadlets/v6/redmine-web.container ~/.config/containers/systemd/         # 6 系にする場合
 systemctl --user daemon-reload
 ```
 
-**テスト** — `bash scripts/test-stack.sh --series 7`（`5` / `6` / `7`、既定 `6`）。
+**テスト** — `bash scripts/test-stack.sh --series 6`（`5` / `6` / `7`、既定 `7`）。
 系列でイメージタグが違うため、`--skip-build` は同じ系列のイメージにしか使えません。
 
 ### 同時起動はできません
@@ -313,28 +314,45 @@ upstream の `init.rb` は `version '0.3.4'` のままなので、管理画面�
   commit `ac72cc3` "Remove 5.1 (Ruby 3.2 EOL)" で 5.1 を削除しました。Docker Hub に残る
   `redmine:5.1.12`（2026-04-14 push）が最後で、Redmine 本体のソースにある 5.1.13 に対応する
   公式イメージはありません。ベース OS と Ruby 3.2 の更新は止まっています。
-- **7 系の `mod_passenger` だけ forky (Debian 14 / testing) から導入します。** Debian trixie の
-  `libapache2-mod-passenger` は 6.0.26 で、Passenger が Ruby 4 に対応したのは 6.1.1（CHANGELOG:
-  "[Ruby] Improve support for Ruby 4 and Frozen String Literals"）以降です。7 系のベースは
-  Ruby 4.0 なので、trixie のパッケージでは Ruby 4 対応が入りません。forky には 6.1.x があり、
-  依存ライブラリは trixie と同一バージョンで満たせるため、`Containerfile.v7` は forky を
-  APT pin して `libapache2-mod-passenger` だけを取得します。実装は次のとおりです
-  （`ARG PASSENGER_APT_SUITE` / `ARG PASSENGER_MIN_VERSION` で変更可）。
-  - `/etc/apt/sources.list.d/passenger-suite.list` に forky を一時的に追加する。
-  - `/etc/apt/preferences.d/passenger-suite.pref` で、forky 由来を既定 `Pin-Priority: -10`
-    （= 導入禁止）、`passenger` 関連パッケージのみ `990`（trixie の 500 より優先）にする。
-    こうすると forky から来るのは passenger 関連だけで、`libc6` 等が引きずられる部分
-    アップグレードは起こりません。依存が trixie 側で満たせない場合は、黙って混ざる代わりに
-    ビルドがその場で失敗します。
-  - `dpkg --compare-versions ... ge 6.1` で導入結果を検証し、6.1 未満ならビルドを失敗させる。
-  - 追加した sources.list / preferences は同じ `RUN` 内で削除し、実行時の apt に forky を
-    残さない。
-  検証は `bash scripts/test-stack.sh --series 7 --web-server passenger` で、稼働中コンテナの
-  `libapache2-mod-passenger` が 6.1 以上であることも含めて確認できます。
-  forky 側の版が 6.1 未満に戻る、あるいは依存が trixie で満たせなくなった場合の代替案:
+- **`mod_passenger` は 3 系列とも Debian trixie の 6.0.26 です（7 系も同じ）。** 以前は
+  7 系だけ forky (Debian 14 / testing) の 6.1.x を APT pin で導入していました。根拠は
+  Passenger の CHANGELOG 6.1.1 にある "[Ruby] Improve support for Ruby 4 and Frozen String
+  Literals" で、「Ruby 4 対応は 6.1.1 以降」と読んだためです。2026-09 に実機で検証した
+  結果、この pin は不要と判断して撤去しました。根拠は次の 3 点です。
+  1. **6.1.1 の該当コミットは frozen string literal 対応でした。** 該当は
+     `Deal with frozen string literals (#2620)` で、`buffer = ''` → `String.new`、
+     `result << ...` → `result += ...` といった置き換えです（`thread_handler.rb`、
+     `loader_shared_helpers.rb` ほか）。Ruby 4 固有の C API 変更への追従ではありません。
+  2. **Ruby 4.0.6 は文字列リテラルを凍結しません。** 公式イメージ `redmine:7.0.1` の
+     Ruby で `"".frozen?` は `false`、`s = ""; s << "x"` も通ります。つまり 6.0.26 が
+     壊れる前提（リテラル凍結）が現時点では成立しません。
+  3. **実際に配信できることを確認しました。** Debian trixie と同一 upstream 版の
+     Passenger 6.0.26（Ubuntu 25.10 の `libapache2-mod-passenger 6.0.26+ds-1.1`）に、
+     公式イメージから持ち込んだ Ruby 4.0.6 + Redmine 7.0.1 を載せ、本リポジトリの
+     `config.ru` と `httpd-redmine-passenger.conf.tmpl` をそのまま使って起動し、
+     `scripts/test-webflow.sh`（ログイン → プロジェクト作成 → チケット作成・表示）が
+     全項目通過しました。`public/` の静的配信、アプリが `redmine` ユーザーで動くこと、
+     Passenger 側の警告が出ないことも確認しています。
+
+  この結果、7 系は 5 / 6 系と同じ `apt-get install libapache2-mod-passenger` だけになり、
+  APT pin・preferences・バージョン assert（約 40 行）が不要になりました。
+  `scripts/test-stack.sh --web-server passenger` は 3 系列共通で、稼働中コンテナの
+  `libapache2-mod-passenger` が 6.0.25 以上（Ruby 3.4 対応が入った版）であることを検査します。
+
+  将来 Ruby がリテラル凍結を既定にした場合は 6.1.1 以上が必要になります。その時点で
+  Debian の安定版が 6.1 を持っていれば素の apt で足り、無ければ次のいずれかです。
   1. Phusion の APT リポジトリ（Passenger 6.1.0 で Debian 13 trixie パッケージが追加済み）から
      6.1.x を導入する。外部 APT リポジトリ依存が増えます。
   2. 7 系は `puma` 専用と割り切り、`Containerfile.v7` から `libapache2-mod-passenger` を外す。
+
+  なお「7 系を Ruby 3.4 ベースで自前ビルドして trixie の Passenger に合わせる」案も検討
+  しましたが、採りませんでした。Redmine 7 の公式イメージは全バリアント（trixie /
+  bookworm / alpine）が Ruby 4.0 のみで、Ruby 3.4 にするには公式イメージをやめて Redmine 
+  本体のビルド（tarball の SHA256 追跡、gosu、`cargo`/`rustc` の **trixie-backports** pin、
+  gem の全ビルド）を自前で抱えることになります。Redmine 7.0.1 自体は Ruby 3.4 でも動きます
+  （Gemfile は `ruby '>= 3.2.0', '< 4.1.0'`、Rails 8.1.3.1 は ruby >= 3.2 要求、
+  Ruby 4 以上を要求する gem もありません）が、pin を 1 つ消すために別の pin と
+  ビルド一式を抱える取引になるため、上記の実測により不要と結論しました。
 - **7 系の `redmine_gtt` は導入手順が変わりました。** gtt 7.0 でフロントエンドが
   webpack + yarn から Vite + pnpm（`corepack enable pnpm` → `pnpm install` → `pnpm build`、
   Node >= 22）へ移行しました。Debian trixie の `nodejs` は 20.19 で要件を満たさないため、

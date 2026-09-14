@@ -30,8 +30,8 @@ RHEL の実機がまだ用意できない場合は、本番環境と同じ Podma
 # 0. 非シークレット設定 (.env) を作成 (初回のみ)
 cp .env.example .env
 # 必要に応じて REDMINE_SUBURI / REDMINE_WEB_HOST_PORT / REDMINE_WEB_SERVER / TZ / SMTP_* を編集
-# Redmine 5 系 / 7 系を使う場合は REDMINE_VERSION と REDMINE_WEB_CONTAINERFILE を
-# セットで変更します (既定は 6 系。docs/Design.md「Redmine シリーズの切り替え」参照)
+# Redmine 5 系 / 6 系を使う場合は REDMINE_VERSION と REDMINE_WEB_CONTAINERFILE を
+# セットで変更します (既定は 7 系。docs/Design.md「Redmine シリーズの切り替え」参照)
 
 # 1. シークレットファイルを生成 (db_password.txt, secret_key_base.txt)
 bash scripts/generate-secrets.sh
@@ -145,7 +145,7 @@ podman build -t "${REDMINE_WEB_IMAGE}" \
 ```
 
 `redmine-web` は Redmine のメジャーバージョン系列ごとに Containerfile が分かれています
-（`Containerfile.v5` / `Containerfile.v6`（既定）/ `Containerfile.v7`）。`.env` の
+（`Containerfile.v5` / `Containerfile.v6` / `Containerfile.v7`（既定））。`.env` の
 `REDMINE_VERSION` と `REDMINE_WEB_CONTAINERFILE` は必ずセットで設定してください
 （対応するプラグイン構成の違いは `docs/Design.md`「Redmine シリーズの切り替え」参照）。
 
@@ -156,10 +156,10 @@ mkdir -p ~/.config/containers/systemd
 cp quadlets/redmine.network           ~/.config/containers/systemd/
 cp quadlets/redmine-db.container      ~/.config/containers/systemd/
 cp quadlets/redmine-web.container ~/.config/containers/systemd/
-# Redmine 5 系 / 7 系の場合は、web ユニットだけを系列別のもので上書きします
+# Redmine 5 系 / 6 系の場合は、web ユニットだけを系列別のもので上書きします
 # (redmine-db.container と redmine.network は系列共通)
 # cp quadlets/v5/redmine-web.container ~/.config/containers/systemd/
-# cp quadlets/v7/redmine-web.container ~/.config/containers/systemd/
+# cp quadlets/v6/redmine-web.container ~/.config/containers/systemd/
 systemctl --user daemon-reload
 systemctl --user start redmine-db redmine-web
 ```
@@ -177,13 +177,12 @@ systemctl --user start redmine-db redmine-web
 `REDMINE_WEB_SERVER=passenger` と書く方法でも同じです。切り替え後の確認方法と
 トラブルシューティングは `docs/Manual.md` を参照してください。
 
-**Redmine 7 系の `mod_passenger` は forky (Debian 14) の 6.1.x** です。7 系のベースは
-Ruby 4.0 で、Passenger の Ruby 4 対応は 6.1.1 以降のため、trixie の 6.0.26 では
-足りないからです（`Containerfile.v7` が APT pin で passenger 関連パッケージだけを
-forky から取得します。詳細は `docs/Design.md`「9. Redmine シリーズの切り替え」）。
-本番へ出す前に、開発環境で
+**`mod_passenger` は 3 系列とも Debian trixie の 6.0.26** です。7 系のベースは
+Ruby 4.0 ですが、この版のままで動作することを実機で確認しています（根拠は
+`docs/Design.md`「9. Redmine シリーズの切り替え」）。外部 APT リポジトリも
+追加スイートも使いません。本番へ出す前に、開発環境で
 `bash scripts/test-stack.sh --series 7 --web-server passenger` を実行して動作を
-確認してください（5 系 / 6 系は trixie の 6.0.26 で両モードとも利用できます）。
+確認してください。
 
 ### 6. ホスト Apache を設定する (TLS)
 
