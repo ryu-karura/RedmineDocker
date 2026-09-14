@@ -102,7 +102,7 @@ RedmineDocker は 2 つのコンテナが連携して Redmine 7.0.1 を動作さ
 |------------------------|------------|------|
 | `/opt/redmine/data/postgres/18` | redmine-db | PostgreSQL のデータディレクトリ |
 | `/opt/redmine/data/redmine/files` | redmine-web | アップロードされた添付ファイル |
-| `/opt/redmine/data/redmine/log` | redmine-web | Redmine の `production.log` |
+| `/opt/redmine/data/redmine/log` | redmine-web | Redmine の `log/` ディレクトリ（公式イメージの既定 `RAILS_LOG_TO_STDOUT=true` では Rails ログは標準出力に出るため通常は空。ファイル出力へ切り替えたときの `production.log` 置き場。`docs/Manual.md`「ログ」参照） |
 | `/opt/redmine/backup/{db,files}` | host | バックアップ（Manual 参照） |
 
 bind mount への差し替えは `compose.prod.yaml`（本番オーバーレイ）だけが行います。開発環境 (`compose.dev.yaml` 単体) では名前付きボリューム (`pgdata`、`redmine_files`) のままで、ホスト準備なしに動きます。プラグインとテーマはイメージに焼き込まれており、ボリュームマウントは行いません（ボリュームで上書きされるため）。

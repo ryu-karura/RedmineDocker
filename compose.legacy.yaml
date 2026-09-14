@@ -35,6 +35,12 @@
 
 name: redmine-legacy
 
+# compose.dev.yaml と同じ理由で pod を使いません（issue #44 — rootless + systemd で
+# pod 用 cgroup の作成に失敗することがあるため）。podman-compose だけが読む拡張キーで、
+# Docker Compose は `x-` トップレベルキーを無視します。
+x-podman:
+  in_pod: false
+
 networks:
   redmine-legacy-net:
     name: ${REDMINE_LEGACY_NETWORK:-redmine-legacy-net}
@@ -62,6 +68,16 @@ services:
       dockerfile: Containerfile
       args:
         DB_BASE_IMAGE: ${REDMINE_LEGACY_DB_BASE_IMAGE:-docker.io/library/mysql:8.0}
+        # ── プロキシ環境用（社内プロキシ経由でビルドする場合） ──────────────
+        # HTTP_PROXY / HTTPS_PROXY / NO_PROXY は docker の predefined build args
+        # なので、Containerfile 側に ARG 宣言は不要です。ビルド中の apt-get /
+        # git clone / bundle install がこの値を見ます。
+        # 未設定なら空文字になり、docker が build arg ごと落とすため
+        # （= コンテナ内でも未設定になる）プロキシ無し環境に影響はありません。
+        # 値は .env で設定します（docs/Setup.md「プロキシ環境で使う場合」参照）。
+        HTTP_PROXY: ${HTTP_PROXY:-}
+        HTTPS_PROXY: ${HTTPS_PROXY:-}
+        NO_PROXY: ${NO_PROXY:-}
     image: ${REDMINE_LEGACY_DB_IMAGE:-localhost/redmine-db-mysql:8.0}
     container_name: ${REDMINE_LEGACY_DB_CONTAINER:-redmine-legacy-db}
     restart: always
@@ -97,6 +113,16 @@ services:
       dockerfile: ${REDMINE_LEGACY_WEB_CONTAINERFILE:-Containerfile.v5-mysql}
       args:
         WEB_BASE_IMAGE: ${REDMINE_LEGACY_WEB_BASE_IMAGE:-docker.io/library/redmine:5.1.1}
+        # ── プロキシ環境用（社内プロキシ経由でビルドする場合） ──────────────
+        # HTTP_PROXY / HTTPS_PROXY / NO_PROXY は docker の predefined build args
+        # なので、Containerfile 側に ARG 宣言は不要です。ビルド中の apt-get /
+        # git clone / bundle install がこの値を見ます。
+        # 未設定なら空文字になり、docker が build arg ごと落とすため
+        # （= コンテナ内でも未設定になる）プロキシ無し環境に影響はありません。
+        # 値は .env で設定します（docs/Setup.md「プロキシ環境で使う場合」参照）。
+        HTTP_PROXY: ${HTTP_PROXY:-}
+        HTTPS_PROXY: ${HTTPS_PROXY:-}
+        NO_PROXY: ${NO_PROXY:-}
     image: ${REDMINE_LEGACY_WEB_IMAGE:-localhost/redmine-web:5.1.1-mysql}
     container_name: ${REDMINE_LEGACY_WEB_CONTAINER:-redmine-legacy-web}
     restart: always

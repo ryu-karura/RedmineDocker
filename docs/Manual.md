@@ -442,13 +442,26 @@ sudo bash /opt/redmine/containers/scripts/restore.sh \
 
 | ログ | 配置先 |
 |------|--------|
-| Redmine アプリケーション | `/opt/redmine/data/redmine/log/production.log` |
-| Redmine / Passenger・Puma の標準出力 | `dcp logs redmine-web`（= `docker logs redmine-web`） |
-| Apache フロントエンド（コンテナ） | `dcp logs redmine-web` |
+| Redmine アプリケーション（Rails ログ） | コンテナの標準出力 → `dcp logs redmine-web`（= `docker logs redmine-web`） |
+| Apache フロントエンド（コンテナ） | 同上（`dcp logs redmine-web`） |
 | systemd ユニット（compose コマンド自体） | `journalctl -u redmine` |
 | ホスト Apache（TLS フロント） | `/var/log/httpd/redmine_{access,error}.log` |
 
-ログローテーションは `logrotate/redmine` で設定されています（`/etc/logrotate.d/redmine-web` に配置）。日次、60 世代、コンテナ内のアプリケーションログには `copytruncate` を使います。
+★ **Rails ログはファイルではなく標準出力に出ます。** 公式 Redmine イメージが
+`RAILS_LOG_TO_STDOUT=true` を設定しており、`config/environments/production.rb` は
+この変数があるとロガーを STDOUT に差し替えるため、`log/production.log` は書かれません
+（bind mount した `/opt/redmine/data/redmine/log` も通常は空のままです）。
+ファイルに出したい場合は `.env` に `RAILS_LOG_TO_STDOUT=` （空）を設定してコンテナを
+再作成してください。その場合はコンテナの標準出力側が空になります。
+
+ログの保存期間は docker のログドライバ設定（`/etc/docker/daemon.json` の
+`log-driver` / `log-opts`、既定は `json-file`）で制御します。例えば 1 ファイル 100MB・
+3 世代で回すなら `{"log-driver":"json-file","log-opts":{"max-size":"100m","max-file":"3"}}`
+を設定して `systemctl restart docker` します。
+
+ログローテーションは `logrotate/redmine` で設定されています（`/etc/logrotate.d/redmine-web` に配置）。
+日次・60 世代で、対象はホスト Apache のログと、上記のように**ファイル出力へ切り替えた場合の**
+`production.log` です（未切り替えならファイルが無いだけで `missingok` により何もしません）。
 
 ```bash
 sudo logrotate --debug /etc/logrotate.d/redmine-web     # ドライラン

@@ -24,6 +24,24 @@
 # "_-redmine" になって volume 作成が失敗するバグがあります (scripts/test-stack.sh 参照)。
 name: redmine
 
+# ── podman-compose で pod を作らせない設定 (issue #44) ────────────────────────
+# podman-compose は既定で「プロジェクト名の pod」を作り、その中に全コンテナを
+# 入れます。rootless + systemd 環境ではこの pod 用 cgroup (slice) の作成に失敗し、
+# 次のエラーで起動できないことがあります:
+#   Error: unable to start container "...": unable to create pod cgroup for pod ...:
+#   creating cgroup .../user-libpod_pod_<id>.slice:
+#   Unit user-libpod_pod_<id>.slice was already loaded or has a fragment file.
+# このスタックは pod を必要としません（コンテナ間は redmine-net で名前解決し、
+# 公開ポートは redmine-web だけ）。そのため pod を使わない設定にします。
+#
+# ★ x-podman は podman-compose (1.5.0 以降で in_pod をサポート) だけが読む拡張キーです。
+#   Docker Compose は仕様上 `x-` 接頭辞のトップレベルキーを無視するため、
+#   docker 側の挙動は一切変わりません。
+#   CLI で上書きする場合は `podman-compose --in-pod false ...`、
+#   環境変数なら PODMAN_COMPOSE_IN_POD=false です。
+x-podman:
+  in_pod: false
+
 networks:
   redmine-net:
     name: ${REDMINE_NETWORK:-redmine-net}
@@ -49,6 +67,16 @@ services:
       dockerfile: Containerfile
       args:
         DB_BASE_IMAGE: ${REDMINE_DB_BASE_IMAGE:-docker.io/postgis/postgis:18-3.6}
+        # ── プロキシ環境用（社内プロキシ経由でビルドする場合） ──────────────
+        # HTTP_PROXY / HTTPS_PROXY / NO_PROXY は docker の predefined build args
+        # なので、Containerfile 側に ARG 宣言は不要です。ビルド中の apt-get /
+        # git clone / bundle install がこの値を見ます。
+        # 未設定なら空文字になり、docker が build arg ごと落とすため
+        # （= コンテナ内でも未設定になる）プロキシ無し環境に影響はありません。
+        # 値は .env で設定します（docs/Setup.md「プロキシ環境で使う場合」参照）。
+        HTTP_PROXY: ${HTTP_PROXY:-}
+        HTTPS_PROXY: ${HTTPS_PROXY:-}
+        NO_PROXY: ${NO_PROXY:-}
     image: ${REDMINE_DB_IMAGE:-localhost/redmine-db:18-3.6}
     container_name: ${REDMINE_DB_CONTAINER:-redmine-db}
     restart: always
@@ -82,6 +110,16 @@ services:
       dockerfile: ${REDMINE_WEB_CONTAINERFILE:-Containerfile.v7}
       args:
         WEB_BASE_IMAGE: ${REDMINE_WEB_BASE_IMAGE:-docker.io/library/redmine:7.0.1}
+        # ── プロキシ環境用（社内プロキシ経由でビルドする場合） ──────────────
+        # HTTP_PROXY / HTTPS_PROXY / NO_PROXY は docker の predefined build args
+        # なので、Containerfile 側に ARG 宣言は不要です。ビルド中の apt-get /
+        # git clone / bundle install がこの値を見ます。
+        # 未設定なら空文字になり、docker が build arg ごと落とすため
+        # （= コンテナ内でも未設定になる）プロキシ無し環境に影響はありません。
+        # 値は .env で設定します（docs/Setup.md「プロキシ環境で使う場合」参照）。
+        HTTP_PROXY: ${HTTP_PROXY:-}
+        HTTPS_PROXY: ${HTTPS_PROXY:-}
+        NO_PROXY: ${NO_PROXY:-}
     image: ${REDMINE_WEB_IMAGE:-localhost/redmine-web:7.0.1}
     container_name: ${REDMINE_WEB_CONTAINER:-redmine-web}
     restart: always

@@ -113,6 +113,15 @@ ENV REDMINE_DB_ADAPTER=mysql2
 # ── システムパッケージ（root） ────────────────────────────────────────────────
 USER root
 
+# ── 社内プロキシ (TLS 傍受型) の CA 証明書 ────────────────────────────────────
+# ca-certificates/ ディレクトリの *.crt をイメージの信頼ストアへ取り込みます。
+# 既定では空（README.md だけ）なので、通常環境では何も追加されません。
+# MITM プロキシ配下では、これが無いと後続の git clone / bundle install が
+# 証明書エラーで失敗します（配置方法は ca-certificates/README.md 参照）。
+# プロキシのアドレス自体は build arg（HTTP_PROXY / HTTPS_PROXY / NO_PROXY）で渡します。
+COPY ca-certificates/ /usr/local/share/ca-certificates/
+RUN update-ca-certificates
+
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
                 # PDF/Gantt 出力向け日本語フォント

@@ -214,7 +214,10 @@ docker compose -f compose.dev.yaml -f compose.codespaces.yaml logs -f redmine-we
   later if this box is also used to rehearse Production, below). Docker Engine
   is preferred; a rootless-Podman box where `docker`/`docker compose` are
   aliases still runs `compose.dev.yaml`, but **not** `compose.prod.yaml`
-  (podman-compose does not understand its `!override`/`!reset` tags).
+  (podman-compose does not understand its `!override`/`!reset` tags — measured
+  on 1.5.0: it does not error, it silently skips variable substitution inside
+  the tagged node, so the published port becomes the literal string
+  `${REDMINE_PROD_HOST_PORT:-80}`).
 - **Development B (Codespaces)**: the dev container (`.devcontainer/`)
   provisions real docker-in-docker and installs `shellcheck`; `compose.codespaces.yaml`
   overrides the web publish to host port **80** (all interfaces) for forwarding/public access.
@@ -450,6 +453,36 @@ compose.prod.yaml …`, not systemd.
   fails with `database "redmine" does not exist`. `scram-sha-256` works
   locally too because the entrypoint exports `PGPASSWORD` before running any
   setup SQL.
+- **Proxy support is wired through build args plus a CA drop-in directory.**
+  `compose.dev.yaml`/`compose.legacy.yaml` pass `HTTP_PROXY`/`HTTPS_PROXY`/`NO_PROXY`
+  (from `.env` or the caller's shell) as build args to every build. These are
+  docker's *predefined* build args, so no `ARG` line is needed in a Containerfile
+  and an unset value is dropped entirely — verified both ways: with values, all
+  six spellings appear in `RUN` and `git clone` reaches GitHub; with empty values
+  the variables are unset inside the build. Three places need the proxy and only
+  the second is covered by `.env`: (1) the **daemon** pulls `FROM` images
+  (systemd drop-in on `docker.service`), (2) the **build** runs apt/git/bundler
+  (these build args), (3) the **containers** only if something needs outbound
+  HTTP — and there `NO_PROXY` must include `localhost`/`127.0.0.1` or the
+  healthcheck's curl goes through the proxy and the container never turns
+  healthy. For TLS-intercepting proxies, `containers/redmine-web/ca-certificates/`
+  is copied into `/usr/local/share/ca-certificates/` and `update-ca-certificates`
+  runs in all four web Containerfiles; the directory ships with only a README
+  (measured: `0 added, 0 removed`, i.e. inert) and site `*.crt`/`*.pem` are
+  git-ignored. Full procedure: `docs/Setup.md`, "プロキシ環境で使う場合".
+- **`compose.dev.yaml` and `compose.legacy.yaml` carry `x-podman: {in_pod: false}`
+  so podman-compose does not wrap the stack in a pod** (issue #44). podman-compose
+  defaults to creating `pod_<project name>`; on rootless + systemd hosts the pod's
+  cgroup can fail to be created, and the whole `up` dies with `unable to create pod
+  cgroup for pod …: Unit user-libpod_pod_<id>.slice was already loaded or has a
+  fragment file`. Nothing here needs a pod — containers talk over `redmine-net` and
+  only `redmine-web` publishes a port. `x-podman` is read **only** by podman-compose
+  (`in_pod` supported since 1.5.0; `--in-pod false` / `PODMAN_COMPOSE_IN_POD=false`
+  are the CLI/env equivalents), and the Compose spec tells Docker Compose to ignore
+  unknown top-level `x-` keys, so the docker path is unaffected — verified by
+  resolving `PodmanCompose.resolve_pod_name()` on 1.5.0 (returns `None` for both
+  files, and for every overlay combination) and by `docker compose config`.
+  Keep the key in any new compose file meant to run under podman.
 - **`compose.dev.yaml`'s project name comes from `COMPOSE_PROJECT_NAME` in `.env`, not a
   `name:` field with variable substitution.** `podman-compose` 1.5.0 resolves the top-level
   `name:` attribute *before* substituting `.env` variables into it, so `name:
