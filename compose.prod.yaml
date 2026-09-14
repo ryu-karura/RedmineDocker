@@ -26,7 +26,9 @@
 #   /opt/redmine/data/postgres/18      … PostgreSQL データ（root 所有のままで可。
 #                                        postgres のエントリポイントが chown します）
 #   /opt/redmine/data/redmine/files    … 添付ファイル（999:999 = コンテナの redmine）
-#   /opt/redmine/data/redmine/log      … production.log（999:999、logrotate 対象）
+#   /opt/redmine/data/redmine/log      … Redmine の log/（999:999）。公式イメージは
+#                                        RAILS_LOG_TO_STDOUT=true で標準出力に出すため
+#                                        通常は空です（docs/Manual.md「ログ」参照）
 #
 # SELinux (RHEL 既定) 用に `:Z` を付けています。ラベル付けが不要な環境
 # （SELinux 無効の WSL など）でも `:Z` は無害です。

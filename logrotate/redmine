@@ -7,11 +7,18 @@
 # Test with:    sudo logrotate --debug /etc/logrotate.d/redmine-web
 # Force run:    sudo logrotate --force /etc/logrotate.d/redmine-web
 #
-# The Redmine application log is written inside the redmine-web container to
-# /usr/src/redmine/log, which is bind-mounted to the host path below by
-# compose.prod.yaml. copytruncate is used because the log file is held open by
-# the app process in the container (Passenger or Puma); this avoids needing to
-# signal the process or match its uid/gid.
+# NOTE: with the official image's default RAILS_LOG_TO_STDOUT=true, Redmine
+# logs to the container's stdout and never writes log/production.log — those
+# logs are read with `docker compose logs redmine-web` and rotated by the
+# docker log driver instead. The first stanza below therefore only does
+# something if file logging is turned back on (set RAILS_LOG_TO_STDOUT= in
+# .env); until then `missingok` makes it a no-op. See docs/Manual.md, "ログ".
+#
+# When it is enabled, the application log is written inside the redmine-web
+# container to /usr/src/redmine/log, which is bind-mounted to the host path
+# below by compose.prod.yaml. copytruncate is used because the log file is held
+# open by the app process in the container (Passenger or Puma); this avoids
+# needing to signal the process or match its uid/gid.
 
 # ── Redmine application log ───────────────────────────────────────────────────
 /opt/redmine/data/redmine/log/production.log {

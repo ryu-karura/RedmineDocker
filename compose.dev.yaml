@@ -24,6 +24,24 @@
 # "_-redmine" になって volume 作成が失敗するバグがあります (scripts/test-stack.sh 参照)。
 name: redmine
 
+# ── podman-compose で pod を作らせない設定 (issue #44) ────────────────────────
+# podman-compose は既定で「プロジェクト名の pod」を作り、その中に全コンテナを
+# 入れます。rootless + systemd 環境ではこの pod 用 cgroup (slice) の作成に失敗し、
+# 次のエラーで起動できないことがあります:
+#   Error: unable to start container "...": unable to create pod cgroup for pod ...:
+#   creating cgroup .../user-libpod_pod_<id>.slice:
+#   Unit user-libpod_pod_<id>.slice was already loaded or has a fragment file.
+# このスタックは pod を必要としません（コンテナ間は redmine-net で名前解決し、
+# 公開ポートは redmine-web だけ）。そのため pod を使わない設定にします。
+#
+# ★ x-podman は podman-compose (1.5.0 以降で in_pod をサポート) だけが読む拡張キーです。
+#   Docker Compose は仕様上 `x-` 接頭辞のトップレベルキーを無視するため、
+#   docker 側の挙動は一切変わりません。
+#   CLI で上書きする場合は `podman-compose --in-pod false ...`、
+#   環境変数なら PODMAN_COMPOSE_IN_POD=false です。
+x-podman:
+  in_pod: false
+
 networks:
   redmine-net:
     name: ${REDMINE_NETWORK:-redmine-net}

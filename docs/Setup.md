@@ -24,7 +24,8 @@ RHEL の実機がまだ用意できない場合は、本番と同じ Docker + sy
   systemd=true
   ```
   変更後は Windows 側で `wsl --shutdown` を実行し、ディストリビューションを再起動してください。
-- コンテナランタイムが導入済みであること。**本番と同じ Docker Engine（`docker-ce` + `docker-compose-plugin`）を推奨**します。rootless Podman で `docker` / `docker compose` をエイリアスとしてエミュレートする構成（`docker compose` が内部で `podman-compose` を呼ぶ）でも `compose.dev.yaml` は動きます。ただし本番オーバーレイ `compose.prod.yaml` は Compose 仕様の `!override` / `!reset` タグを使うため **Docker Compose v2.24 以上が必須**で、podman-compose では読み込めません（本番相当のリハーサルをする場合は Docker Engine を入れてください）。
+- コンテナランタイムが導入済みであること。**本番と同じ Docker Engine（`docker-ce` + `docker-compose-plugin`）を推奨**します。rootless Podman で `docker` / `docker compose` をエイリアスとしてエミュレートする構成（`docker compose` が内部で `podman-compose` を呼ぶ）でも `compose.dev.yaml` は動きます。ただし本番オーバーレイ `compose.prod.yaml` は Compose 仕様の `!override` / `!reset` タグを使うため **Docker Compose v2.24 以上が必須**です。podman-compose (1.5.0) はこのタグでエラーにはならず、**変数展開されないまま読み飛ばす**ため、`127.0.0.1:80` ではなく `${REDMINE_PROD_HOST_PORT:-80}` という文字列がそのまま公開ポート指定になる、といった壊れた設定になります。本番相当のリハーサルをする場合は必ず Docker Engine を入れてください。
+- **podman で動かす場合の pod について**: podman-compose は既定でプロジェクト名の pod を作りますが、rootless + systemd 環境では pod 用 cgroup の作成に失敗することがあります（issue #44）。このスタックは pod を必要としないため、`compose.dev.yaml` / `compose.legacy.yaml` に `x-podman: {in_pod: false}` を入れて pod を作らせないようにしています（Docker Compose は `x-` キーを無視するので docker 側の挙動は変わりません）。
 
 ```bash
 # 0. 非シークレット設定 (.env) を作成 (初回のみ)
@@ -257,7 +258,7 @@ RHEL の実機がまだ用意できない場合、開発環境 A で使ってい
 ### WSL 特有の前提条件
 
 - `/etc/wsl.conf` に `[boot] systemd=true` が必要です（`systemctl` でユニットを動かすため）。未設定の場合は本番環境の章の手順 5 以降がすべて失敗します。
-- **Docker Engine が必要です**（手順 1 と同じ手順で導入できます）。`docker` が rootless Podman のエイリアスになっている環境では、`compose.prod.yaml` の `!override` / `!reset` を podman-compose が解釈できないため本番相当の検証はできません。
+- **Docker Engine が必要です**（手順 1 と同じ手順で導入できます）。`docker` が rootless Podman のエイリアスになっている環境では、`compose.prod.yaml` の `!override` / `!reset` を podman-compose が解釈できません。しかもエラーにならず変数展開を飛ばした壊れた設定で起動してしまうため、本番相当の検証には使えません。
 - ホスト Apache (TLS 終端) の証明書は、実ドメインがなければ自己署名証明書で代用してください。動作確認が目的であれば `curl -k` で疎通確認できます。
 - WSL2 は `localhost` へのアクセスを自動的に Windows 側へフォワードするため、`redmine-web` がホスト側 `127.0.0.1:80` に公開されていれば、Windows から `https://localhost/redmine/`（ホスト Apache 経由）で到達できます。
 
@@ -294,6 +295,7 @@ docker compose -f compose.dev.yaml up --build -d
 | `systemctl` が `Failed to connect to bus` 等で失敗する（WSL） | `/etc/wsl.conf` の `[boot] systemd=true` が設定されているか、設定後に `wsl --shutdown` で再起動したか確認する |
 | `docker compose up` や `systemctl start redmine` が "name is already in use" 等で失敗する | 開発環境と本番相当環境を同じホスト上で併用しようとしていないか確認する（コンテナ名/ネットワーク名が衝突するため、片方を停止してから切り替える。上の「開発環境 A ⇄ 本番相当環境の切り替え」を参照） |
 | 添付ファイルのアップロードや `production.log` の出力が `Permission denied` になる | bind mount 先の所有者がコンテナ内 redmine (999:999) になっているか確認する（`sudo chown -R 999:999 /opt/redmine/data/redmine`）。docker の bind mount は UID を変換しません。マウント直下だけは `entrypoint.sh` が起動時に合わせますが、リストア等で中身が root 所有になった場合は再帰的に直す必要があります |
-| `compose.prod.yaml` の読み込みで `!override` / `!reset` 付近の YAML エラーになる | Docker Compose v2.24 以上か確認する（`docker compose version`）。podman-compose はこのタグに対応していないため、本番オーバーレイは Docker Compose 専用です |
+| `compose.prod.yaml` を使ったのに公開ポートが `${REDMINE_PROD_HOST_PORT:-80}` のような文字列になる / `!override` 付近で YAML エラーになる | podman-compose で本番オーバーレイを読んでいます。このタグに対応しているのは Docker Compose v2.24 以上だけです（`docker compose version` で確認。`docker` が podman のエイリアスになっていないかも確認してください） |
+| `unable to create pod cgroup for pod ...: Unit user-libpod_pod_<id>.slice was already loaded or has a fragment file` で起動できない（podman） | podman-compose が作る pod の cgroup 作成に失敗しています（issue #44）。本リポジトリは `x-podman: {in_pod: false}` で pod を使わない設定にしてあるので、まず `git pull` で最新の `compose.dev.yaml` を取得してください。すでに pod が残っている場合は `podman pod rm -fa` と `podman-compose -f compose.dev.yaml down` で掃除し、`systemctl --user daemon-reload` を実行してから起動し直します。繰り返す場合は Docker Engine の利用を推奨します |
 | `systemctl start redmine` が `docker: command not found` で失敗する | Docker Engine が入っているか、`podman-docker` が `/usr/bin/docker` を握っていないか確認する（手順 1 参照） |
 | `systemctl start redmine` がタイムアウトする | `--wait` は全コンテナが healthy になるまで待ちます。初回起動はマイグレーションとアセット生成で数分かかるため、`docker compose ... logs -f redmine-web` で進行中か確認する。進んでいない場合はログのエラーを確認 |
