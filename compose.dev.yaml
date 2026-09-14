@@ -67,6 +67,16 @@ services:
       dockerfile: Containerfile
       args:
         DB_BASE_IMAGE: ${REDMINE_DB_BASE_IMAGE:-docker.io/postgis/postgis:18-3.6}
+        # ── プロキシ環境用（社内プロキシ経由でビルドする場合） ──────────────
+        # HTTP_PROXY / HTTPS_PROXY / NO_PROXY は docker の predefined build args
+        # なので、Containerfile 側に ARG 宣言は不要です。ビルド中の apt-get /
+        # git clone / bundle install がこの値を見ます。
+        # 未設定なら空文字になり、docker が build arg ごと落とすため
+        # （= コンテナ内でも未設定になる）プロキシ無し環境に影響はありません。
+        # 値は .env で設定します（docs/Setup.md「プロキシ環境で使う場合」参照）。
+        HTTP_PROXY: ${HTTP_PROXY:-}
+        HTTPS_PROXY: ${HTTPS_PROXY:-}
+        NO_PROXY: ${NO_PROXY:-}
     image: ${REDMINE_DB_IMAGE:-localhost/redmine-db:18-3.6}
     container_name: ${REDMINE_DB_CONTAINER:-redmine-db}
     restart: always
@@ -100,6 +110,16 @@ services:
       dockerfile: ${REDMINE_WEB_CONTAINERFILE:-Containerfile.v7}
       args:
         WEB_BASE_IMAGE: ${REDMINE_WEB_BASE_IMAGE:-docker.io/library/redmine:7.0.1}
+        # ── プロキシ環境用（社内プロキシ経由でビルドする場合） ──────────────
+        # HTTP_PROXY / HTTPS_PROXY / NO_PROXY は docker の predefined build args
+        # なので、Containerfile 側に ARG 宣言は不要です。ビルド中の apt-get /
+        # git clone / bundle install がこの値を見ます。
+        # 未設定なら空文字になり、docker が build arg ごと落とすため
+        # （= コンテナ内でも未設定になる）プロキシ無し環境に影響はありません。
+        # 値は .env で設定します（docs/Setup.md「プロキシ環境で使う場合」参照）。
+        HTTP_PROXY: ${HTTP_PROXY:-}
+        HTTPS_PROXY: ${HTTPS_PROXY:-}
+        NO_PROXY: ${NO_PROXY:-}
     image: ${REDMINE_WEB_IMAGE:-localhost/redmine-web:7.0.1}
     container_name: ${REDMINE_WEB_CONTAINER:-redmine-web}
     restart: always

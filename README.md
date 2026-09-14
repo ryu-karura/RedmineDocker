@@ -92,6 +92,7 @@ RedmineDocker/
 │   ├── redmine-db/                 # PostgreSQL 18 + PostGIS 3.6
 │   ├── redmine-db-mysql/           # MySQL 8.0 CE（移行元の再現専用）
 │   └── redmine-web/            # Redmine + plugin/theme スタック + Apache フロントエンド
+│       ├── ca-certificates/        #   社内プロキシ (MITM) の CA 置き場（既定は空）
 │       ├── Containerfile.v5        #   Redmine 5.1.12 用
 │       ├── Containerfile.v6        #   Redmine 6.1.4 用
 │       ├── Containerfile.v7        #   Redmine 7.0.1 用（既定）

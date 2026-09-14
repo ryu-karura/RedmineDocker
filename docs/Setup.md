@@ -94,6 +94,84 @@ docker compose -f compose.dev.yaml -f compose.codespaces.yaml up --build -d
 
 ---
 
+## プロキシ環境で使う場合（開発・本番共通）
+
+社内プロキシ経由でしか外へ出られない環境では、**設定する場所が 3 つ**あります。1 つでも
+抜けるとビルドが途中で失敗します（典型的には `git clone` のハング / 証明書エラー）。
+
+### 1. docker デーモン（ベースイメージの pull）
+
+`Containerfile` の `FROM` を取得するのは docker デーモンなので、`.env` や build args では
+届きません。デーモン自身に設定します。
+
+```bash
+sudo mkdir -p /etc/systemd/system/docker.service.d
+sudo tee /etc/systemd/system/docker.service.d/http-proxy.conf >/dev/null <<'EOF'
+[Service]
+Environment="HTTP_PROXY=http://proxy.example.co.jp:8080"
+Environment="HTTPS_PROXY=http://proxy.example.co.jp:8080"
+Environment="NO_PROXY=localhost,127.0.0.1,::1"
+EOF
+sudo systemctl daemon-reload
+sudo systemctl restart docker
+docker info | grep -i proxy     # 反映確認
+```
+
+rootless Docker の場合は `~/.config/systemd/user/docker.service.d/http-proxy.conf` に
+同じ内容を置き、`systemctl --user daemon-reload && systemctl --user restart docker` します。
+
+### 2. ビルド中のコマンド（apt-get / git clone / bundle install）
+
+`.env` に設定すれば、`compose.dev.yaml` / `compose.legacy.yaml` の build args 経由で
+ビルドコンテナへ渡ります（設定済みです。Containerfile 側の `ARG` 宣言は不要です —
+`HTTP_PROXY` / `HTTPS_PROXY` / `NO_PROXY` は docker の predefined build args です）。
+
+```ini
+HTTP_PROXY=http://proxy.example.co.jp:8080
+HTTPS_PROXY=http://proxy.example.co.jp:8080
+NO_PROXY=localhost,127.0.0.1,::1,redmine-db,redmine-web
+```
+
+シェルに `export` 済みならその値がそのまま使われるため、`.env` への記述は任意です。
+未設定なら build arg ごと落とされるので、プロキシ無し環境への影響はありません。
+
+`docker compose` を使わず直接ビルドする場合は明示します。
+
+```bash
+docker build --build-arg HTTPS_PROXY="${HTTPS_PROXY}" --build-arg HTTP_PROXY="${HTTP_PROXY}" \
+    --build-arg NO_PROXY="${NO_PROXY}" \
+    -f containers/redmine-web/Containerfile.v7 containers/redmine-web
+```
+
+### 3. TLS を再終端する（MITM する）プロキシの CA 証明書
+
+多くの社内プロキシは TLS を再終端します。その場合、プロキシを正しく設定しても
+`git clone` や `bundle install` が証明書エラー（`server certificate verification failed` /
+`SSL_connect returned=1`）で失敗します。**プロキシの CA 証明書を PEM 形式・拡張子 `.crt` で
+`containers/redmine-web/ca-certificates/` に置いてください。**
+
+```bash
+cp /etc/pki/ca-trust/source/anchors/corp-proxy.crt containers/redmine-web/ca-certificates/
+```
+
+`Containerfile.v5` / `.v6` / `.v7` / `.v5-mysql` がこのディレクトリを
+`/usr/local/share/ca-certificates/` へコピーし、`update-ca-certificates` を実行します。
+置かなければ何も追加されません（`0 added, 0 removed` になるだけ）。詳細と注意点は
+`containers/redmine-web/ca-certificates/README.md` を参照してください。証明書はホストごとに
+配置する運用とし、リポジトリにはコミットしません（`.gitignore` 済み）。
+
+### 実行時（コンテナの外向き通信）
+
+Redmine 自体は通常、外部 HTTP 通信をしません（地図タイル取得などはブラウザ側）。
+プラグインなどで必要になった場合だけ、`compose.dev.yaml` の `redmine-web` の
+`environment` にプロキシ変数を追加してください。その際は **`NO_PROXY` に `localhost` と
+`127.0.0.1` を必ず含めます**。ヘルスチェック (`redmine-healthcheck.sh`) は
+`http://localhost/redmine/login` を curl するため、これがプロキシ経由になると
+コンテナが unhealthy のままになります。SMTP (`SMTP_HOST`) は TCP 直結で、
+HTTP プロキシは経由しません。
+
+---
+
 ## 本番環境 (RHEL 9.5 以上 / Docker Engine + systemd)
 
 本番は **Docker Engine + Docker Compose** でコンテナを動かし、起動・停止は **systemd ユニット
@@ -298,4 +376,7 @@ docker compose -f compose.dev.yaml up --build -d
 | `compose.prod.yaml` を使ったのに公開ポートが `${REDMINE_PROD_HOST_PORT:-80}` のような文字列になる / `!override` 付近で YAML エラーになる | podman-compose で本番オーバーレイを読んでいます。このタグに対応しているのは Docker Compose v2.24 以上だけです（`docker compose version` で確認。`docker` が podman のエイリアスになっていないかも確認してください） |
 | `unable to create pod cgroup for pod ...: Unit user-libpod_pod_<id>.slice was already loaded or has a fragment file` で起動できない（podman） | podman-compose が作る pod の cgroup 作成に失敗しています（issue #44）。本リポジトリは `x-podman: {in_pod: false}` で pod を使わない設定にしてあるので、まず `git pull` で最新の `compose.dev.yaml` を取得してください。すでに pod が残っている場合は `podman pod rm -fa` と `podman-compose -f compose.dev.yaml down` で掃除し、`systemctl --user daemon-reload` を実行してから起動し直します。繰り返す場合は Docker Engine の利用を推奨します |
 | `systemctl start redmine` が `docker: command not found` で失敗する | Docker Engine が入っているか、`podman-docker` が `/usr/bin/docker` を握っていないか確認する（手順 1 参照） |
+| ビルドが `git clone`（プラグイン取得）で止まる / タイムアウトする | プロキシ設定が build に渡っていません。上記「プロキシ環境で使う場合」の 2 を確認してください（`.env` の `HTTP_PROXY` / `HTTPS_PROXY`、または `export` 済みか）。`docker compose config` の `args:` に値が出ているかで確認できます |
+| ビルドが `server certificate verification failed` / `SSL_connect returned=1` で失敗する | TLS を再終端するプロキシです。CA 証明書を `containers/redmine-web/ca-certificates/*.crt` に置いて再ビルドしてください（同章の 3） |
+| ベースイメージの pull が `dial tcp ... i/o timeout` で失敗する | docker デーモンにプロキシ設定が入っていません（同章の 1）。`docker info \| grep -i proxy` で確認します |
 | `systemctl start redmine` がタイムアウトする | `--wait` は全コンテナが healthy になるまで待ちます。初回起動はマイグレーションとアセット生成で数分かかるため、`docker compose ... logs -f redmine-web` で進行中か確認する。進んでいない場合はログのエラーを確認 |

@@ -453,6 +453,23 @@ compose.prod.yaml …`, not systemd.
   fails with `database "redmine" does not exist`. `scram-sha-256` works
   locally too because the entrypoint exports `PGPASSWORD` before running any
   setup SQL.
+- **Proxy support is wired through build args plus a CA drop-in directory.**
+  `compose.dev.yaml`/`compose.legacy.yaml` pass `HTTP_PROXY`/`HTTPS_PROXY`/`NO_PROXY`
+  (from `.env` or the caller's shell) as build args to every build. These are
+  docker's *predefined* build args, so no `ARG` line is needed in a Containerfile
+  and an unset value is dropped entirely — verified both ways: with values, all
+  six spellings appear in `RUN` and `git clone` reaches GitHub; with empty values
+  the variables are unset inside the build. Three places need the proxy and only
+  the second is covered by `.env`: (1) the **daemon** pulls `FROM` images
+  (systemd drop-in on `docker.service`), (2) the **build** runs apt/git/bundler
+  (these build args), (3) the **containers** only if something needs outbound
+  HTTP — and there `NO_PROXY` must include `localhost`/`127.0.0.1` or the
+  healthcheck's curl goes through the proxy and the container never turns
+  healthy. For TLS-intercepting proxies, `containers/redmine-web/ca-certificates/`
+  is copied into `/usr/local/share/ca-certificates/` and `update-ca-certificates`
+  runs in all four web Containerfiles; the directory ships with only a README
+  (measured: `0 added, 0 removed`, i.e. inert) and site `*.crt`/`*.pem` are
+  git-ignored. Full procedure: `docs/Setup.md`, "プロキシ環境で使う場合".
 - **`compose.dev.yaml` and `compose.legacy.yaml` carry `x-podman: {in_pod: false}`
   so podman-compose does not wrap the stack in a pod** (issue #44). podman-compose
   defaults to creating `pod_<project name>`; on rootless + systemd hosts the pod's
