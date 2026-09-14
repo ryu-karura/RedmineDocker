@@ -1,0 +1,58 @@
+# compose.prod.yaml — 本番環境用オーバーレイ
+#
+# 本番 (RHEL 9.5+) は Docker Engine + systemd (systemd/redmine.service) で起動します。
+# このファイルは compose.dev.yaml を**上書きするオーバーレイ**で、単体では使いません。
+# 常に 2 つセットで指定してください:
+#
+#   docker compose -f compose.dev.yaml -f compose.prod.yaml up -d --wait
+#   docker compose -f compose.dev.yaml -f compose.prod.yaml ps
+#   docker compose -f compose.dev.yaml -f compose.prod.yaml down
+#
+# 通常は直接叩かず systemd 経由で操作します（systemd/redmine.service 参照）:
+#   sudo systemctl start|stop|status redmine
+#
+# 開発との差分はこの 2 点だけです。イメージ・環境変数・シークレット・
+# ヘルスチェックは compose.dev.yaml 側の定義をそのまま使います（lockstep 維持）。
+#   1. データの置き場所: 名前付きボリューム → /opt/redmine/data 配下の bind mount
+#   2. 公開ポート: 127.0.0.1:8080 → 127.0.0.1:80（ホスト Apache の転送先）
+#
+# ★ `!override` / `!reset` タグは Docker Compose v2.24 以上が必要です。
+#   compose のマージ規則では volumes は「マウント先 (target) が同じなら置き換え」
+#   ですが、ports は**連結**されるため、タグなしで書くと開発用の 8080 が
+#   残ったまま 80 が追加されてしまいます。そのため ports だけ `!override` で
+#   置き換え、未使用になる名前付きボリュームの宣言は `!reset` で削除します。
+#
+# データディレクトリは事前に作成し、所有者を揃えておいてください（docs/Setup.md）。
+#   /opt/redmine/data/postgres/18      … PostgreSQL データ（root 所有のままで可。
+#                                        postgres のエントリポイントが chown します）
+#   /opt/redmine/data/redmine/files    … 添付ファイル（999:999 = コンテナの redmine）
+#   /opt/redmine/data/redmine/log      … production.log（999:999、logrotate 対象）
+#
+# SELinux (RHEL 既定) 用に `:Z` を付けています。ラベル付けが不要な環境
+# （SELinux 無効の WSL など）でも `:Z` は無害です。
+
+services:
+  redmine-db:
+    volumes:
+      # PostgreSQL 18+ はメジャーバージョン別サブディレクトリ形式のため、
+      # /var/lib/postgresql/data ではなく /var/lib/postgresql 全体をマウントします
+      # （PGDATA はイメージ既定の /var/lib/postgresql/18/docker のまま）。
+      - ${REDMINE_DATA_ROOT:-/opt/redmine/data}/postgres/${REDMINE_DB_PG_MAJOR:-18}:/var/lib/postgresql:Z
+
+  redmine-web:
+    ports: !override
+      # 既定はホスト Apache (TLS 終端) の転送先である 127.0.0.1:80 です。
+      # ★ 開発用の REDMINE_WEB_HOST_PORT (既定 8080) ではなく、本番専用の
+      #   REDMINE_PROD_HOST_PORT を使います。.env.example をそのままコピーした
+      #   .env には開発値 8080 が入っており、同じ変数を見ていると本番が 8080 で
+      #   起動してホスト Apache の転送先 (127.0.0.1:80) と食い違うためです。
+      - "${REDMINE_PROD_BIND_HOST:-127.0.0.1}:${REDMINE_PROD_HOST_PORT:-80}:${REDMINE_WEB_CONTAINER_PORT:-80}"
+    volumes:
+      - ${REDMINE_DATA_ROOT:-/opt/redmine/data}/redmine/files:/usr/src/redmine/files:Z
+      - ${REDMINE_DATA_ROOT:-/opt/redmine/data}/redmine/log:/usr/src/redmine/log:Z
+
+# bind mount に置き換えたので、開発用の名前付きボリューム宣言は使いません。
+# 残しておくと本番ホストに空のボリュームが作られるため削除します。
+volumes:
+  pgdata: !reset null
+  redmine_files: !reset null

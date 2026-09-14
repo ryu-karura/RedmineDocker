@@ -14,8 +14,8 @@
 #   このイメージでビルドし続けるだけです（docs/Upgrade.md「DB だけ PostgreSQL へ
 #   切り替える」参照）。この場合は compose.legacy.yaml（移行元 MySQL の再現）は
 #   不要になり、停止して構いません。
-#   参照するのは compose.legacy.yaml / compose.dev.yaml のみで、quadlets（本番）
-#   にはまだありません。
+#   参照するのは compose.legacy.yaml / compose.dev.yaml のみで、本番構成
+#   （compose.prod.yaml + systemd/redmine.service）では使いません。
 #
 #   通常構成は Containerfile.v5 (5.1.12) / .v6 (6.1.4) / .v7 (7.0.1、既定) で、
 #   いずれも PostgreSQL 18 + PostGIS 3.6 接続（postgis アダプタ）です。

@@ -8,9 +8,10 @@
 # Force run:    sudo logrotate --force /etc/logrotate.d/redmine-web
 #
 # The Redmine application log is written inside the redmine-web container to
-# /usr/src/redmine/log, which is bind-mounted to the host path below. copytruncate
-# is used because the log file is held open by the Puma process in the container;
-# this avoids needing to signal the process or match its (namespaced) uid/gid.
+# /usr/src/redmine/log, which is bind-mounted to the host path below by
+# compose.prod.yaml. copytruncate is used because the log file is held open by
+# the app process in the container (Passenger or Puma); this avoids needing to
+# signal the process or match its uid/gid.
 
 # ── Redmine application log ───────────────────────────────────────────────────
 /opt/redmine/data/redmine/log/production.log {

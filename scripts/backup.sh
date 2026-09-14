@@ -12,9 +12,11 @@
 #   - DB ダンプ:      /opt/redmine/backup/db/
 #   - ファイルアーカイブ: /opt/redmine/backup/files/
 #
-# rootless `redmine` ユーザーで実行します（sudo 不要、rootless Podman を直接利用）。
-# Cron 設定例（毎日 02:00、redmine ユーザーの crontab: `crontab -e`）:
+# 本番は Docker Engine + systemd (systemd/redmine.service) 構成のため、
+# docker デーモンを操作できる権限が必要です（root、または docker グループ）。
+# Cron 設定例（毎日 02:00、root の crontab: `sudo crontab -e`）:
 #   0 2 * * * /opt/redmine/containers/scripts/backup.sh >> /opt/redmine/backup/backup.log 2>&1
+# docker が無い環境では podman へ自動フォールバックします（CONTAINER_CLI）。
 
 set -euo pipefail
 
@@ -44,13 +46,28 @@ log()  { echo "${LOG_PREFIX} $*"; }
 die()  { echo "${LOG_PREFIX} ERROR: $*" >&2; exit 1; }
 warn() { echo "${LOG_PREFIX} WARNING: $*" >&2; }
 
-# ── DB パスワード読込（Podman/Docker シークレットファイル） ─────────────────
+# ── コンテナ CLI ───────────────────────────────────────────────────────────────
+# 本番・開発とも Docker Engine を既定にし、docker が無い環境（rootless Podman
+# だけの WSL など）では podman へフォールバックします。CONTAINER_CLI で明示指定も可。
+CONTAINER_CLI="${CONTAINER_CLI:-}"
+if [ -z "${CONTAINER_CLI}" ]; then
+    if command -v docker >/dev/null 2>&1; then
+        CONTAINER_CLI=docker
+    elif command -v podman >/dev/null 2>&1; then
+        CONTAINER_CLI=podman
+    else
+        die "Neither docker nor podman found. Set CONTAINER_CLI explicitly."
+    fi
+fi
+cli() { "${CONTAINER_CLI}" "$@"; }
+
+# ── DB パスワード読込（Docker/Podman シークレットファイル） ─────────────────
 [ -r "${DB_PASSWORD_FILE}" ] || die "DB password file not readable: ${DB_PASSWORD_FILE}"
 DB_PASSWORD="$(cat "${DB_PASSWORD_FILE}")"
 [ -n "${DB_PASSWORD}" ] || die "DB password file is empty: ${DB_PASSWORD_FILE}"
 
 # ── DB コンテナ稼働確認 ─────────────────────────────────────────────────────────
-if ! podman container inspect "${DB_CONTAINER}" --format '{{.State.Status}}' 2>/dev/null | grep -q 'running'; then
+if ! cli container inspect "${DB_CONTAINER}" --format '{{.State.Status}}' 2>/dev/null | grep -q 'running'; then
     die "Container '${DB_CONTAINER}' is not running. Cannot perform backup."
 fi
 
@@ -66,7 +83,7 @@ backup_database() {
 
     log "Backing up database: ${DB_NAME} → $(basename "${OUTFILE}")"
 
-    podman exec -e PGPASSWORD="${DB_PASSWORD}" "${DB_CONTAINER}" \
+    cli exec -e PGPASSWORD="${DB_PASSWORD}" "${DB_CONTAINER}" \
         pg_dump -U "${DB_USER}" -F c -Z 6 "${DB_NAME}" > "${OUTFILE}"
 
     local SIZE

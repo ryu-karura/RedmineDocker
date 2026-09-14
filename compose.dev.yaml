@@ -1,12 +1,16 @@
 # compose.dev.yaml — 開発環境専用
 #
-# redmine Redmine スタック用の Docker Compose 定義です。production の Podman Quadlet
-# ユニット (quadlets/) と同じイメージ・環境変数・シークレット・ヘルスチェックを使いますが、
-# /opt/redmine のホスト bind-mount ではなく名前付きボリュームを使うため、ホスト準備なしで
-# 実行できます。
+# redmine Redmine スタック用の Docker Compose 定義です。
 #
-# 本番デプロイではこのファイルは使用せず、docs/Setup.md で説明する Podman + systemd
-# Quadlets を使います。
+# 本番 (RHEL 9.5+) もこのファイルを使い、compose.prod.yaml を重ねて systemd
+# (systemd/redmine.service) から起動します:
+#   docker compose -f compose.dev.yaml -f compose.prod.yaml up -d --wait
+# 本番との差分は compose.prod.yaml 側の 2 点だけです
+#   - データ: 名前付きボリューム → /opt/redmine/data 配下の bind mount
+#   - 公開ポート: 127.0.0.1:8080 → 127.0.0.1:80
+# つまりイメージ・環境変数・シークレット・ヘルスチェックは開発と本番で完全に同一です
+# （このファイルが唯一の定義元です）。開発はホスト準備なしで動くよう、名前付き
+# ボリュームと非特権ポート 8080 を既定にしています。
 #
 # 使い方:
 #   bash scripts/generate-secrets.sh          # ./secrets/*.txt を生成
@@ -84,11 +88,11 @@ services:
     networks:
       - redmine-net
     ports:
-      # ループバックのみ、非特権ポート 8080 で公開します。rootless Podman は
-      # 特権ポート (<1024) への bind に CAP_NET_BIND_SERVICE ないし
-      # net.ipv4.ip_unprivileged_port_start の変更を要求するため、ホスト準備
-      # なしで動く開発環境ではホスト側を 8080 にマッピングします
-      # (本番の Quadlet ユニットはホスト側で 127.0.0.1:80 のまま)。
+      # ループバックのみ、非特権ポート 8080 で公開します。rootless Podman や
+      # rootless Docker は特権ポート (<1024) への bind に CAP_NET_BIND_SERVICE
+      # ないし net.ipv4.ip_unprivileged_port_start の変更を要求するため、ホスト
+      # 準備なしで動く開発環境ではホスト側を 8080 にマッピングします
+      # (本番は compose.prod.yaml が 127.0.0.1:80 へ差し替えます)。
       - "${REDMINE_WEB_BIND_HOST:-127.0.0.1}:${REDMINE_WEB_HOST_PORT:-8080}:${REDMINE_WEB_CONTAINER_PORT:-80}"
     depends_on:
       redmine-db:
@@ -129,8 +133,9 @@ services:
     volumes:
       - redmine_files:/usr/src/redmine/files
     healthcheck:
-      # 判定ロジックはイメージ内のスクリプトに置いています。Quadlet の HealthCmd=
-      # は変数展開されないため、compose と quadlet で同じコマンドを共有できます。
+      # 判定ロジックはイメージ内のスクリプトに置いています。サブ URI や
+      # REDMINE_WEB_SERVER をコンテナの環境変数から解決するため、compose 側は
+      # モードを気にせず同じ 1 コマンドを呼ぶだけで済みます。
       test: ["CMD", "/usr/local/bin/redmine-healthcheck.sh"]
       interval: 30s
       timeout: 10s

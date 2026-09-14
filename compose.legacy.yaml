@@ -7,8 +7,8 @@
 #   3. その後 Redmine 7.0.1 へマイグレーションできるか
 #
 # ★ これは本番構成ではありません。
-#   本番 (quadlets/) と通常の開発 (compose.dev.yaml) は PostgreSQL 18 + PostGIS
-#   3.6 のみで、MySQL 版の Quadlet ユニットは用意していません。
+#   本番 (compose.dev.yaml + compose.prod.yaml) と通常の開発 (compose.dev.yaml) は
+#   PostgreSQL 18 + PostGIS 3.6 のみで、MySQL 版の本番構成は用意していません。
 #
 # ★ コンテナ名・ネットワーク・ボリューム・ホストポートはすべて compose.dev.yaml と
 #   別名です。コンバート作業では移行元 (MySQL) と移行先 (PostgreSQL) を同時に

@@ -155,6 +155,21 @@ envsubst '${SMTP_HOST} ${SMTP_PORT} ${SMTP_USER} ${SMTP_PASSWORD}' \
 chown redmine:redmine config/configuration.yml
 chmod 640 config/configuration.yml
 
+# ── 2.5 bind mount のマウント直下の所有者を揃える ─────────────────────────────
+# 本番 (compose.prod.yaml) は files/ と log/ をホストの /opt/redmine/data 配下から
+# bind mount します。docker の bind mount は UID を変換しないため、ホスト側が
+# root 所有のままだと、アプリを動かす redmine ユーザー（Passenger の PassengerUser /
+# puma の runuser 先）が添付ファイルも production.log も書けません。
+# 名前付きボリュームではイメージ側の所有者が引き継がれるので、実質 bind mount 用の
+# 保険です。再帰はしません（既存の添付ファイル数が多いと起動が遅くなるため。
+# リストア時の再帰 chown は scripts/restore.sh が行います）。
+for _mount_dir in files log; do
+    if [[ -d "${REDMINE_HOME}/${_mount_dir}" ]]; then
+        chown redmine:redmine "${REDMINE_HOME}/${_mount_dir}" || \
+            log "WARNING: could not chown ${REDMINE_HOME}/${_mount_dir} (read-only mount?)."
+    fi
+done
+
 # Render from the .tmpl source, not the previously-rendered .conf — conf-enabled/
 # is a symlink to conf-available/<name>.conf (via a2enconf), so reading
 # and writing that same .conf here would truncate it to empty before envsubst
@@ -301,7 +316,7 @@ if [[ "${REDMINE_WEB_SERVER}" == "passenger" ]]; then
     set -u
     export LANG="${saved_lang}"
     # envvars はパスを export するだけでディレクトリは作りません（作るのは
-    # apache2ctl 側）。Podman は /run に tmpfs をマウントするため、イメージに
+    # apache2ctl 側）。Podman / docker は /run に tmpfs を張ることがあり、イメージに
     # 含まれる /run/apache2 は起動時に消えています。ここで作り直します。
     mkdir -p "${APACHE_RUN_DIR:-/var/run/apache2}" "${APACHE_LOCK_DIR:-/var/lock/apache2}"
     if [[ -n "${APACHE_PID_FILE:-}" ]]; then

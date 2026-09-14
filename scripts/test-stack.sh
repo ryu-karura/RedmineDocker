@@ -6,7 +6,7 @@
 # reproducing every check that has, in practice, caught a real boot-time bug
 # in this stack:
 #
-#   - compose.dev.yaml parses (`podman compose config`)
+#   - compose.dev.yaml parses (`docker compose config`)
 #   - both images build (plugin clones + `bundle install` + webpack)
 #   - pg_config is present and on PATH inside the redmine-web image
 #   - redmine-db actually creates the test database + PostGIS extensions
@@ -47,7 +47,8 @@
 # project (redmine_test) with their own dedicated named volumes
 # (redmine_test_pgdata, redmine_test_web_files — see REDMINE_DB_VOLUME /
 # REDMINE_FILES_VOLUME overrides below). It never touches production
-# (quadlets/, /opt/redmine) or a real dev stack's data.
+# (systemd/redmine.service + compose.prod.yaml, /opt/redmine) or a real dev
+# stack's data.
 #
 # Both the Postgres database name (REDMINE_DB_NAME=redmine_test by default,
 # see TEST_DB_NAME below) AND the underlying volumes are isolated from the
@@ -64,7 +65,9 @@
 #   bash scripts/test-stack.sh --web-server puma  # test the Puma mode (7 系の既定は passenger)
 #   bash scripts/test-stack.sh --series 6 # test the Redmine 6 image (5 / 6 / 7, default 7)
 #
-# Runs with podman (podman compose / the podman-compose external provider).
+# Runs with docker by default (docker compose). On a host that only has
+# rootless Podman it falls back to podman / podman compose; set CONTAINER_CLI
+# to pick one explicitly.
 
 set -euo pipefail
 
@@ -82,12 +85,27 @@ export REDMINE_DB_NAME="${TEST_DB_NAME}"
 # already initialized inside it), rather than getting its own fresh volume.
 export REDMINE_DB_VOLUME="${TEST_STACK_DB_VOLUME:-redmine_test_pgdata}"
 export REDMINE_FILES_VOLUME="${TEST_STACK_FILES_VOLUME:-redmine_test_web_files}"
-# Pin the compose project name explicitly: this podman-compose install
+# Container CLI: docker first (the stack's default runtime), podman as the
+# fallback for hosts that only have rootless Podman.
+CONTAINER_CLI="${CONTAINER_CLI:-}"
+if [ -z "${CONTAINER_CLI}" ]; then
+    if command -v docker >/dev/null 2>&1; then
+        CONTAINER_CLI=docker
+    elif command -v podman >/dev/null 2>&1; then
+        CONTAINER_CLI=podman
+    else
+        echo "Neither docker nor podman found. Set CONTAINER_CLI explicitly." >&2
+        exit 1
+    fi
+fi
+cli() { "${CONTAINER_CLI}" "$@"; }
+
+# Pin the compose project name explicitly: podman-compose (1.5.0)
 # mis-resolves the implicit project name on `up` (observed producing the
 # invalid volume name "_-redmine_pgdata" and failing outright), and pinning
 # it also gives the test run volumes fully separate from any real dev stack.
 PROJECT_NAME="${TEST_STACK_PROJECT_NAME:-redmine_test}"
-pc() { podman compose -p "${PROJECT_NAME}" -f "${COMPOSE_FILE}" "$@"; }
+pc() { cli compose -p "${PROJECT_NAME}" -f "${COMPOSE_FILE}" "$@"; }
 
 KEEP=0
 SKIP_BUILD=0
@@ -111,7 +129,7 @@ while [ "$#" -gt 0 ]; do
             ;;
         --series=*) SERIES="${1#--series=}" ;;
         -h|--help)
-            sed -n '2,67p' "${BASH_SOURCE[0]}"
+            sed -n '2,71p' "${BASH_SOURCE[0]}"
             exit 0
             ;;
         *)
@@ -169,7 +187,7 @@ cd "${REPO_ROOT}"
 cleanup() {
     if [ "${KEEP}" -eq 1 ]; then
         log "Leaving the stack running (--keep). Tear down later with:"
-        log "  podman compose -p ${PROJECT_NAME} -f ${COMPOSE_FILE} down -v"
+        log "  ${CONTAINER_CLI} compose -p ${PROJECT_NAME} -f ${COMPOSE_FILE} down -v"
         return
     fi
     log "Tearing down test stack ..."
@@ -178,7 +196,7 @@ cleanup() {
 trap cleanup EXIT
 
 # ── 0. Prerequisites ────────────────────────────────────────────────────────
-command -v podman >/dev/null 2>&1 || die "podman is not installed."
+command -v "${CONTAINER_CLI}" >/dev/null 2>&1 || die "${CONTAINER_CLI} is not installed."
 
 if [ ! -r "${REPO_ROOT}/secrets/db_password.txt" ] || [ ! -r "${REPO_ROOT}/secrets/secret_key_base.txt" ]; then
     log "Secrets missing — generating (bash scripts/generate-secrets.sh) ..."
@@ -201,7 +219,7 @@ fi
 # ── 2. Clear residue: previous test/dev containers and volumes ─────────────
 log "Clearing any residue from a previous run ..."
 pc down -v >/dev/null 2>&1 || true
-podman rm -f redmine-db redmine-web >/dev/null 2>&1 || true
+cli rm -f redmine-db redmine-web >/dev/null 2>&1 || true
 
 # ── 3. Build ─────────────────────────────────────────────────────────────────
 if [ "${SKIP_BUILD}" -eq 1 ]; then
@@ -214,7 +232,7 @@ fi
 
 log "Checking pg_config is present and on PATH in redmine-web ..."
 check "pg_config present on PATH in redmine-web image" \
-    podman run --rm --entrypoint sh "${REDMINE_WEB_IMAGE}" -c 'command -v pg_config'
+    cli run --rm --entrypoint sh "${REDMINE_WEB_IMAGE}" -c 'command -v pg_config'
 
 # ── 4. Boot redmine-db and verify database bootstrap ───────────────────────
 log "Starting redmine-db ..."
@@ -223,7 +241,7 @@ pc up -d --force-recreate redmine-db >/dev/null
 wait_healthy() {
     local name="$1" timeout="$2" waited=0 status
     while true; do
-        status="$(podman inspect --format '{{.State.Health.Status}}' "${name}" 2>/dev/null || echo unknown)"
+        status="$(cli inspect --format '{{.State.Health.Status}}' "${name}" 2>/dev/null || echo unknown)"
         case "${status}" in
             healthy) return 0 ;;
             unhealthy) warn "${name} reported unhealthy"; return 1 ;;
@@ -243,13 +261,13 @@ DB_PASSWORD="$(cat "${REPO_ROOT}/secrets/db_password.txt")"
 
 logs_lack() {
     local container="$1" pattern="$2"
-    ! podman logs "${container}" 2>&1 | grep -qF "${pattern}"
+    ! cli logs "${container}" 2>&1 | grep -qF "${pattern}"
 }
 check "redmine-db logs have no 'Peer authentication failed'" \
     logs_lack redmine-db "Peer authentication failed"
 
 db_exists() {
-    podman exec -e PGPASSWORD="${DB_PASSWORD}" redmine-db \
+    cli exec -e PGPASSWORD="${DB_PASSWORD}" redmine-db \
         psql -h 127.0.0.1 -U redmine -d postgres -tAc \
         "SELECT 1 FROM pg_database WHERE datname = '${TEST_DB_NAME}'" 2>/dev/null | grep -q '^1$'
 }
@@ -257,7 +275,7 @@ check "redmine-db created the '${TEST_DB_NAME}' database" db_exists
 
 extension_installed() {
     local ext="$1"
-    podman exec -e PGPASSWORD="${DB_PASSWORD}" redmine-db \
+    cli exec -e PGPASSWORD="${DB_PASSWORD}" redmine-db \
         psql -h 127.0.0.1 -U redmine -d "${TEST_DB_NAME}" -tAc \
         "SELECT 1 FROM pg_extension WHERE extname = '${ext}'" 2>/dev/null | grep -q '^1$'
 }
@@ -278,7 +296,7 @@ check "redmine-web logs have no sub-URI routing error" \
     logs_lack redmine-web 'No route matches'
 
 restart_count_zero() {
-    [ "$(podman inspect --format '{{.RestartCount}}' redmine-web 2>/dev/null)" = "0" ]
+    [ "$(cli inspect --format '{{.RestartCount}}' redmine-web 2>/dev/null)" = "0" ]
 }
 check "redmine-web did not restart/crash-loop" restart_count_zero
 
@@ -291,7 +309,7 @@ check "login page reachable via Apache (:${HOST_PORT})" \
 
 if [ "${WEB_SERVER}" = "puma" ]; then
     puma_direct_200() {
-        podman exec redmine-web curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:3000/redmine/login \
+        cli exec redmine-web curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:3000/redmine/login \
             | grep -q '^200$'
     }
     check "login page reachable directly on Puma :3000 (sub-URI mounted in config.ru)" \
@@ -300,13 +318,13 @@ else
     # Passenger モードでは Puma を起動しないので :3000 は listen していないこと、
     # そのぶん mod_passenger が実際に読み込まれていることを確認します。
     puma_absent() {
-        ! podman exec redmine-web curl -sS -o /dev/null --max-time 5 \
+        ! cli exec redmine-web curl -sS -o /dev/null --max-time 5 \
             http://127.0.0.1:3000/redmine/login 2>/dev/null
     }
     check "no Puma listening on :3000 (Passenger mode)" puma_absent
 
     passenger_module_loaded() {
-        podman exec redmine-web apache2ctl -M 2>/dev/null | grep -q 'passenger_module'
+        cli exec redmine-web apache2ctl -M 2>/dev/null | grep -q 'passenger_module'
     }
     check "mod_passenger is loaded in Apache" passenger_module_loaded
 
@@ -316,9 +334,9 @@ else
     # Debian 側が古い版へ戻った場合にここで気付けるよう、下限だけ確認します。
     passenger_version_supported() {
         local version
-        version="$(podman exec redmine-web \
+        version="$(cli exec redmine-web \
             dpkg-query -W -f='${Version}' libapache2-mod-passenger 2>/dev/null)" || return 1
-        podman exec redmine-web dpkg --compare-versions "${version}" ge 6.0.25
+        cli exec redmine-web dpkg --compare-versions "${version}" ge 6.0.25
     }
     check "mod_passenger is 6.0.25+ (Ruby 3.4 / 4.0 support)" \
         passenger_version_supported
@@ -336,8 +354,13 @@ else
         passenger_static_200
 fi
 
-check "podman healthcheck run redmine-web exits 0" \
-    podman healthcheck run redmine-web
+# docker には healthcheck の手動実行コマンドが無いため、イメージ内のスクリプトを
+# 直接叩きます（podman healthcheck run redmine-web と同じ判定です）。
+healthcheck_script_ok() {
+    cli exec redmine-web /usr/local/bin/redmine-healthcheck.sh >/dev/null
+}
+check "/usr/local/bin/redmine-healthcheck.sh in redmine-web exits 0" \
+    healthcheck_script_ok
 
 # ── Summary ──────────────────────────────────────────────────────────────────
 echo ""

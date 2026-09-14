@@ -24,7 +24,7 @@
 通しの自動検証は `bash scripts/test-upgrade.sh` です（段階 1〜3 を実データ入りで流し、
 各段の結果を検査します）。
 
-> **注意**: 本番 (Quadlet) 構成には MySQL 版のユニットはありません。移行元の再現は
+> **注意**: 本番 (Docker + systemd) 構成には MySQL 版の定義はありません。移行元の再現は
 > 開発 / リハーサル用の Compose のみで行います。移行完了後の本番構成はこれまでどおり
 > PostgreSQL 18 + PostGIS 3.6 です（`docs/Setup.md`）。
 

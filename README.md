@@ -1,8 +1,8 @@
 # RedmineDocker (redmine スタック)
 
-**RHEL 9.5 以上（本番）/ WSL AlmaLinux 9.5 以上・GitHub Codespaces（開発）上で rootless Podman を使う Redmine 6.1 のコンテナ基盤**
+**RHEL 9.5 以上（本番）/ WSL AlmaLinux 9.5 以上・GitHub Codespaces（開発）で Docker Compose を使う Redmine 7.0 のコンテナ基盤**
 
-このリポジトリでは、運用時は systemd Quadlet で管理する 2 コンテナ構成の Redmine 基盤を構築・展開・運用し、開発時は Docker Compose で動かします。設計は [redmine.jp の Docker ガイド](https://blog.redmine.jp/articles/6_1/redmine-6_1-docker/) を踏襲し、公式 Redmine イメージと Docker/Podman シークレットを用いた 2 層構成へ拡張したものです。
+このリポジトリでは、2 コンテナ構成の Redmine 基盤を構築・展開・運用します。開発も本番も同じ Docker Compose 定義 (`compose.dev.yaml`) を使い、本番はそこへ `compose.prod.yaml` を重ねて systemd ユニット (`systemd/redmine.service`) から起動します。設計は [redmine.jp の Docker ガイド](https://blog.redmine.jp/articles/6_1/redmine-6_1-docker/) を踏襲し、公式 Redmine イメージとファイルベースのシークレットを用いた 2 層構成へ拡張したものです。
 
 ---
 
@@ -31,9 +31,9 @@
 `redmine-web` だけがループバックに公開されます。ホスト側 Apache が 443 で TLS を終端し、`/redmine` をその先へ転送します。PostgreSQL (5432) と Puma (3000) はホストからは到達できません。
 
 - **アプリサーバー:** `.env` の `REDMINE_WEB_SERVER` で `passenger`（既定: Apache + mod_passenger が直接起動、:3000 なし）と `puma`（Apache → ProxyPass → Puma :3000）を切り替えられます。既定が `passenger` なのは既定シリーズの 7 系（`Containerfile.v7`）で、5 系 / 6 系のイメージ既定は `puma` です。イメージには両方が同梱されているため、値の変更とコンテナ再起動のみで反映されます（再ビルド不要）。詳細は [docs/Design.md](docs/Design.md) を参照してください。
-- **ネットワーク:** `redmine-net`（Podman Quadlet のネットワーク / Compose のブリッジ）。コンテナは名前で相互に解決します。
+- **ネットワーク:** `redmine-net`（Compose が作る bridge ネットワーク）。コンテナは名前で相互に解決します。
 - **公開 URL:** `http://localhost/redmine/`（サブ URI `/redmine`）。
-- **シークレット:** `db_password` と `secret_key_base` はファイルベースのシークレットです（開発では Docker シークレット、本番では Podman シークレット）。プレーンな環境変数ではなく、`scripts/generate-secrets.sh` で生成します。
+- **シークレット:** `db_password` と `secret_key_base` はファイルベースのシークレットです（開発・本番とも compose の file secret として `/run/secrets/` にマウント）。プレーンな環境変数ではなく、`scripts/generate-secrets.sh` で生成します。
 
 ---
 
@@ -96,19 +96,16 @@ RedmineDocker/
 │       ├── Containerfile.v6        #   Redmine 6.1.4 用
 │       ├── Containerfile.v7        #   Redmine 7.0.1 用（既定）
 │       └── Containerfile.v5-mysql  #   Redmine 5.1.1 + MySQL（移行元の再現専用）
-├── quadlets/                     # 本番用 Podman Quadlet ユニット
-│   ├── redmine.network
-│   ├── redmine-db.container
-│   ├── redmine-web.container       #   Redmine 7 系（既定）
-│   ├── v5/redmine-web.container    #   Redmine 5 系の差し替え用
-│   └── v6/redmine-web.container    #   Redmine 6 系の差し替え用
+├── systemd/                      # 本番用 systemd ユニット
+│   └── redmine.service             #   docker compose で 2 コンテナを起動/停止
 ├── host-apache/                  # ホスト Apache のリバースプロキシ (TLS)
 ├── scripts/                      # generate-secrets, backup, restore
 │   ├── migrate-mysql-to-postgres.sh  # MySQL → PostgreSQL 18 コンバート
 │   ├── test-upgrade.sh               # 5.1.1+MySQL → PG18 → 7.0.1 の通し検証
 │   └── pgloader/                     # pgloader コマンドファイル + シーケンス再設定 SQL
 ├── logrotate/                    # ログローテーション
-├── compose.dev.yaml              # 開発用 Docker Compose
+├── compose.dev.yaml              # Docker Compose 本体（開発・本番共通）
+├── compose.prod.yaml             # 本番オーバーレイ（bind mount + 127.0.0.1:80）
 ├── compose.legacy.yaml           # 移行元 (Redmine 5.1.1 + MySQL 8.0) 再現用
 ├── .devcontainer/                # GitHub Codespaces / VS Code dev container
 ├── .env.example                  # SMTP / TZ などのオプション設定テンプレート
@@ -136,29 +133,33 @@ docker compose -f compose.dev.yaml up --build -d  # 初回ビルドは重めで�
 
 `compose.dev.yaml` は名前付きボリュームを使うため、`docker compose down` してもデータは残ります。
 
-WSL は Podman 上で `docker` CLI をエミュレートして動作し、Codespaces は devcontainer の docker-in-docker（実 Docker Engine）で動作します。コマンドは共通ですが、実行環境の違いは `docs/Setup.md` を参照してください。
+WSL は Docker Engine を推奨（Podman 上で `docker` CLI をエミュレートする構成でも `compose.dev.yaml` は動きます）、Codespaces は devcontainer の docker-in-docker で動作します。コマンドは共通ですが、実行環境の違いは `docs/Setup.md` を参照してください。
 
 `.env.example` には、コンテナ名・ネットワーク名・SUBURI・公開ポート・イメージタグ・ベースイメージタグの既定値が含まれます。通常は `cp .env.example .env` で開始し、必要項目だけ変更してください。
 
 ---
 
-## クイックスタート (本番 / Podman + Quadlets)
+## クイックスタート (本番 / Docker Engine + systemd)
 
 本番環境は RHEL 9.5 以上を想定しています。実機がまだ用意できない場合は、開発環境 A と同じ WSL (AlmaLinux 9.5 以上) 上で以下と同じ手順をリハーサルできます（`docs/Setup.md` の「本番相当の動作確認 (WSL)」を参照）。
 
-1. RHEL 9.5 以上のホスト上の `/opt/redmine/containers` にこのリポジトリをクローンします。
-2. `.env` を作成して必要な値を編集します（最低限、SMTP/TZ の確認を推奨）。
+1. Docker Engine と Compose プラグイン (v2.24 以上) を導入します（RHEL は Docker 公式リポジトリから）。
+2. `/opt/redmine/containers` にこのリポジトリをクローンし、データルートを作成します。
+```
+sudo mkdir -p /opt/redmine/data/{postgres/18,redmine/files,redmine/log} /opt/redmine/backup/{db,files}
+sudo chown -R 999:999 /opt/redmine/data/redmine   # コンテナ内 redmine (uid:gid 999)
+```
+3. `.env` を作成して必要な値を編集し、シークレットを生成します（登録コマンドは不要 — compose の file secret としてそのまま使われます）。
 ```
 cp .env.example .env
+bash scripts/generate-secrets.sh
 ```
-3. `bash scripts/generate-secrets.sh` を実行し、シークレットを登録します。
+4. イメージをビルドし、systemd ユニットを導入して起動します。詳細は `docs/Setup.md` を参照してください。
 ```
-podman secret create db_password secrets/db_password.txt
-podman secret create secret_key_base secrets/secret_key_base.txt
+sudo docker compose -f compose.dev.yaml -f compose.prod.yaml build
+sudo cp systemd/redmine.service /etc/systemd/system/
+sudo systemctl daemon-reload && sudo systemctl enable --now redmine
 ```
-登録確認
-> podman secret ls
-4. イメージをビルドし Quadlet ユニットを導入します。詳細は `docs/Setup.md` を参照してください。
 
 ---
 

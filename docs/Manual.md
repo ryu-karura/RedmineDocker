@@ -1,12 +1,18 @@
 # 運用手順 — RedmineDocker (redmine スタック)
 
-本番環境の Podman デプロイにおける日常運用手順です。パスはリポジトリが `/opt/redmine/containers`、データが `/opt/redmine/data` にある前提です（`REDMINE_DATA_DIR` を `.env` で変更している場合はそのパスに読み替えてください）。次の「コマンド集」章のみ、開発環境 (`compose.dev.yaml`) のコマンドも併記しています。
+本番環境（Docker Engine + systemd）における日常運用手順です。パスはリポジトリが `/opt/redmine/containers`、データが `/opt/redmine/data` にある前提です（`REDMINE_DATA_ROOT` / `REDMINE_DATA_DIR` を `.env` で変更している場合はそのパスに読み替えてください）。次の「コマンド集」章のみ、開発環境 (`compose.dev.yaml` 単体) のコマンドも併記しています。
 
-コンテナ名・DB 名・ユーザー名・データルートなどの設定値の一覧と、`.env` に集約できるもの/できないもの（`quadlets/*.container` 自体は `.env` を読めません）は `docs/Design.md` の「設定項目 (Configuration)」章を参照してください。
+本番のコンテナは **`compose.dev.yaml` + `compose.prod.yaml` の 2 枚重ね**で定義し、起動・停止は systemd ユニット `redmine.service` が行います。本書では次のエイリアスを使っているものとして読んでください（`~/.bashrc` などに入れておくと便利です）。
+
+```bash
+alias dcp='sudo docker compose -f /opt/redmine/containers/compose.dev.yaml -f /opt/redmine/containers/compose.prod.yaml'
+```
+
+コンテナ名・DB 名・ユーザー名・データルートなどの設定値は、開発・本番とも `.env` 1 ファイルに集約されています。一覧は `docs/Design.md` の「設定パラメータ (.env)」章を参照してください。
 
 ---
 
-## コマンド集（Podman/Docker が初めての方へ）
+## コマンド集（Docker が初めての方へ）
 
 ### まず基礎知識: イメージ・コンテナ・ボリュームは別物
 
@@ -32,7 +38,7 @@ docker compose -f compose.dev.yaml down            # コンテナとネットワ
 
 ```bash
 docker compose -f compose.dev.yaml ps              # 起動状況とヘルスチェック結果
-podman ps                                          # 同じ内容を podman 単体で確認
+docker ps                                          # 同じ内容を docker 単体で確認
 docker compose -f compose.dev.yaml logs -f redmine-web       # ログをリアルタイム追跡（Ctrl+C で終了）
 docker compose -f compose.dev.yaml logs --tail 100 redmine-db  # 直近100行だけ表示
 ```
@@ -40,13 +46,13 @@ docker compose -f compose.dev.yaml logs --tail 100 redmine-db  # 直近100行だ
 #### イメージの削除
 
 ```bash
-podman images                                      # イメージ一覧（サイズ・作成日時を確認）
-podman rmi localhost/redmine-web:6.1.4             # 特定のイメージを削除（DB・添付ファイルには影響しません）
+docker images                                      # イメージ一覧（サイズ・作成日時を確認）
+docker rmi localhost/redmine-web:7.0.1             # 特定のイメージを削除（DB・添付ファイルには影響しません）
 docker compose -f compose.dev.yaml down --rmi all  # このスタックのイメージをまとめて削除（ボリュームは残る）
-podman image prune                                 # どのコンテナからも参照されていないイメージだけ安全に削除
+docker image prune                                 # どのコンテナからも参照されていないイメージだけ安全に削除
 ```
 
-`podman rmi` はそのイメージを使っているコンテナが実行中だと失敗します。先に `docker compose -f compose.dev.yaml down`（`-v` は付けない）でコンテナを止めてから実行してください。
+`docker rmi` はそのイメージを使っているコンテナが実行中だと失敗します。先に `docker compose -f compose.dev.yaml down`（`-v` は付けない）でコンテナを止めてから実行してください。
 
 #### ⚠️ 本当に DB・添付ファイルごと消したいとき（開発環境のリセット）
 
@@ -56,16 +62,16 @@ docker compose -f compose.dev.yaml down -v   # 名前付きボリューム (pgda
 
 `-v` を付けたときだけデータが消えます。動作確認用の使い捨て環境をまっさらに戻したいとき以外は付けないでください。
 
-### 本番環境 (systemd Quadlets)
+### 本番環境 (Docker Engine + systemd)
 
 起動・停止・確認・ログは「サービス制御」章、再ビルドは「更新」章を参照してください（どちらも `/opt/redmine/data` の bind mount とは別物を操作するだけなので、DB・添付ファイルは消えません）。
 
 #### イメージの削除
 
 ```bash
-podman images
-podman rmi localhost/redmine-web:6.1.4   # サービスを停止していないと失敗します（先に systemctl --user stop redmine-web）
-podman image prune                        # 未使用イメージだけ安全に削除
+sudo docker images
+sudo docker rmi localhost/redmine-web:7.0.1   # サービスを停止していないと失敗します（先に sudo systemctl stop redmine）
+sudo docker image prune                        # 未使用イメージだけ安全に削除
 ```
 
 #### ⚠️ 本当に DB・添付ファイルごと消したいとき
@@ -76,31 +82,39 @@ podman image prune                        # 未使用イメージだけ安全に
 
 ## サービス制御
 
-`redmine` ユーザーとして実行します（rootless のため `--user` を付けます）。
+スタック全体（redmine-db + redmine-web）は systemd ユニット 1 つで操作します。root 権限が必要です。
 
 ```bash
-systemctl --user start   redmine-db redmine-web
-systemctl --user stop    redmine-web redmine-db
-systemctl --user restart redmine-web
-systemctl --user status  redmine-web
-journalctl --user -u redmine-web -f     # アプリケーションログを追跡
-podman ps                                 # 実行中コンテナとヘルス状態を表示
+sudo systemctl start   redmine     # docker compose ... up -d --wait（healthy になるまで待つ）
+sudo systemctl stop    redmine     # docker compose ... down
+sudo systemctl restart redmine
+sudo systemctl reload  redmine     # .env やイメージの変更を反映（up -d --wait）
+systemctl status redmine
+journalctl -u redmine -f           # ユニット自身（compose コマンド）のログ
 ```
 
-依存関係 (`Requires=` / `After=`) により、スタックは下から上へ起動し、上から下へ停止します。
+起動・停止順序は compose の `depends_on: {redmine-db: {condition: service_healthy}}` が保証します（`redmine-db` → `redmine-web`、停止は逆順）。
+
+コンテナ単位の操作・ログは compose で行います（`dcp` は冒頭のエイリアス）。
+
+```bash
+dcp ps                       # 各コンテナの状態とヘルス
+dcp logs -f redmine-web      # アプリケーションログを追跡
+dcp restart redmine-web      # web だけ再起動（systemd ユニットはそのまま）
+```
 
 ---
 
 ## 日常確認（まず最初に見る項目）
 
-### Podman (本番 / Quadlet)
+### 本番 (Docker + systemd)
 
 ```bash
-systemctl --user status redmine-db redmine-web
-podman ps --format "table {{.Names}}\t{{.Status}}\t{{.Image}}"
-podman healthcheck run redmine-db
-podman healthcheck run redmine-web
-journalctl --user -u redmine-web -n 200 --no-pager
+systemctl status redmine
+dcp ps
+sudo docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Image}}"   # STATUS 列に (healthy) が出ます
+sudo docker exec redmine-web /usr/local/bin/redmine-healthcheck.sh      # ヘルスチェックを手動実行
+dcp logs --tail 200 redmine-web
 ```
 
 ### Docker Compose (開発)
@@ -115,16 +129,24 @@ docker compose -f compose.dev.yaml top
 
 ## イメージビルド手順
 
-### Podman (本番)
+### 本番 (Docker)
+
+```bash
+cd /opt/redmine/containers
+dcp build                      # compose の build 定義（.env のタグ/ベースイメージ）でビルド
+sudo docker images | grep -E 'redmine-(db|web)'
+```
+
+compose を介さずビルドする場合は次と同じです。
 
 ```bash
 cd /opt/redmine/containers
 set -a; source .env; set +a
-podman build -t "${REDMINE_DB_IMAGE}"  --build-arg DB_BASE_IMAGE="${REDMINE_DB_BASE_IMAGE}"   containers/redmine-db
-podman build -t "${REDMINE_WEB_IMAGE}" \
+sudo docker build -t "${REDMINE_DB_IMAGE}" \
+    --build-arg DB_BASE_IMAGE="${REDMINE_DB_BASE_IMAGE}" containers/redmine-db
+sudo docker build -t "${REDMINE_WEB_IMAGE}" \
     -f "containers/redmine-web/${REDMINE_WEB_CONTAINERFILE}" \
     --build-arg WEB_BASE_IMAGE="${REDMINE_WEB_BASE_IMAGE}" containers/redmine-web
-podman images | grep -E 'redmine-(db|web)'
 ```
 
 `REDMINE_WEB_CONTAINERFILE` は Redmine の系列に対応します
@@ -146,17 +168,16 @@ docker compose -f compose.dev.yaml up -d
 
 対象: Redmine 本体の軽微更新、プラグイン更新、Apache 設定変更、`.env` の SMTP/TZ 変更。
 
-手順 (Podman):
+手順 (本番: Docker + systemd):
 
 ```bash
 cd /opt/redmine/containers
 # 1) 必要なら .env/Containerfile を更新
-set -a; source .env; set +a
-podman build -t "${REDMINE_WEB_IMAGE}" --build-arg WEB_BASE_IMAGE="${REDMINE_WEB_BASE_IMAGE}" containers/redmine-web
-systemctl --user restart redmine-web
+dcp build redmine-web         # 変更を反映してビルド
+sudo systemctl reload redmine # up -d --wait で差分だけ作り直し、healthy を待つ
 ```
 
-手順 (Docker Compose):
+手順 (開発: Docker Compose):
 
 ```bash
 cd /workspaces/RedmineDocker
@@ -179,12 +200,10 @@ bash /opt/redmine/containers/scripts/backup.sh
 
 # 2) 新バージョンでイメージ再ビルド
 cd /opt/redmine/containers
-set -a; source .env; set +a
-podman build -t "${REDMINE_DB_IMAGE}"  --build-arg DB_BASE_IMAGE="${REDMINE_DB_BASE_IMAGE}"   containers/redmine-db
-podman build -t "${REDMINE_WEB_IMAGE}" --build-arg WEB_BASE_IMAGE="${REDMINE_WEB_BASE_IMAGE}" containers/redmine-web
+dcp build
 
 # 3) サービス再起動
-systemctl --user restart redmine-db redmine-web
+sudo systemctl restart redmine
 
 # 4) 必要なら restore（互換性問題が出た場合）
 # bash /opt/redmine/containers/scripts/restore.sh <db_dump> <files_archive>
@@ -224,15 +243,16 @@ docker compose -f compose.dev.yaml down -v
 docker compose -f compose.dev.yaml up -d --build
 ```
 
-Podman (本番相当) で全削除:
+本番で全削除:
 
 ```bash
-systemctl --user stop redmine-web redmine-db
+sudo systemctl stop redmine
 # 本番データ削除は非常に危険。必ず backup 実施後に行う。
-rm -rf /opt/redmine/data/postgres/18/*
-rm -rf /opt/redmine/data/redmine/files/*
-rm -rf /opt/redmine/data/redmine/log/*
-systemctl --user start redmine-db redmine-web
+sudo rm -rf /opt/redmine/data/postgres/18/*
+sudo rm -rf /opt/redmine/data/redmine/files/*
+sudo rm -rf /opt/redmine/data/redmine/log/*
+sudo chown -R 999:999 /opt/redmine/data/redmine   # 消した後も所有者を戻しておく
+sudo systemctl start redmine
 ```
 
 ### ケース D: SUBURI / ポート / コンテナ名変更
@@ -268,24 +288,23 @@ docker compose -f compose.dev.yaml up -d --force-recreate redmine-web
 docker compose -f compose.dev.yaml logs -f redmine-web
 ```
 
-本番 (Quadlet):
+本番 (Docker + systemd):
 
 ```bash
-# ~/.config/containers/systemd/redmine-web.container の
-#   Environment=REDMINE_WEB_SERVER=passenger   # 7 系ユニットの既定
-# を puma に書き換える（または /opt/redmine/containers/.env に記述する）
-systemctl --user daemon-reload
-systemctl --user restart redmine-web
+# /opt/redmine/containers/.env の REDMINE_WEB_SERVER を変更してから
+# （7 系イメージの既定は passenger。.env に書けば上書きできます）
+sudo systemctl reload redmine
+dcp logs -f redmine-web
 ```
 
 切り替え後の確認:
 
 ```bash
-podman exec redmine-web apache2ctl -M | grep passenger   # passenger のときだけ passenger_module が出る
-podman exec redmine-web passenger-status                 # passenger のときのみ成功（アプリのプロセス一覧）
-podman exec redmine-web curl -sf http://127.0.0.1:3000/redmine/login >/dev/null \
+sudo docker exec redmine-web apache2ctl -M | grep passenger   # passenger のときだけ passenger_module が出る
+sudo docker exec redmine-web passenger-status                 # passenger のときのみ成功（アプリのプロセス一覧）
+sudo docker exec redmine-web curl -sf http://127.0.0.1:3000/redmine/login >/dev/null \
   && echo "puma listening" || echo "no puma (passenger mode)"
-podman healthcheck run redmine-web                       # どちらのモードでも 0 で終了すること
+sudo docker exec redmine-web /usr/local/bin/redmine-healthcheck.sh   # どちらのモードでも 0 で終了すること
 ```
 
 ヘルスチェックはイメージ内の `/usr/local/bin/redmine-healthcheck.sh` が担当し、
@@ -297,7 +316,7 @@ podman healthcheck run redmine-web                       # どちらのモード
 稼働中のバージョンは次で確認できます。
 
 ```bash
-podman exec redmine-web dpkg-query -W -f='${Version}\n' libapache2-mod-passenger
+sudo docker exec redmine-web dpkg-query -W -f='${Version}\n' libapache2-mod-passenger
 ```
 
 7 系を本番へ出す前に
@@ -330,28 +349,28 @@ docker compose -f compose.dev.yaml up --build -d
 docker compose -f compose.dev.yaml logs -f redmine-web   # マイグレーションの進行を確認
 ```
 
-本番 (Quadlet):
+本番 (Docker + systemd):
 
 ```bash
 # 0) 事前バックアップ
-bash /opt/redmine/containers/scripts/backup.sh
+sudo bash /opt/redmine/containers/scripts/backup.sh
 
-# 1) .env を変更してイメージを再ビルド（「イメージビルド手順」参照）
+# 1) .env を 2 つセットで変更（REDMINE_VERSION / REDMINE_WEB_CONTAINERFILE）
+#    ユニット側の差し替えは不要です。系列の指定は .env だけで完結します。
 
-# 2) 系列に対応する web ユニットへ差し替え（db / network は共通）
-#    既定の 7 系は quadlets/redmine-web.container そのものです
-cp quadlets/v6/redmine-web.container ~/.config/containers/systemd/
-systemctl --user daemon-reload
-systemctl --user restart redmine-web
-systemctl --user status redmine-web
+# 2) 再ビルドして再作成
+cd /opt/redmine/containers
+dcp build
+sudo systemctl restart redmine
+systemctl status redmine
 ```
 
 切り替え後の確認:
 
 ```bash
-podman exec redmine-web cat /usr/src/redmine/lib/redmine/version.rb | head -8   # 本体バージョン
-podman exec redmine-web ls /usr/src/redmine/plugins                             # 同梱プラグイン
-podman healthcheck run redmine-web
+sudo docker exec redmine-web cat /usr/src/redmine/lib/redmine/version.rb | head -8   # 本体バージョン
+sudo docker exec redmine-web ls /usr/src/redmine/plugins                             # 同梱プラグイン
+sudo docker exec redmine-web /usr/local/bin/redmine-healthcheck.sh
 ```
 
 系列ごとの同梱プラグインの違い（5 系は `redmine_login_audit2` と `redmine_solid_queue` が
@@ -369,15 +388,14 @@ podman healthcheck run redmine-web
 
 ```bash
 cd /opt/redmine/containers
-set -a; source .env; set +a
-podman build -t "${REDMINE_WEB_IMAGE}" --build-arg WEB_BASE_IMAGE="${REDMINE_WEB_BASE_IMAGE}" containers/redmine-web
-systemctl --user restart redmine-web     # entrypoint でマイグレーションを再実行
+dcp build redmine-web
+sudo systemctl reload redmine     # entrypoint でマイグレーションを再実行
 ```
 
 マイグレーションを実行せずに起動したい場合（アップグレード前の DB 確認など）は、
 公式イメージと同じく `REDMINE_NO_DB_MIGRATE` に値を設定します
-（`quadlets/redmine-web.container` のコメント行を参照）。値を空にする / 未設定に戻すと
-再びコアの `db:migrate` を実行します。
+（`.env` に `REDMINE_NO_DB_MIGRATE=1` と書き、`sudo systemctl reload redmine`）。
+値を空にする / 行を消すと再びコアの `db:migrate` を実行します。
 
 ### Apache フロントエンド
 `redmine-web` イメージに Apache の設定を入れたため、個別の `redmine-static` イメージは不要です。変更後は Redmine イメージを再ビルドして再起動します。設定は
@@ -392,13 +410,13 @@ systemctl --user restart redmine-web     # entrypoint でマイグレーショ�
 
 `scripts/backup.sh` は `redmine` データベースのダンプ（pg_dump のカスタム形式）を作成し、`/opt/redmine/data/redmine/files` をアーカイブして `/opt/redmine/backup/` 配下に 7 世代保存します。DB パスワードは `secrets/db_password.txt` から読み取ります。DB 名・ユーザー名・コンテナ名・データルートは `/opt/redmine/containers/.env` があればそこから読み込みます（既定値は上記の通り。`docs/Design.md` 参照）。
 
-`redmine` ユーザーとして実行します（rootless Podman のため `sudo` 不要）。
+docker デーモンを操作するため、root（または docker グループのユーザー）で実行します。
 
 ```bash
-bash /opt/redmine/containers/scripts/backup.sh
+sudo bash /opt/redmine/containers/scripts/backup.sh
 ```
 
-`redmine` ユーザーの crontab で毎日 02:00 に実行するように設定できます（`crontab -e` を実行）。
+root の crontab で毎日 02:00 に実行するように設定できます（`sudo crontab -e` を実行）。
 
 ```cron
 0 2 * * * /opt/redmine/containers/scripts/backup.sh >> /opt/redmine/backup/backup.log 2>&1
@@ -411,12 +429,12 @@ bash /opt/redmine/containers/scripts/backup.sh
 `scripts/restore.sh` は `redmine` データベースを削除して再作成し、ダンプを復元してファイルアーカイブを展開します。**現在のデータは破壊されます**。`RESTORE` 確認プロンプトが表示されます。
 
 ```bash
-bash /opt/redmine/containers/scripts/restore.sh \
+sudo bash /opt/redmine/containers/scripts/restore.sh \
   /opt/redmine/backup/db/redmine_YYYYMMDD_HHMMSS.dump \
   /opt/redmine/backup/files/redmine_YYYYMMDD_HHMMSS.tar.gz
 ```
 
-このスクリプトは `redmine-web` を停止し、DB（PostGIS 拡張込み）を再作成して `pg_restore` を実行し、ファイルを復元してサービスを再起動します。
+このスクリプトは `redmine-web` コンテナだけを停止し（`redmine-db` は DB 操作のため起動したまま、systemd ユニットも触りません）、DB（PostGIS 拡張込み）を再作成して `pg_restore` を実行し、ファイルを復元して `redmine-web` を再起動します。展開した添付ファイルの所有者は root 実行時に自動で `999:999`（コンテナ内 redmine）へ揃えます。
 
 ---
 
@@ -425,8 +443,9 @@ bash /opt/redmine/containers/scripts/restore.sh \
 | ログ | 配置先 |
 |------|--------|
 | Redmine アプリケーション | `/opt/redmine/data/redmine/log/production.log` |
-| Redmine / Puma の標準出力 | `journalctl --user -u redmine-web` |
-| Apache フロントエンド（コンテナ） | `journalctl --user -u redmine-web` |
+| Redmine / Passenger・Puma の標準出力 | `dcp logs redmine-web`（= `docker logs redmine-web`） |
+| Apache フロントエンド（コンテナ） | `dcp logs redmine-web` |
+| systemd ユニット（compose コマンド自体） | `journalctl -u redmine` |
 | ホスト Apache（TLS フロント） | `/var/log/httpd/redmine_{access,error}.log` |
 
 ログローテーションは `logrotate/redmine` で設定されています（`/etc/logrotate.d/redmine-web` に配置）。日次、60 世代、コンテナ内のアプリケーションログには `copytruncate` を使います。
@@ -440,8 +459,8 @@ sudo logrotate --debug /etc/logrotate.d/redmine-web     # ドライラン
 ## ヘルスチェックと診断
 
 ```bash
-podman healthcheck run redmine-web
-podman exec -e PGPASSWORD="$(cat /opt/redmine/containers/secrets/db_password.txt)" \
+sudo docker exec redmine-web /usr/local/bin/redmine-healthcheck.sh
+sudo docker exec -e PGPASSWORD="$(sudo cat /opt/redmine/containers/secrets/db_password.txt)" \
 	redmine-db psql -U redmine -d redmine -c '\\dx'   # 拡張機能を表示（postgis を期待）
 curl -sf http://127.0.0.1:80/redmine/login >/dev/null && echo OK
 ```
@@ -449,7 +468,7 @@ curl -sf http://127.0.0.1:80/redmine/login >/dev/null && echo OK
 メンテナンス用の Rails コンソール:
 
 ```bash
-podman exec -it redmine-web bundle exec rails console -e production
+sudo docker exec -it redmine-web bundle exec rails console -e production
 ```
 
 ### Passenger モード特有のトラブルシューティング
@@ -457,7 +476,7 @@ podman exec -it redmine-web bundle exec rails console -e production
 | 症状 | 原因と対処 |
 |------|------------|
 | どの URL も 404（ログに `No route matches [GET] "/login"`） | `config.ru` が Passenger 配下でも `map` してしまっています。`mod_passenger` は `PassengerBaseURI` で `PATH_INFO` からプレフィックスを除去済みのため、`map` を挟むとマッチしません。`containers/redmine-web/config.ru` の `defined?(PhusionPassenger)` 分岐が消えていないか確認してください。 |
-| 添付ファイルのアップロードやログ出力が権限エラーになる | Passenger がアプリを `nobody` で起動しています。`config.ru` の所有者が `redmine` であること（`podman exec redmine-web ls -l /usr/src/redmine/config.ru`）と、`redmine-passenger.conf` に `PassengerUser redmine` があることを確認してください。 |
+| 添付ファイルのアップロードやログ出力が権限エラーになる | Passenger がアプリを `nobody` で起動しています。`config.ru` の所有者が `redmine` であること（`sudo docker exec redmine-web ls -l /usr/src/redmine/config.ru`）と、`redmine-passenger.conf` に `PassengerUser redmine` があることを確認してください。 |
 | gem が見つからない / bundler エラーで起動しない | `PassengerRuby` が Debian のシステム Ruby (`/usr/bin/ruby`) を向いています。`redmine-passenger.conf` の `PassengerRuby /usr/local/bin/ruby` を確認してください。 |
 | CSS/JS/テーマだけ 404 になる | Apache が `public/` を配信できていません。`redmine-passenger.conf` の `Alias` と `<Directory>` の `Require all granted` を確認してください。 |
 | コンテナが起動直後に終了し、ログの最後が `/etc/apache2/envvars: line 7: APACHE_CONFDIR: unbound variable` | `entrypoint.sh` が `set -u` のまま `/etc/apache2/envvars` を `source` しています。`envvars` は `apache2ctl` が設定する `APACHE_CONFDIR` を未設定のまま参照するため、`source` の前後で `set +u` / `set -u` する実装（`docs/Design.md`「アプリサーバーの切り替え」参照）に戻っているか確認してください。 |
@@ -468,6 +487,6 @@ podman exec -it redmine-web bundle exec rails console -e production
 現在有効な Apache 設定は次で確認できます:
 
 ```bash
-podman exec redmine-web ls -l /etc/apache2/conf-enabled/
-podman exec redmine-web apache2ctl -S      # VirtualHost の解決結果
+sudo docker exec redmine-web ls -l /etc/apache2/conf-enabled/
+sudo docker exec redmine-web apache2ctl -S      # VirtualHost の解決結果
 ```

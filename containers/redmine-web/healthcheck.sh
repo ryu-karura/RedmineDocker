@@ -6,12 +6,12 @@
 #
 # usage: /usr/local/bin/redmine-healthcheck.sh
 #
-# compose.dev.yaml の healthcheck.test と quadlets/redmine-web.container の
-# HealthCmd= から呼ばれます。判定ロジックをイメージ内のこのスクリプトへ寄せて
-# いる理由は 2 つあります:
-#   - Podman Quadlet の HealthCmd= は変数展開されないため、サブ URI や
-#     REDMINE_WEB_SERVER をユニット側で解決できない
-#   - 同じシェル 1 行を compose と quadlet に二重にベタ書きすると
+# compose.dev.yaml の healthcheck.test から呼ばれます（本番も同じ compose 定義を
+# 使うため、開発・本番で同一のヘルスチェックです）。判定ロジックをイメージ内の
+# このスクリプトへ寄せている理由は 2 つあります:
+#   - サブ URI (RAILS_RELATIVE_URL_ROOT) と REDMINE_WEB_SERVER に応じて検証内容が
+#     変わるため、コンテナの環境変数から解決できる場所に置きたい
+#   - 同じシェル 1 行を複数の compose ファイルへ二重にベタ書きすると
 #     dev/prod の lockstep が崩れる
 #
 # 検証内容（REDMINE_WEB_SERVER で変わります）:

@@ -10,7 +10,7 @@ RedmineDocker (the **redmine stack**) is container infrastructure for running
 source code here** — Redmine, its Ruby/Puma runtime, and its gems come from the
 official `redmine:7.0.1` image. This repo is the *packaging and operations*
 layer around it: Containerfiles, rendered config templates, an entrypoint,
-systemd Quadlet units, host Apache config, and operational shell scripts.
+a systemd unit, host Apache config, and operational shell scripts.
 
 The design follows the [redmine.jp 6.1 Docker guide](https://blog.redmine.jp/articles/6_1/redmine-6_1-docker/),
 extended into a **two-tier** stack with file-based secrets.
@@ -18,14 +18,17 @@ extended into a **two-tier** stack with file-based secrets.
 Three paths share the **same two images** and only differ in orchestration +
 data placement:
 - **Development A — WSL (AlmaLinux 9.5+)** — Docker Compose
-  (`compose.dev.yaml`), named volumes, Podman emulating `docker`.
+  (`compose.dev.yaml`), named volumes; Docker Engine preferred, Podman
+  emulating `docker` still works for the dev file.
 - **Development B — GitHub Codespaces** — Docker Compose
   (`compose.dev.yaml`), named volumes, real Docker Engine via the devcontainer's
   docker-in-docker feature.
-- **Production — RHEL 9.5+** — rootless Podman + systemd Quadlets
-  (`quadlets/`), host bind mounts under `/opt/redmine`.
+- **Production — RHEL 9.5+** — the same `compose.dev.yaml` plus the
+  `compose.prod.yaml` overlay, started by the systemd unit
+  `systemd/redmine.service` (root Docker Engine), host bind mounts under
+  `/opt/redmine`.
 
-When no RHEL host is available, the production (Quadlets) path can be
+When no RHEL host is available, the production (Docker + systemd) path can be
 rehearsed on the same WSL (AlmaLinux 9.5+) box used for Development A — see
 `docs/Setup.md`, "本番相当の動作確認 (WSL)". It's the identical procedure, not
 a fourth variant; the only WSL-specific requirement is `systemd=true` in
@@ -70,11 +73,12 @@ RedmineDocker/
 │   ├── redmine-db/                # Containerfile + init-redmine.sh (PostGIS ext)
 │   ├── redmine-db-mysql/          # MySQL 8.0 CE — migration-source rehearsal only
 │   └── redmine-web/           # Containerfile.v5/.v6/.v7/.v5-mysql, entrypoint.sh, healthcheck.sh, *.tmpl (db/config/httpd)
-├── quadlets/                    # production Podman Quadlet units (*.container, *.network; v5/ and v7/ hold series-specific web units)
+├── systemd/                     # production systemd unit (redmine.service — drives docker compose)
 ├── host-apache/                 # host-side TLS reverse proxy vhost
 ├── scripts/                     # generate-secrets, backup, restore, migrate-mysql-to-postgres, test-*, pgloader/
 ├── logrotate/                   # /etc/logrotate.d config
-├── compose.dev.yaml             # development orchestration
+├── compose.dev.yaml             # Docker Compose definition (dev AND prod base)
+├── compose.prod.yaml            # production overlay: bind mounts + 127.0.0.1:80
 ├── compose.legacy.yaml          # migration-source stack (Redmine 5.1.1 + MySQL 8.0)
 ├── compose.legacy-on-postgres.yaml # override: run the migration-source version/plugins permanently on PostgreSQL
 ├── .devcontainer/               # Codespaces / VS Code dev container
@@ -117,16 +121,15 @@ A fourth Containerfile, `Containerfile.v5-mysql` (Redmine 5.1.1 + MySQL 8.0 CE,
 more pinned to match a real legacy production plugin set), exists **only to
 rehearse the upgrade** from a legacy MySQL install
 — see "Upgrade rehearsal path" below and `docs/Upgrade.md`. It is not part of
-the normal dev/prod stack and has no Quadlet unit.
+the normal dev/prod stack and is never started by the production unit.
 
 `entrypoint.sh`, `healthcheck.sh`, `config.ru`, the `*.tmpl` files and
 `redmine-db` are shared by all three — keep it that way; series differences
 belong in the Containerfiles only. Selection is `.env`'s
 `REDMINE_WEB_CONTAINERFILE` + `REDMINE_VERSION` (always change both), compose
 reads it as `dockerfile: ${REDMINE_WEB_CONTAINERFILE:-Containerfile.v7}`,
-production ships the 7-series unit as `quadlets/redmine-web.container` itself
-with `quadlets/v5/` and `quadlets/v6/` as drop-in replacements for the web unit
-only, and
+production uses the same two `.env` variables (the systemd unit runs compose
+from `/opt/redmine/containers`, so `.env` applies there too), and
 `scripts/test-stack.sh --series 5|6|7` (default 7) sets the whole triple.
 **Switching the default is one-way for a live database** — a 6-series stack
 that boots the 7 image migrates 6.1 -> 7.0 on startup and cannot go back
@@ -208,56 +211,72 @@ docker compose -f compose.dev.yaml -f compose.codespaces.yaml logs -f redmine-we
 - `docker compose ... down` keeps data (named volumes `pgdata`, `redmine_files`);
   `down -v` destroys it.
 - **Development A (WSL)**: requires `systemd=true` in `/etc/wsl.conf` (needed
-  later if this box is also used to rehearse Production, below) and rootless
-  Podman; `docker`/`docker compose` are an alias emulating Podman.
+  later if this box is also used to rehearse Production, below). Docker Engine
+  is preferred; a rootless-Podman box where `docker`/`docker compose` are
+  aliases still runs `compose.dev.yaml`, but **not** `compose.prod.yaml`
+  (podman-compose does not understand its `!override`/`!reset` tags).
 - **Development B (Codespaces)**: the dev container (`.devcontainer/`)
   provisions real docker-in-docker and installs `shellcheck`; `compose.codespaces.yaml`
   overrides the web publish to host port **80** (all interfaces) for forwarding/public access.
 
-## Production workflow (rootless Podman + Quadlets)
+## Production workflow (Docker Engine + systemd)
 
-Runs **rootless** as the unprivileged `redmine` user; all Podman state, secrets,
-and Quadlet units are per-user (`systemctl --user`). Only the host Apache is a
-system service. Full steps are in `docs/Setup.md`; the shape:
+Runs on the **root** Docker daemon, started by one system unit
+(`systemd/redmine.service`) that drives `docker compose`. The host Apache is
+the only other system service. Full steps are in `docs/Setup.md`; the shape:
 
-1. `sudo` once: create `/opt/redmine` owned by `redmine`, `loginctl enable-linger redmine`.
-2. Clone repo to `/opt/redmine/containers`; create `/opt/redmine/data/{postgres/18,redmine/{files,log}}` and `/opt/redmine/backup/{db,files}`.
-3. `bash scripts/generate-secrets.sh` then `podman secret create db_password …` / `secret_key_base …`.
-4. `podman build` the two images (`redmine-db` and `redmine-web`).
-5. Copy `quadlets/*` to `~/.config/containers/systemd/`, `systemctl --user daemon-reload`, start.
+1. Install Docker Engine + Compose plugin (**v2.24+**, required by
+   `compose.prod.yaml`'s `!override`/`!reset` tags) from Docker's RHEL repo;
+   remove `podman-docker` if it owns `/usr/bin/docker`.
+2. Clone repo to `/opt/redmine/containers`; create
+   `/opt/redmine/data/{postgres/18,redmine/{files,log}}` and
+   `/opt/redmine/backup/{db,files}`; `chown -R 999:999
+   /opt/redmine/data/redmine` (docker bind mounts do not remap UIDs, and 999 is
+   `redmine` in the official image — the Postgres dir is chowned by its own
+   entrypoint).
+3. `cp .env.example .env`, `bash scripts/generate-secrets.sh` — no secret
+   registration step: compose mounts `secrets/*.txt` as file secrets.
+4. `docker compose -f compose.dev.yaml -f compose.prod.yaml build`.
+5. `cp systemd/redmine.service /etc/systemd/system/`, `systemctl daemon-reload`,
+   `systemctl enable --now redmine`.
 
-Start/stop order is enforced by `Requires=`/`After=` in the units:
-`redmine-db → redmine-web` up, reverse down.
+`ExecStart` is `docker compose -f compose.dev.yaml -f compose.prod.yaml up -d
+--wait`, so `systemctl start` returns only once both containers are healthy;
+`ExecStop` is the matching `down`. Start/stop order comes from compose's
+`depends_on: {redmine-db: {condition: service_healthy}}`, which is why one unit
+covers the whole stack. Container-level work (`ps`, `logs`, restarting just
+`redmine-web`) goes through `docker compose -f compose.dev.yaml -f
+compose.prod.yaml …`, not systemd.
 
 ## Key conventions — follow these
 
 - **Secrets are files, never plain env vars, never committed.** Two secrets:
   `db_password` and `secret_key_base`, produced by
   `scripts/generate-secrets.sh` under `secrets/` (mode 600, git-ignored). They
-  reach containers via Docker/Podman secrets mounted at `/run/secrets/<name>`.
+  reach containers via Compose **file secrets** mounted at `/run/secrets/<name>`
+  — in production too, so there is no `podman secret create`-style registration
+  step any more.
   Code reads them through **`*_FILE` indirection** (e.g.
   `REDMINE_DB_PASSWORD_FILE`); `entrypoint.sh::resolve_secret` reads the file if
   `${VAR}_FILE` is set, else falls back to `${VAR}`. Never introduce a plaintext
-  password into a Containerfile, compose file, quadlet, or committed `.env`.
+  password into a Containerfile, compose file, systemd unit, or committed `.env`.
   `.env` holds only NON-secret overrides — see `.env.example`.
-- **`.env` is the single reference for non-secret config** (container/network
-  naming, `REDMINE_DB_NAME`/`REDMINE_DB_USER`, `REDMINE_SUBURI`
-  (`RAILS_RELATIVE_URL_ROOT`), `REDMINE_WEB_HOST_PORT`,
-  `REDMINE_DATA_DIR`, `TZ`, SMTP) — full table and rationale in `docs/Design.md`,
-  "設定パラメータ (.env)". Three different things read it: `compose.dev.yaml`
-  (Compose's built-in `.env` autoload, used by every `${VAR:-default}` in that
-  file), `quadlets/redmine-web.container`'s `EnvironmentFile=` (container
-  process env only — `SMTP_*`/`TZ`), and `scripts/backup.sh`/`restore.sh`
-  (plain bash, `source` it directly). **Podman Quadlet `*.container` units have
-  no envsubst/variable-substitution pass over their own directives** — only
-  `Environment=`/`EnvironmentFile=` reach the container's process env, never
-  `Image=`/`ContainerName=`/`Volume=`/`PublishPort=`/`Network=`/`Timezone=`/
-  `HealthCmd=`. So in production, container/network names, DB name/user, the
-  sub-URI, and data paths stay hardcoded in `quadlets/*.container` (and, for
-  the sub-URI, in `host-apache/redmine-proxy.conf`) — change those files
-  directly, in lockstep, if you ever need to. Don't try to make Quadlet units
-  read `.env` for these; that requires a template-render step that doesn't
-  exist yet and is a bigger change than a config tweak.
+- **`.env` is the single reference for non-secret config — in production too**
+  (container/network naming, `REDMINE_DB_NAME`/`REDMINE_DB_USER`,
+  `REDMINE_SUBURI` (`RAILS_RELATIVE_URL_ROOT`), ports, `REDMINE_DATA_ROOT`/
+  `REDMINE_DATA_DIR`, `TZ`, SMTP) — full table and rationale in
+  `docs/Design.md`, "設定パラメータ (.env)". Two things read it:
+  `compose.dev.yaml`/`compose.prod.yaml` (Compose's built-in `.env` autoload,
+  used by every `${VAR:-default}` in those files — the systemd unit's
+  `WorkingDirectory=/opt/redmine/containers` is what makes this work in
+  production) and `scripts/backup.sh`/`restore.sh` (plain bash, `source` it
+  directly). The old Quadlet-era caveat (unit directives could not read `.env`,
+  so names/ports/paths were hardcoded) is gone. Two things still need manual
+  lockstep: `host-apache/redmine-proxy.conf`'s `ProxyPass` when `REDMINE_SUBURI`
+  changes, and the **separate** publish variables — `REDMINE_WEB_HOST_PORT`
+  (dev, 8080) vs `REDMINE_PROD_HOST_PORT` (prod, 80). They are deliberately
+  different names so that a `.env` copied from `.env.example` cannot silently
+  publish production on 8080 and break the host Apache proxy.
 - **The Apache sub-URI config is templated, like `database.yml`.** There are two
   templates in `containers/redmine-web/`, one per app-server mode, and
   `entrypoint.sh` renders exactly one of them via `envsubst` on every container
@@ -274,9 +293,9 @@ Start/stop order is enforced by `Requires=`/`After=` in the units:
 - **`REDMINE_WEB_SERVER` picks the app server at *runtime*: `passenger` or
   `puma`.** Each Containerfile's `ENV REDMINE_WEB_SERVER` sets the series
   default — **v7 (the default series) defaults to `passenger`**, v5/v6 to
-  `puma` — and `compose.dev.yaml`, `.env.example` and
-  `quadlets/redmine-web.container` (the v7 unit) default to `passenger` to
-  match; `quadlets/v5`/`v6` stay on `puma`. Note `compose.dev.yaml` always
+  `puma` — and `compose.dev.yaml` and `.env.example` default to `passenger` to
+  match (production reads the same files, so there is one place to change).
+  Note `compose.dev.yaml` always
   passes the variable, so a dev stack switched to series 5/6 needs
   `REDMINE_WEB_SERVER=puma` in `.env` to follow that series' own default.
   The image bakes in *both* — the official image's Puma plus
@@ -284,9 +303,8 @@ Start/stop order is enforced by `Requires=`/`After=` in the units:
   series — Ruby 3.4 support landed in 6.0.25 and the same package serves v7's
   Ruby 4.0, see the series section. No third-party APT repo, and no extra apt
   suite, is involved). Switching is an env change plus a container
-  restart, never a rebuild — that is deliberate, because Quadlet units can pass
-  `Environment=` but cannot template `Image=`, so a build-arg switch would be
-  unusable in production. The Containerfile `a2dismod -f passenger`s at build
+  restart, never a rebuild — that keeps it a `.env` edit plus
+  `systemctl reload redmine` in production, instead of a rebuild+redeploy. The Containerfile `a2dismod -f passenger`s at build
   time (the Debian postinst enables it) and `entrypoint.sh` does the
   `a2enmod`/`a2dismod` per mode. In `passenger` mode there is no Puma and no
   `:3000`; the entrypoint `source`s `/etc/apache2/envvars` and
@@ -318,13 +336,14 @@ Start/stop order is enforced by `Requires=`/`After=` in the units:
   3.4), not Debian's `/usr/bin/ruby`, which has none of Redmine's gems.
 - **The container healthcheck lives in the image
   (`containers/redmine-web/healthcheck.sh` → `/usr/local/bin/redmine-healthcheck.sh`),
-  not inline in compose/quadlet.** Quadlet's `HealthCmd=` gets no variable
-  substitution, so an inline command cannot honour `REDMINE_SUBURI` or
-  `REDMINE_WEB_SERVER` — and duplicating the same shell one-liner in
-  `compose.dev.yaml` and `quadlets/redmine-web.container` broke lockstep. Both
-  now just invoke the script; it curls Apache always, and Puma directly only in
-  `puma` mode (that direct curl is the regression test for the `config.ru`
-  sub-URI mount, so keep it).
+  not inline in compose.** What it must verify depends on `REDMINE_SUBURI` and
+  `REDMINE_WEB_SERVER`, which the script resolves from the container's own env;
+  an inline one-liner would have to be duplicated (and kept in sync) wherever
+  the healthcheck is declared. `compose.dev.yaml` just invokes the script; it
+  curls Apache always, and Puma directly only in `puma` mode (that direct curl
+  is the regression test for the `config.ru` sub-URI mount, so keep it). Docker
+  has no `podman healthcheck run` equivalent, so run it by hand with
+  `docker exec redmine-web /usr/local/bin/redmine-healthcheck.sh`.
 - **`REDMINE_DB_ADAPTER` picks the DB template at runtime; the default (`postgis`)
   is the only one `Containerfile.v5`/`.v6`/`.v7` ever use.** `entrypoint.sh` renders
   `config/database.${REDMINE_DB_ADAPTER}.yml.tmpl` when that file exists in the
@@ -391,20 +410,22 @@ Start/stop order is enforced by `Requires=`/`After=` in the units:
   `map` is skipped — see the Passenger note above.)
 - **The Apache frontend is built into `redmine-web`**. The separate
   `redmine-static` image is no longer part of the stack.
-- **Keep dev and prod in lockstep.** `compose.dev.yaml` and the `quadlets/`
-  units deliberately use the same images, env vars, secrets, and healthchecks.
-  A change to one tier's runtime contract should be mirrored in the other.
-  `compose.dev.yaml`'s `${VAR:-default}` values must keep matching whatever's
-  hardcoded in `quadlets/*.container` — the `.env.example` defaults are the
-  same literals as the quadlets, so lockstep holds as long as nobody edits an
-  `.env` (dev-only customization is fine; it just no longer mirrors prod).
-  The one deliberate divergence: `compose.dev.yaml` publishes `redmine-web` on
-  host port **8080** (not 80), because rootless Podman/Docker cannot bind a
-  loopback listener to a privileged port (<1024) without host prep
-  (`CAP_NET_BIND_SERVICE` or `net.ipv4.ip_unprivileged_port_start`), and the
-  dev compose file is meant to run with **no host prep**. Production's Quadlet
-  unit keeps host port 80 and expects that prep to be done once during setup
-  (see `docs/Setup.md`). In Codespaces, use `compose.codespaces.yaml` as an
+- **Dev and prod are the same file.** `compose.dev.yaml` is the single
+  definition of images, env vars, secrets and healthchecks; production layers
+  `compose.prod.yaml` on top of it and changes exactly two things — data
+  location (named volumes → `/opt/redmine/data` bind mounts) and the published
+  port. So a runtime-contract change belongs in `compose.dev.yaml` and reaches
+  both tiers automatically; only put something in `compose.prod.yaml` if it is
+  genuinely about host placement. Two merge rules matter there and are easy to
+  get wrong: Compose merges `volumes` **by target path** (an override with the
+  same target replaces it) but **concatenates** `ports`, which is why the
+  overlay tags `ports:` with `!override` (and `!reset`s the now-unused
+  top-level named volumes). Those tags need Compose **v2.24+** and are not
+  understood by podman-compose — the prod overlay is Docker-only by design.
+  The port split itself is deliberate: dev publishes **8080** because rootless
+  Podman/Docker cannot bind a privileged port without host prep, and the dev
+  file must run with **no host prep**; prod publishes **80** on the root
+  daemon, matching `host-apache/redmine-proxy.conf`. In Codespaces, use `compose.codespaces.yaml` as an
   additional override when you need forwarded/public host port 80.
 - **PostgreSQL 18+ images changed their data-directory layout.** They expect a
   single volume mounted at `/var/lib/postgresql` (the image manages a
@@ -413,8 +434,8 @@ Start/stop order is enforced by `Requires=`/`After=` in the units:
   `/var/lib/postgresql/data`. Mounting at `.../data` makes the entrypoint
   refuse to start (`in 18+, these Docker images are configured to store
   database data in a format which is compatible with "pg_ctlcluster"...`).
-  Both `compose.dev.yaml` and `quadlets/redmine-db.container` mount the
-  volume at `/var/lib/postgresql` and leave `PGDATA` at the image default —
+  Both `compose.dev.yaml` (named volume) and `compose.prod.yaml` (bind mount)
+  mount at `/var/lib/postgresql` and leave `PGDATA` at the image default —
   don't reintroduce a `.../data` mount or an explicit `PGDATA` override.
 - **`redmine-db`'s local (Unix-socket) Postgres auth must stay password-based
   (`scram-sha-256`), never `peer`.** The upstream `postgres`/`postgis` image
@@ -450,8 +471,8 @@ Start/stop order is enforced by `Requires=`/`After=` in the units:
   re-verified on the 7.0.1 base image, Ruby 4.0.6, in 2026-09).
   `RUBY_YJIT_ENABLE` is a Ruby-native env var — no entrypoint.sh or Containerfile change is
   needed, it just has to reach the Puma process env. Set to `1` by default in both
-  `compose.dev.yaml` and `quadlets/redmine-web.container` (override via `.env`'s
-  `RUBY_YJIT_ENABLE`); a container restart picks it up, no rebuild required.
+  `compose.dev.yaml` (override via `.env`'s `RUBY_YJIT_ENABLE`); a container
+  restart picks it up, no rebuild required.
 - **Plugins/themes are pinned by git tag/branch at build time.** When adding or
   bumping one, edit the affected `containers/redmine-web/Containerfile.v*`
   (each series pins its own versions — check whether the change applies to all
@@ -509,17 +530,22 @@ to duplicate.
 - Structured logging via `log()`/`die()` helpers with timestamps; user-facing
   destructive actions require an explicit typed confirmation (see `restore.sh`
   requiring the literal `RESTORE`).
-- Operational scripts (`backup.sh`, `restore.sh`) run **rootless as `redmine`**
-  and drive Podman directly — no `sudo`. Backups keep 7 generations; restore is
-  destructive and recreates the DB with PostGIS extensions.
+- Operational scripts (`backup.sh`, `restore.sh`) drive the container CLI
+  directly through a `cli()` helper: `CONTAINER_CLI` if set, else docker, else
+  podman. On the production host that means running them as **root** (the
+  docker daemon is root-owned), so the cron example lives in root's crontab.
+  Backups keep 7 generations; restore is destructive, recreates the DB with
+  PostGIS extensions, stops/starts only the `redmine-web` **container** (never
+  the systemd unit, so the stack stays "active"), and re-`chown`s restored
+  attachments to 999:999 when run as root.
 
 ## Documentation & language conventions
 
 - **File-header comments and this CLAUDE.md are in English.**
 - **User-facing docs are in Japanese**: `README.md`, everything in `docs/`
-  (`Design.md`, `Setup.md`, `Manual.md`, `Upgrade.md`), and the comment blocks inside the
-  `quadlets/*.container` units. When editing those, keep them in Japanese and
-  consistent with the existing tone.
+  (`Design.md`, `Setup.md`, `Manual.md`, `Upgrade.md`), and the comment blocks inside
+  `compose.dev.yaml` / `compose.prod.yaml` / `systemd/redmine.service`. When editing
+  those, keep them in Japanese and consistent with the existing tone.
 - **`.github/copilot-instructions.md` is a pointer, not a second source of
   truth.** It exists only so GitHub Copilot picks up repo instructions; it
   must keep referring here rather than restating guidance. If AI-assistant
@@ -602,9 +628,18 @@ docker compose -f compose.dev.yaml up --build -d           # full build + boot
 curl -sf http://localhost:8080/redmine/login && echo OK   # app reachable
 ```
 
-Healthchecks are defined for both services; `docker compose ps` /
-`podman healthcheck run redmine-web` report status. A Rails console for
-diagnostics: `podman exec -it redmine-web bundle exec rails console -e production`.
+Healthchecks are defined for both services; `docker compose ps` reports status
+and `docker exec redmine-web /usr/local/bin/redmine-healthcheck.sh` runs one on
+demand (Docker has no `podman healthcheck run`). A Rails console for
+diagnostics: `docker exec -it redmine-web bundle exec rails console -e production`.
+
+Production-specific smoke check (on the host, after `systemctl start redmine`):
+
+```bash
+systemctl status redmine                                              # unit active (started with --wait)
+docker compose -f compose.dev.yaml -f compose.prod.yaml ps            # both containers healthy
+curl -sf http://127.0.0.1/redmine/login >/dev/null && echo OK         # published on loopback :80
+```
 
 ## Git & branch workflow
 
