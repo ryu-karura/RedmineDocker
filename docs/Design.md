@@ -17,9 +17,9 @@ RedmineDocker は 2 つのコンテナが連携して Redmine 7.0.1 を動作さ
 | Apache フロントエンド | `httpd` 2.4（`redmine-web` に内蔵） |
 | DB 名 / 所有者 | `redmine` / `redmine` |
 | DB コンテナ | `redmine-db` |
-| Redmine / Puma コンテナ | `redmine-web` |
+| Redmine アプリコンテナ | `redmine-web` |
 | Web フロントコンテナ | `redmine-web` |
-| アプリサーバー | `puma`（既定）または `passenger`（`REDMINE_WEB_SERVER`） |
+| アプリサーバー | `passenger`（既定）または `puma`（`REDMINE_WEB_SERVER`） |
 | Puma 内部ポート | `3000`（ホスト公開なし。`passenger` では未使用） |
 | PostgreSQL 内部ポート | `5432`（ホスト公開なし） |
 | Web ホストポート | `127.0.0.1:80` |
@@ -27,16 +27,7 @@ RedmineDocker は 2 つのコンテナが連携して Redmine 7.0.1 を動作さ
 
 ## 2. トポロジー
 
-`REDMINE_WEB_SERVER=puma`（既定）:
-
-```
-  client ──443──► Host Apache ──/redmine──► redmine-web (Apache 2.4 + Puma :3000, :80)
-                                                    │ ProxyPass /redmine → 127.0.0.1:3000
-                                                    ▼
-                                             redmine-db (PostgreSQL 18 + PostGIS 3.6, :5432)
-```
-
-`REDMINE_WEB_SERVER=passenger`:
+`REDMINE_WEB_SERVER=passenger`（既定）:
 
 ```
   client ──443──► Host Apache ──/redmine──► redmine-web (Apache 2.4 + mod_passenger, :80)
@@ -45,8 +36,17 @@ RedmineDocker は 2 つのコンテナが連携して Redmine 7.0.1 を動作さ
                                              redmine-db (PostgreSQL 18 + PostGIS 3.6, :5432)
 ```
 
+`REDMINE_WEB_SERVER=puma`:
+
+```
+  client ──443──► Host Apache ──/redmine──► redmine-web (Apache 2.4 + Puma :3000, :80)
+                                                    │ ProxyPass /redmine → 127.0.0.1:3000
+                                                    ▼
+                                             redmine-db (PostgreSQL 18 + PostGIS 3.6, :5432)
+```
+
 - `redmine-web` が `127.0.0.1:80` にバインドされます。ホスト側 Apache (`host-apache/redmine-proxy.conf`) が TLS を終端し、`/redmine` を転送します。ホスト側の設定はどちらのモードでも同じです。
-- コンテナ内 Apache から先は `REDMINE_WEB_SERVER` で切り替わります。`puma` は `/redmine` を Puma (`:3000`) に `ProxyPass` し、静的資産も Rails (`RAILS_SERVE_STATIC_FILES`) が配信します。`passenger` は `mod_passenger` が Redmine を Apache の子プロセスとして直接起動し、静的資産は Apache が `public/` から配信します。
+- コンテナ内 Apache から先は `REDMINE_WEB_SERVER` で切り替わります。`passenger`（7 系の既定）は `mod_passenger` が Redmine を Apache の子プロセスとして直接起動し、静的資産は Apache が `public/` から配信します。`puma` は `/redmine` を Puma (`:3000`) に `ProxyPass` し、静的資産も Rails (`RAILS_SERVE_STATIC_FILES`) が配信します。
 - PostgreSQL (5432) と Puma (3000) はホストには公開されません。
 - コンテナは `redmine-net` ブリッジ上で通信し、`redmine-db` と `redmine-web` という名前で相互解決します。
 
@@ -66,18 +66,27 @@ RedmineDocker は 2 つのコンテナが連携して Redmine 7.0.1 を動作さ
 
 イメージには Puma（公式イメージ同梱）と `mod_passenger` の **両方** が入っています。切り替えは環境変数の変更とコンテナ再起動のみで、イメージの再ビルドは不要です。
 
+既定値は系列ごとに各 Containerfile の `ENV REDMINE_WEB_SERVER` が決めます。**7 系（既定シリーズ）は `passenger`**、5 系 / 6 系は `puma` です。`compose.dev.yaml` と `quadlets/redmine-web.container`（7 系用）も既定を `passenger` に合わせてあります（`.env` の `REDMINE_WEB_SERVER` / Quadlet の `Environment=` で上書きできます）。`compose.dev.yaml` は値を常にコンテナへ渡すため、5 系 / 6 系へ切り替えて `puma` で動かすときは `.env` 側も明示してください。
+
 `mod_passenger` は 3 系列とも Debian trixie の `libapache2-mod-passenger`（Passenger 6.0.26）です。7 系のベースは Ruby 4.0 ですが、この版のままで Redmine 7 を配信できることを実機で確認しています（検証根拠は下記「9. Redmine シリーズの切り替え」参照）。
 
-| | `puma`（既定） | `passenger` |
+| | `passenger`（既定 / 7 系） | `puma`（5 系 / 6 系の既定） |
 |---|---|---|
-| リクエスト処理 | Apache → `ProxyPass` → Puma `:3000` | Apache + `mod_passenger` が直接起動 |
-| Apache 設定 | `httpd-redmine.conf.tmpl` → `redmine-proxy.conf` | `httpd-redmine-passenger.conf.tmpl` → `redmine-passenger.conf` |
-| 静的資産 | Rails（`RAILS_SERVE_STATIC_FILES=1`） | Apache が `Alias` で `public/` を配信 |
-| コンテナの PID 1 | `entrypoint.sh`（Apache 起動後 Puma を監視） | `apache2 -DFOREGROUND` |
-| 実行ユーザー | `runuser -u redmine` で Puma | `PassengerUser redmine` |
-| `:3000` | あり | なし |
+| リクエスト処理 | Apache + `mod_passenger` が直接起動 | Apache → `ProxyPass` → Puma `:3000` |
+| Apache 設定 | `httpd-redmine-passenger.conf.tmpl` → `redmine-passenger.conf` | `httpd-redmine.conf.tmpl` → `redmine-proxy.conf` |
+| 静的資産 | Apache が `Alias` で `public/` を配信 | Rails（`RAILS_SERVE_STATIC_FILES=1`） |
+| コンテナの PID 1 | `apache2 -DFOREGROUND` | `entrypoint.sh`（Apache 起動後 Puma を監視） |
+| 実行ユーザー | `PassengerUser redmine` | `runuser -u redmine` で Puma |
+| `:3000` | なし | あり |
 
 `entrypoint.sh` が起動時にテンプレートを描画し、`a2enmod passenger` / `a2dismod -f passenger` と `a2enconf` / `a2disconf` で該当する設定だけを有効化します（どちらも `*:80` の VirtualHost を定義するため、同時に有効化はできません）。
+
+`passenger` モードでは `entrypoint.sh` が `/etc/apache2/envvars` を `source` してから `apache2 -DFOREGROUND` を `exec` します。この `source` には実測に基づく 2 つの回避策が入っています。消さないでください。
+
+1. **`set -u` を一時的に外す。** `envvars` の先頭は `APACHE_CONFDIR`（本来 `apache2ctl` が設定する変数）を未設定のまま参照するため、`set -euo pipefail` のまま `source` すると `APACHE_CONFDIR: unbound variable` で entrypoint ごと終了します（コンテナが起動直後に exit 1）。
+2. **`LANG` を元に戻す。** `envvars` は mod_dav 向けに `LANG=C` を `export` します。この値は Apache → `mod_passenger` → Redmine と継承され、Ruby の `Encoding.default_external` が US-ASCII になります。すると bundler が `Gemfile` を評価する際、日本語コメントを含む `config/database.yml` を読んだ時点で `invalid byte sequence in US-ASCII` となり、アプリが起動しません。公式イメージが設定している `LANG=C.UTF-8` を `source` 後に復元します。
+
+どちらも `puma` モードでは起きません（`apache2ctl -k start` が別プロセスで `envvars` を読むため）。`passenger` を既定にしたことで両方とも通常経路に乗るようになりました。
 
 実装上の注意点:
 
@@ -116,7 +125,7 @@ RedmineDocker は 2 つのコンテナが連携して Redmine 7.0.1 を動作さ
 ## 7. 補足 / 注意点
 
 - Apache フロントエンドは `redmine-web` イメージに組み込まれ、個別の `redmine-static` イメージは不要になりました。
-- 追加の Web プロキシコンテナを置かず、Redmine コンテナ内で Apache とアプリサーバーを運用しています。既定の `puma` モードでは、堅牢性を優先して Redmine 側でアセット配信を行っています（`passenger` モードでは Apache が `public/` を直接配信します）。
+- 追加の Web プロキシコンテナを置かず、Redmine コンテナ内で Apache とアプリサーバーを運用しています。既定の `passenger` モードでは Apache が `public/` を直接配信し、`puma` モードでは Redmine（Rails）側がアセットを配信します。
 
 ## 8. 設定パラメータ (.env)
 
@@ -144,7 +153,7 @@ RedmineDocker は 2 つのコンテナが連携して Redmine 7.0.1 を動作さ
 | データルート | `REDMINE_DATA_DIR` | `/opt/redmine/data/redmine` |
 | SUBURI | `REDMINE_SUBURI` | `/redmine` |
 | 開発公開ポート | `REDMINE_WEB_HOST_PORT` | `8080` |
-| アプリサーバー | `REDMINE_WEB_SERVER` | `puma`（`passenger` も可） |
+| アプリサーバー | `REDMINE_WEB_SERVER` | `passenger`（`puma` も可） |
 | Puma 内部ポート | `REDMINE_PUMA_PORT` | `3000`（`passenger` では未使用） |
 | YJIT 有効化 | `RUBY_YJIT_ENABLE` | `1` |
 | DB アダプタ | `REDMINE_DB_ADAPTER` | `postgis`（`.env` 側は常にこれで固定。`postgresql` / `mysql2` は `.env.legacy` 側でのみ使用。「10. 移行元 (MySQL) の再現と DB コンバート」参照） |
@@ -336,8 +345,9 @@ upstream の `init.rb` は `version '0.3.4'` のままなので、管理画面�
 
   この結果、7 系は 5 / 6 系と同じ `apt-get install libapache2-mod-passenger` だけになり、
   APT pin・preferences・バージョン assert（約 40 行）が不要になりました。
-  `scripts/test-stack.sh --web-server passenger` は 3 系列共通で、稼働中コンテナの
-  `libapache2-mod-passenger` が 6.0.25 以上（Ruby 3.4 対応が入った版）であることを検査します。
+  `scripts/test-stack.sh --web-server passenger`（7 系では `--web-server` 省略時の既定）は
+  3 系列共通で、稼働中コンテナの `libapache2-mod-passenger` が 6.0.25 以上
+  （Ruby 3.4 対応が入った版）であることを検査します。
 
   将来 Ruby がリテラル凍結を既定にした場合は 6.1.1 以上が必要になります。その時点で
   Debian の安定版が 6.1 を持っていれば素の apt で足り、無ければ次のいずれかです。

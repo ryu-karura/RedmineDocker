@@ -24,6 +24,8 @@
 #
 # DB パスワードと secret_key_base は Podman シークレットです（docs/Setup.md 参照）。
 # アプリサーバーは REDMINE_WEB_SERVER で切り替えます（puma / passenger）。
+# この系列の既定は puma です（7 系の quadlets/redmine-web.container は
+# passenger が既定）。切り替えは下の Environment= の変更と再起動のみです。
 
 [Unit]
 Description=redmine Redmine アプリケーション 5.1.12

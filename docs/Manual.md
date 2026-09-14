@@ -255,14 +255,15 @@ docker compose -f compose.dev.yaml up -d --build --force-recreate
 
 ### ケース E: アプリサーバー切り替え（Puma ⇄ Passenger）
 
-対象: `REDMINE_WEB_SERVER` を `puma`（既定: Apache → ProxyPass → Puma :3000）と
-`passenger`（Apache + mod_passenger が Redmine を直接起動、:3000 なし）で切り替える場合。
+対象: `REDMINE_WEB_SERVER` を `passenger`（7 系の既定: Apache + mod_passenger が
+Redmine を直接起動、:3000 なし）と `puma`（Apache → ProxyPass → Puma :3000。
+5 系 / 6 系の既定）で切り替える場合。
 イメージには両方式が同梱されているため **再ビルドは不要** で、コンテナ再起動のみで反映されます。
 
 開発 (Compose):
 
 ```bash
-# .env の REDMINE_WEB_SERVER を puma / passenger に変更してから
+# .env の REDMINE_WEB_SERVER を passenger / puma に変更してから
 docker compose -f compose.dev.yaml up -d --force-recreate redmine-web
 docker compose -f compose.dev.yaml logs -f redmine-web
 ```
@@ -271,8 +272,8 @@ docker compose -f compose.dev.yaml logs -f redmine-web
 
 ```bash
 # ~/.config/containers/systemd/redmine-web.container の
-#   Environment=REDMINE_WEB_SERVER=puma
-# を passenger に書き換える（または /opt/redmine/containers/.env に記述する）
+#   Environment=REDMINE_WEB_SERVER=passenger   # 7 系ユニットの既定
+# を puma に書き換える（または /opt/redmine/containers/.env に記述する）
 systemctl --user daemon-reload
 systemctl --user restart redmine-web
 ```
@@ -291,7 +292,8 @@ podman healthcheck run redmine-web                       # どちらのモード
 モードに応じて Puma 直叩きの検証を自動で省きます。
 
 なお **mod_passenger は 3 系列とも Debian trixie の 6.0.26** です（Ruby 4.0 の 7 系でも
-同じ版で動作することを確認済み。根拠は `docs/Design.md`「9. Redmine シリーズの切り替え」）。
+同じ版で動作することを確認済みで、7 系ではこれを既定にしています。根拠は
+`docs/Design.md`「9. Redmine シリーズの切り替え」）。
 稼働中のバージョンは次で確認できます。
 
 ```bash
@@ -299,8 +301,9 @@ podman exec redmine-web dpkg-query -W -f='${Version}\n' libapache2-mod-passenger
 ```
 
 7 系を本番へ出す前に
-`bash scripts/test-stack.sh --series 7 --web-server passenger` で実測してください
-（このテストは 6.1 以上であることも検証します）。
+`bash scripts/test-stack.sh --series 7` で実測してください（`--web-server` を省くと
+そのシリーズの既定 = 7 系なら passenger で検証します。このテストは稼働中コンテナの
+`libapache2-mod-passenger` が 6.0.25 以上であることも検証します）。
 
 ### ケース F: Redmine のメジャーバージョン系列切り替え（5 ⇄ 6 ⇄ 7）
 
@@ -457,8 +460,10 @@ podman exec -it redmine-web bundle exec rails console -e production
 | 添付ファイルのアップロードやログ出力が権限エラーになる | Passenger がアプリを `nobody` で起動しています。`config.ru` の所有者が `redmine` であること（`podman exec redmine-web ls -l /usr/src/redmine/config.ru`）と、`redmine-passenger.conf` に `PassengerUser redmine` があることを確認してください。 |
 | gem が見つからない / bundler エラーで起動しない | `PassengerRuby` が Debian のシステム Ruby (`/usr/bin/ruby`) を向いています。`redmine-passenger.conf` の `PassengerRuby /usr/local/bin/ruby` を確認してください。 |
 | CSS/JS/テーマだけ 404 になる | Apache が `public/` を配信できていません。`redmine-passenger.conf` の `Alias` と `<Directory>` の `Require all granted` を確認してください。 |
+| コンテナが起動直後に終了し、ログの最後が `/etc/apache2/envvars: line 7: APACHE_CONFDIR: unbound variable` | `entrypoint.sh` が `set -u` のまま `/etc/apache2/envvars` を `source` しています。`envvars` は `apache2ctl` が設定する `APACHE_CONFDIR` を未設定のまま参照するため、`source` の前後で `set +u` / `set -u` する実装（`docs/Design.md`「アプリサーバーの切り替え」参照）に戻っているか確認してください。 |
+| Passenger 起動後にアプリが `invalid byte sequence in US-ASCII`（`Gemfile` の解析エラー）で落ちる | `/etc/apache2/envvars` の `LANG=C` がアプリまで継承されています。`entrypoint.sh` が `source` 後に `LANG`（`C.UTF-8`）を復元しているか確認してください。日本語コメントを含む `config/database.yml` を bundler が読めなくなるのが原因です。 |
 | error log に native support のコンパイル警告が出る | 想定内です。Passenger は pure-Ruby 実装へフォールバックして動作を継続します（わずかに遅くなるのみ）。 |
-| `scripts/test-stack.sh --web-server passenger` が `mod_passenger is 6.0.25+` で落ちる | ベースイメージの Debian が `libapache2-mod-passenger` を 6.0.25 より古い版へ戻しています（6.0.25 で Ruby 3.4 対応が入ったため下限にしています）。ベースイメージを更新して再ビルドし、それでも戻らない場合は `docs/Design.md`「9. Redmine シリーズの切り替え」の代替案（Phusion の APT リポジトリ / `puma` 専用運用）を検討してください。 |
+| `scripts/test-stack.sh`（7 系の既定 = passenger）が `mod_passenger is 6.0.25+` で落ちる | ベースイメージの Debian が `libapache2-mod-passenger` を 6.0.25 より古い版へ戻しています（6.0.25 で Ruby 3.4 対応が入ったため下限にしています）。ベースイメージを更新して再ビルドし、それでも戻らない場合は `docs/Design.md`「9. Redmine シリーズの切り替え」の代替案（Phusion の APT リポジトリ / `puma` 専用運用）を検討してください。 |
 
 現在有効な Apache 設定は次で確認できます:
 

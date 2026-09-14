@@ -38,8 +38,9 @@ box (both use the container names `redmine-db`/`redmine-web` and the network
 ```
 client ──443──► Host Apache ──/redmine──► redmine-web (Apache 2.4 + Redmine 7.0.1)
                 (TLS, HSTS)   127.0.0.1:80  │  REDMINE_WEB_SERVER selects one of:
-                                            │    puma      → ProxyPass to Puma :3000
                                             │    passenger → mod_passenger spawns the app
+                                            │                (default on the 7 series)
+                                            │    puma      → ProxyPass to Puma :3000
                                             ▼
                                      Redmine (sub-URI /redmine)
                                             │  postgis adapter
@@ -90,7 +91,7 @@ RedmineDocker/
 | Redmine | 7.0.1 (`docker.io/library/redmine:7.0.1`) |
 | PostgreSQL / PostGIS | 18 + 3.6 (`postgis/postgis:18-3.6`) |
 | Web tier | Apache httpd 2.4 (Debian `apt` package baked into `redmine-web`, not version-pinned) |
-| App server | Puma (default) or Passenger (`libapache2-mod-passenger` 6.0.26 from Debian trixie on all three series), selected by `REDMINE_WEB_SERVER` |
+| App server | Passenger (default on v7; `libapache2-mod-passenger` 6.0.26 from Debian trixie on all three series) or Puma (default on v5/v6), selected by `REDMINE_WEB_SERVER` |
 | Node.js / Yarn | Debian `nodejs` + Yarn 1.22.22 — **Redmine 5 series only**, for `redmine_gtt` 6.0.3's webpack build |
 
 `redmine-web` bakes in 14 plugins (see the numbered list in
@@ -176,9 +177,9 @@ Series-specific facts that are easy to get wrong (full evidence in
   `redmine`). Revisit only if a future Ruby freezes literals by default, which
   then needs 6.1.1+. Don't reintroduce an extra apt suite without re-measuring;
   full evidence is in `docs/Design.md`, "Redmine シリーズの切り替え".
-  `bash scripts/test-stack.sh --web-server passenger` asserts the running
-  container's package is 6.0.25+ (where Ruby 3.4 support landed) on every
-  series. Rebuilding v7 on a Ruby 3.4 base to "get stable Passenger" was
+  `bash scripts/test-stack.sh --web-server passenger` (the default mode on
+  series 7, so plain `test-stack.sh` covers it) asserts the running container's
+  package is 6.0.25+ (where Ruby 3.4 support landed) on every series. Rebuilding v7 on a Ruby 3.4 base to "get stable Passenger" was
   considered and rejected: every official Redmine 7 image variant is Ruby 4.0,
   so that route means dropping the official base and owning the Redmine build
   — including a `trixie-backports` pin for `cargo`/`rustc` that the 7.0 gem set
@@ -267,9 +268,18 @@ Start/stop order is enforced by `Requires=`/`After=` in the units:
   `a2disconf`s the other one (with `|| true`, since a fresh container may never
   have rendered it). The Containerfile pre-renders a build-time default of the
   proxy variant so `a2enconf` has a file to enable, but that copy is never
-  actually served as-is. Edit the `.tmpl`, not a generated `.conf`.
-- **`REDMINE_WEB_SERVER` picks the app server at *runtime*: `puma` (default) or
-  `passenger`.** The image bakes in *both* — the official image's Puma plus
+  actually served as-is — least of all in v7's default `passenger` mode, where
+  the entrypoint renders and enables the Passenger conf instead. Edit the
+  `.tmpl`, not a generated `.conf`.
+- **`REDMINE_WEB_SERVER` picks the app server at *runtime*: `passenger` or
+  `puma`.** Each Containerfile's `ENV REDMINE_WEB_SERVER` sets the series
+  default — **v7 (the default series) defaults to `passenger`**, v5/v6 to
+  `puma` — and `compose.dev.yaml`, `.env.example` and
+  `quadlets/redmine-web.container` (the v7 unit) default to `passenger` to
+  match; `quadlets/v5`/`v6` stay on `puma`. Note `compose.dev.yaml` always
+  passes the variable, so a dev stack switched to series 5/6 needs
+  `REDMINE_WEB_SERVER=puma` in `.env` to follow that series' own default.
+  The image bakes in *both* — the official image's Puma plus
   `libapache2-mod-passenger` (Debian trixie's Passenger 6.0.26 on all three
   series — Ruby 3.4 support landed in 6.0.25 and the same package serves v7's
   Ruby 4.0, see the series section. No third-party APT repo, and no extra apt
@@ -280,7 +290,18 @@ Start/stop order is enforced by `Requires=`/`After=` in the units:
   time (the Debian postinst enables it) and `entrypoint.sh` does the
   `a2enmod`/`a2dismod` per mode. In `passenger` mode there is no Puma and no
   `:3000`; the entrypoint `source`s `/etc/apache2/envvars` and
-  `exec apache2 -DFOREGROUND` so Apache is PID 1. Passenger's native-support
+  `exec apache2 -DFOREGROUND` so Apache is PID 1. **Sourcing `envvars` needs two
+  guards, both measured, not theoretical.** (1) Its first `if` dereferences
+  `APACHE_CONFDIR`, which only `apache2ctl` sets — under the entrypoint's
+  `set -u` that aborts the container with `APACHE_CONFDIR: unbound variable`,
+  so the `source` is wrapped in `set +u` / `set -u`. (2) It `export`s `LANG=C`
+  for mod_dav, and that `LANG` reaches the app Passenger spawns: Ruby's
+  `default_external` becomes US-ASCII and bundler dies with `invalid byte
+  sequence in US-ASCII` while parsing `Gemfile`, which reads our Japanese-
+  commented `config/database.yml`. The entrypoint therefore restores the
+  official image's `LANG` (`C.UTF-8`) after the `source`. Neither bites in
+  `puma` mode, where `apache2ctl -k start` sources `envvars` itself in its own
+  process. Passenger's native-support
   extension is not built at image build time — it self-compiles on first spawn
   and falls back to pure Ruby with a log warning if that fails, which is fine.
 - **`config.ru` must NOT `map` the sub-URI under Passenger.** `mod_passenger`
@@ -547,7 +568,7 @@ integration test for the dev (Compose) path — run it after any change to
 bash scripts/test-stack.sh                # build, boot, verify, tear down (destroys dev volumes)
 bash scripts/test-stack.sh --keep         # ... and leave the stack running
 bash scripts/test-stack.sh --skip-build   # reuse existing images for faster iteration
-bash scripts/test-stack.sh --web-server passenger --skip-build   # same image, Passenger mode
+bash scripts/test-stack.sh --web-server puma --skip-build   # same image, Puma mode
 bash scripts/test-stack.sh --series 6      # Redmine 6 image (5 / 6 / 7, default 7)
 ```
 
@@ -555,16 +576,17 @@ It rebuilds both images, boots them, and checks every boot-time bug this
 stack has actually hit once: `pg_config` on PATH, `redmine-db` creating the
 `redmine` database + PostGIS extensions without a "Peer authentication
 failed" regression, `redmine-web` free of plugin `LoadError`/permission/
-routing errors and not crash-looping, and the login page reachable both
-through Apache and directly on Puma. `--web-server passenger` runs the same
-boot sequence against `REDMINE_WEB_SERVER=passenger` and swaps the Puma-direct
-check for "nothing is listening on `:3000`", "`passenger_module` is loaded",
-and "Apache serves a static asset out of `public/`" (`public/404.html` — the
-only static file present in all three series, since Redmine 6.0 moved
-stylesheets out of `public/`); it also asserts the container's
-`libapache2-mod-passenger` is 6.0.25+ on every series — both modes
-share one image, so run it with
-`--skip-build` right after the default run. `--series 5|6|7` swaps the
+routing errors and not crash-looping, and the login page reachable through
+Apache. With no `--web-server` flag it runs whatever that series' image
+defaults to (7 → `passenger`, 5/6 → `puma`). In `passenger` mode it checks
+"nothing is listening on `:3000`", "`passenger_module` is loaded", "Apache
+serves a static asset out of `public/`" (`public/404.html` — the only static
+file present in all three series, since Redmine 6.0 moved stylesheets out of
+`public/`) and that the container's `libapache2-mod-passenger` is 6.0.25+; in
+`puma` mode it instead curls Puma directly on `:3000` (the regression test for
+`config.ru`'s sub-URI mount). Both modes share one image, so on series 7 run
+`--web-server puma --skip-build` right after the default run (and
+`--web-server passenger --skip-build` after a series 5/6 run). `--series 5|6|7` swaps the
 Containerfile, base image and image tag together; because each series has its
 own image tag, `--skip-build` only reuses an image of that same series. It only
 exercises **default** `.env` values otherwise — it does not verify that a

@@ -17,18 +17,20 @@
 # DB パスワードと secret_key_base は Podman シークレットです（docs/Setup.md 参照）。
 # Apache フロントエンドが :80 で公開されます。その先のアプリサーバーは
 # REDMINE_WEB_SERVER で切り替えます:
-#   puma      (既定) Apache -> ProxyPass -> コンテナ内部の Puma :3000
-#   passenger        Apache + mod_passenger が Redmine を直接起動（:3000 なし）
+#   passenger (既定) Apache + mod_passenger が Redmine を直接起動（:3000 なし）
+#   puma             Apache -> ProxyPass -> コンテナ内部の Puma :3000
 # 切り替えは下の Environment= を書き換えて再起動するだけです（イメージ再ビルド不要）。
 # SMTP 設定（あれば）には下の EnvironmentFile を使います。
 #
 # ★ mod_passenger は 5 / 6 系と同じ Debian trixie の 6.0.26 です
 #   ベースが Ruby 4.0 でも trixie の版で動くことを実機で確認済みです
 #   （根拠は containers/redmine-web/Containerfile.v7 の★と
-#   docs/Design.md「9. Redmine シリーズの切り替え」）。下の
-#   Environment=REDMINE_WEB_SERVER= を passenger にする前に、開発環境で
-#   `bash scripts/test-stack.sh --series 7 --web-server passenger` を
-#   実行して動作を確認してください。
+#   docs/Design.md「9. Redmine シリーズの切り替え」）。7 系ではこれを既定に
+#   しています。puma へ戻すときは下の Environment=REDMINE_WEB_SERVER= を
+#   puma にして再起動してください（イメージ再ビルドは不要）。
+#   いずれのモードも、事前に開発環境で
+#   `bash scripts/test-stack.sh --series 7 --web-server passenger`
+#   （または `--web-server puma`）で確認できます。
 
 [Unit]
 Description=redmine Redmine アプリケーション 7.0.1
@@ -46,8 +48,8 @@ PublishPort=127.0.0.1:80:80
 Environment=RAILS_ENV=production
 Environment=RAILS_RELATIVE_URL_ROOT=/redmine
 Environment=RUBY_YJIT_ENABLE=1
-# アプリサーバー: puma（既定）または passenger（上記★の trixie 版 6.0.26）。
-Environment=REDMINE_WEB_SERVER=puma
+# アプリサーバー: passenger（既定。上記★の trixie 版 6.0.26）または puma。
+Environment=REDMINE_WEB_SERVER=passenger
 Environment=REDMINE_PUMA_PORT=3000
 Environment=REDMINE_DB_HOST=redmine-db
 Environment=REDMINE_DB_NAME=redmine

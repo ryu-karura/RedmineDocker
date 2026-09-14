@@ -17,9 +17,10 @@
 #      （REDMINE_LOAD_DEFAULT_DATA / REDMINE_DEFAULT_DATA_LANG で制御）
 #   4.9. REDMINE_MIGRATE_ONLY があればここで終了（Web サーバーを起動しない）
 #   5. アプリサーバー起動（REDMINE_WEB_SERVER で切り替え、サブ URI /redmine）
-#      puma      (既定) Apache(:80) 起動後、`rails server` で Puma(:3000) 起動
 #      passenger Apache(:80) を foreground 起動。mod_passenger が Redmine を
-#                直接起動するため Puma は起動しません。
+#                直接起動するため Puma は起動しません（7 系イメージの既定）。
+#      puma      Apache(:80) 起動後、`rails server` で Puma(:3000) 起動
+#                （5 系 / 6 系イメージの既定）。
 #
 # パスワードはイメージへ焼き込まず、平文環境変数でも渡しません。
 # *_FILE で参照されるシークレットファイルから読み込みます。
@@ -53,8 +54,12 @@ REDMINE_PUMA_PORT="${REDMINE_PUMA_PORT:-3000}"
 # アプリサーバーの選択。イメージにはどちらも同梱してあるため、
 # .env / Environment= の変更とコンテナ再起動だけで切り替わります
 # （イメージ再ビルドは不要）。
-#   puma      Apache -> ProxyPass -> Puma(:${REDMINE_PUMA_PORT})
 #   passenger Apache + mod_passenger が Redmine を直接起動（:3000 なし）
+#   puma      Apache -> ProxyPass -> Puma(:${REDMINE_PUMA_PORT})
+# 既定値は各 Containerfile の ENV REDMINE_WEB_SERVER が決めます
+# （7 系 = passenger、5 系 / 6 系 = puma）。ここでのフォールバックは、
+# その ENV を持たないイメージ（mod_passenger 非同梱の Containerfile.v5-mysql）や
+# 値を明示せずに起動したときのための保険なので puma のままにします。
 REDMINE_WEB_SERVER="${REDMINE_WEB_SERVER:-puma}"
 SMTP_HOST="${SMTP_HOST:-localhost}"
 SMTP_PORT="${SMTP_PORT:-25}"
@@ -279,8 +284,22 @@ fi
 if [[ "${REDMINE_WEB_SERVER}" == "passenger" ]]; then
     log "Starting Apache HTTPD on :80 with mod_passenger (sub-URI ${RAILS_RELATIVE_URL_ROOT}) ..."
     # APACHE_RUN_USER / APACHE_PID_FILE 等の Debian 既定値を読み込みます。
+    # 注意 1: envvars は先頭で APACHE_CONFDIR（本来は apache2ctl が設定する変数）を
+    #   未設定のまま参照するため、set -u のまま source すると
+    #   「APACHE_CONFDIR: unbound variable」で entrypoint ごと落ちます。
+    #   source の間だけ -u を外します。
+    # 注意 2: envvars は mod_dav 向けに LANG=C を export します。これがそのまま
+    #   Apache -> mod_passenger -> Redmine へ継承されると、Ruby の
+    #   default external が US-ASCII になり、bundler が日本語コメントを含む
+    #   config/database.yml やプラグインの Gemfile を読んだ時点で
+    #   「invalid byte sequence in US-ASCII」で起動に失敗します。
+    #   公式イメージが設定している LANG（C.UTF-8）を source 後に復元します。
+    saved_lang="${LANG:-C.UTF-8}"
+    set +u
     # shellcheck source=/dev/null
     source /etc/apache2/envvars
+    set -u
+    export LANG="${saved_lang}"
     # envvars はパスを export するだけでディレクトリは作りません（作るのは
     # apache2ctl 側）。Podman は /run に tmpfs をマウントするため、イメージに
     # 含まれる /run/apache2 は起動時に消えています。ここで作り直します。

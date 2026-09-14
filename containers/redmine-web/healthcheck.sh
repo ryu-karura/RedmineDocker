@@ -16,15 +16,17 @@
 #
 # 検証内容（REDMINE_WEB_SERVER で変わります）:
 #   共通         Apache(:80) 経由で ${RAILS_RELATIVE_URL_ROOT}/login が 200
+#   passenger    Puma は存在しないため直叩きの検証は行いません
+#                （mod_passenger が Apache 内でアプリを起動するため。7 系の既定）
 #   puma のみ    Puma(:${REDMINE_PUMA_PORT}) 直叩きでも同 URL が 200
 #                （config.ru がサブ URI を map しなくなる回帰の検知）
-#   passenger    Puma は存在しないため直叩きの検証は行いません
-#                （mod_passenger が Apache 内でアプリを起動するため）
 
 set -euo pipefail
 
 RAILS_RELATIVE_URL_ROOT="${RAILS_RELATIVE_URL_ROOT:-/redmine}"
 REDMINE_PUMA_PORT="${REDMINE_PUMA_PORT:-3000}"
+# 既定値はイメージの ENV REDMINE_WEB_SERVER（7 系 = passenger、
+# 5 系 / 6 系 = puma）から渡ります。ここでのフォールバックは保険です。
 REDMINE_WEB_SERVER="${REDMINE_WEB_SERVER:-puma}"
 
 log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] [redmine-web/healthcheck] $*"; }

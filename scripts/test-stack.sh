@@ -13,16 +13,21 @@
 #     (regresses if POSTGRES_INITDB_ARGS ever reintroduces --auth-local=peer)
 #   - redmine-web's entrypoint doesn't crash-loop (plugin LoadError, or Puma
 #     unable to read config/database.yml because of file ownership)
-#   - the sub-URI (/redmine) is served by Puma directly, not just via Apache
-#     (regresses if config.ru is ever reverted to the stock `run Rails.application`)
+#   - in puma mode, the sub-URI (/redmine) is served by Puma directly, not just
+#     via Apache (regresses if config.ru is ever reverted to the stock
+#     `run Rails.application`); in passenger mode, that mod_passenger is loaded
+#     and Apache serves the app plus the static assets under public/
 #   - both containers report `healthy` and stay up (no restart loop)
 #
 # The app server under test is selected with --web-server (REDMINE_WEB_SERVER):
-#   puma      (default) Apache -> ProxyPass -> Puma :3000
-#   passenger           Apache + mod_passenger, no Puma and no :3000
+#   passenger  Apache + mod_passenger, no Puma and no :3000
+#   puma       Apache -> ProxyPass -> Puma :3000
+# Without the flag the series' own image default is used (the ENV
+# REDMINE_WEB_SERVER baked into its Containerfile): passenger for series 7,
+# puma for series 5 and 6.
 # The two modes share one image, so a full run of both is:
 #   bash scripts/test-stack.sh
-#   bash scripts/test-stack.sh --web-server passenger --skip-build
+#   bash scripts/test-stack.sh --web-server puma --skip-build
 #
 # The Redmine series under test is selected with --series (5 / 6 / 7, default 7).
 # Each series has its own Containerfile, base image and plugin set, so the flag
@@ -56,7 +61,7 @@
 #   bash scripts/test-stack.sh            # build, boot, verify, tear down
 #   bash scripts/test-stack.sh --keep     # ... and leave the stack running
 #   bash scripts/test-stack.sh --skip-build   # reuse existing images (faster iteration)
-#   bash scripts/test-stack.sh --web-server passenger   # test the Passenger mode
+#   bash scripts/test-stack.sh --web-server puma  # test the Puma mode (7 系の既定は passenger)
 #   bash scripts/test-stack.sh --series 6 # test the Redmine 6 image (5 / 6 / 7, default 7)
 #
 # Runs with podman (podman compose / the podman-compose external provider).
@@ -86,7 +91,8 @@ pc() { podman compose -p "${PROJECT_NAME}" -f "${COMPOSE_FILE}" "$@"; }
 
 KEEP=0
 SKIP_BUILD=0
-WEB_SERVER="${TEST_STACK_WEB_SERVER:-puma}"
+# 既定は「そのシリーズのイメージ既定」です（--series 解決後に決めます）。
+WEB_SERVER="${TEST_STACK_WEB_SERVER:-}"
 SERIES="${TEST_STACK_SERIES:-7}"
 while [ "$#" -gt 0 ]; do
     case "$1" in
@@ -105,7 +111,7 @@ while [ "$#" -gt 0 ]; do
             ;;
         --series=*) SERIES="${1#--series=}" ;;
         -h|--help)
-            sed -n '2,61p' "${BASH_SOURCE[0]}"
+            sed -n '2,67p' "${BASH_SOURCE[0]}"
             exit 0
             ;;
         *)
@@ -116,26 +122,31 @@ while [ "$#" -gt 0 ]; do
     shift
 done
 
-case "${WEB_SERVER}" in
-    puma|passenger) ;;
-    *) echo "--web-server must be 'puma' or 'passenger' (got '${WEB_SERVER}')" >&2; exit 2 ;;
-esac
+if [ -n "${WEB_SERVER}" ]; then
+    case "${WEB_SERVER}" in
+        puma|passenger) ;;
+        *) echo "--web-server must be 'puma' or 'passenger' (got '${WEB_SERVER}')" >&2; exit 2 ;;
+    esac
+fi
 
 # Redmine のメジャーバージョン系列。系列ごとに Containerfile とベースイメージが
 # 違うため、compose.dev.yaml が読む 3 つの変数をここでまとめて設定します
 # （.env.example のプリセットと同じ組み合わせ）。--skip-build で使い回す
 # イメージタグもここで決まります。
 case "${SERIES}" in
-    5) REDMINE_SERIES_VERSION=5.1.12; REDMINE_SERIES_CONTAINERFILE=Containerfile.v5 ;;
-    6) REDMINE_SERIES_VERSION=6.1.4;  REDMINE_SERIES_CONTAINERFILE=Containerfile.v6 ;;
-    7) REDMINE_SERIES_VERSION=7.0.1;  REDMINE_SERIES_CONTAINERFILE=Containerfile.v7 ;;
+    5) REDMINE_SERIES_VERSION=5.1.12; REDMINE_SERIES_CONTAINERFILE=Containerfile.v5; SERIES_WEB_SERVER=puma ;;
+    6) REDMINE_SERIES_VERSION=6.1.4;  REDMINE_SERIES_CONTAINERFILE=Containerfile.v6; SERIES_WEB_SERVER=puma ;;
+    7) REDMINE_SERIES_VERSION=7.0.1;  REDMINE_SERIES_CONTAINERFILE=Containerfile.v7; SERIES_WEB_SERVER=passenger ;;
     *) echo "--series must be '5', '6' or '7' (got '${SERIES}')" >&2; exit 2 ;;
 esac
+# --web-server 未指定なら、そのシリーズの Containerfile が持つ
+# ENV REDMINE_WEB_SERVER と同じ値を使います（7 系 = passenger、5/6 系 = puma）。
+WEB_SERVER="${WEB_SERVER:-${SERIES_WEB_SERVER}}"
 export REDMINE_WEB_CONTAINERFILE="${REDMINE_SERIES_CONTAINERFILE}"
 export REDMINE_WEB_BASE_IMAGE="docker.io/library/redmine:${REDMINE_SERIES_VERSION}"
 export REDMINE_WEB_IMAGE="localhost/redmine-web:${REDMINE_SERIES_VERSION}"
 # redmine-web の entrypoint / healthcheck が読む値。compose.dev.yaml の
-# `REDMINE_WEB_SERVER: ${REDMINE_WEB_SERVER:-puma}` 経由でコンテナへ渡ります。
+# `REDMINE_WEB_SERVER: ${REDMINE_WEB_SERVER:-passenger}` 経由でコンテナへ渡ります。
 export REDMINE_WEB_SERVER="${WEB_SERVER}"
 
 log()  { echo "[$(date -u '+%Y-%m-%dT%H:%M:%SZ')] [test-stack] $*"; }

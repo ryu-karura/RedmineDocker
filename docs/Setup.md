@@ -168,21 +168,25 @@ systemctl --user start redmine-db redmine-web
 起動順: `redmine-db` → `redmine-web`、停止順は逆です。
 `systemctl --user status redmine-web` と `podman healthcheck run redmine-web` で状態を確認できます。
 
-アプリサーバーに Passenger（Apache + mod_passenger）を使う場合は、コピーした
+アプリサーバーは 7 系（既定）では **Passenger（Apache + mod_passenger）が既定** です。
+`quadlets/redmine-web.container` は `Environment=REDMINE_WEB_SERVER=passenger` の状態で
+配布しているため、そのままコピーすれば Passenger で起動します。Puma
+（Apache → ProxyPass → Puma :3000）に戻す場合は、コピーした
 `~/.config/containers/systemd/redmine-web.container` の
-`Environment=REDMINE_WEB_SERVER=puma` を `passenger` に書き換えてから
+`Environment=REDMINE_WEB_SERVER=passenger` を `puma` に書き換えてから
 `systemctl --user daemon-reload && systemctl --user restart redmine-web` を実行します
 （イメージには両方式が入っているため再ビルドは不要です）。
 `EnvironmentFile` で読み込まれる `/opt/redmine/containers/.env` に
-`REDMINE_WEB_SERVER=passenger` と書く方法でも同じです。切り替え後の確認方法と
+`REDMINE_WEB_SERVER=puma` と書く方法でも同じです。なお 5 系 / 6 系のユニット
+（`quadlets/v5` / `quadlets/v6`）の既定は `puma` です。切り替え後の確認方法と
 トラブルシューティングは `docs/Manual.md` を参照してください。
 
 **`mod_passenger` は 3 系列とも Debian trixie の 6.0.26** です。7 系のベースは
 Ruby 4.0 ですが、この版のままで動作することを実機で確認しています（根拠は
 `docs/Design.md`「9. Redmine シリーズの切り替え」）。外部 APT リポジトリも
 追加スイートも使いません。本番へ出す前に、開発環境で
-`bash scripts/test-stack.sh --series 7 --web-server passenger` を実行して動作を
-確認してください。
+`bash scripts/test-stack.sh --series 7`（`--web-server` 省略時は 7 系の既定 =
+passenger で検証します）を実行して動作を確認してください。
 
 ### 6. ホスト Apache を設定する (TLS)
 

@@ -66,7 +66,7 @@ services:
       retries: 5
       start_period: 30s
 
-  # ── Redmine + Apache 2.4 frontend (port 80 / Puma :3000 or Passenger) ───────
+  # ── Redmine + Apache 2.4 frontend (port 80 / Passenger or Puma :3000) ──────
   # 既定は Redmine 7 系（Containerfile.v7 / redmine:7.0.1）です。5 系・6 系へ
   # 切り替えるときは .env で REDMINE_WEB_CONTAINERFILE / REDMINE_VERSION（=
   # REDMINE_WEB_BASE_IMAGE, REDMINE_WEB_IMAGE）を 3 つセットで変更します
@@ -98,10 +98,13 @@ services:
       RAILS_RELATIVE_URL_ROOT: ${REDMINE_SUBURI:-/redmine}
       TZ: ${TZ:-Asia/Tokyo}
       RUBY_YJIT_ENABLE: ${RUBY_YJIT_ENABLE:-1}
-      # puma (既定) = Apache -> ProxyPass -> Puma :3000 /
-      # passenger    = Apache + mod_passenger が直接起動（:3000 なし）。
+      # passenger (既定) = Apache + mod_passenger が直接起動（:3000 なし）/
+      # puma             = Apache -> ProxyPass -> Puma :3000。
       # イメージには両方同梱してあるため、再起動のみで切り替わります。
-      REDMINE_WEB_SERVER: ${REDMINE_WEB_SERVER:-puma}
+      # 既定値はこのファイルの他の既定と同じく 7 系のもの（= Containerfile.v7 の
+      # ENV REDMINE_WEB_SERVER）に合わせてあります。5 系 / 6 系のイメージ既定は
+      # puma なので、それらへ切り替えるときは .env で明示してください。
+      REDMINE_WEB_SERVER: ${REDMINE_WEB_SERVER:-passenger}
       REDMINE_PUMA_PORT: ${REDMINE_PUMA_PORT:-3000}
       # このスタックは常に postgis です。移行元のバージョン/プラグイン構成の
       # まま DB だけ PostgreSQL へ恒久的に切り替える場合は、こちらではなく
