@@ -1,0 +1,52 @@
+# systemd/redmine.service
+#
+# 本番 (RHEL 9.5+) で redmine スタック（redmine-db + redmine-web）を
+# Docker Engine + Docker Compose で起動する systemd ユニットです。
+#
+# 導入:
+#   sudo cp /opt/redmine/containers/systemd/redmine.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now redmine
+#
+# 操作:
+#   sudo systemctl start|stop|restart|status redmine
+#   sudo systemctl reload redmine        # compose の設定/イメージ変更を反映（up -d）
+#
+# コンテナ単位の操作・ログは compose で行います
+# （WorkingDirectory 配下で実行してください）:
+#   docker compose -f compose.dev.yaml -f compose.prod.yaml ps
+#   docker compose -f compose.dev.yaml -f compose.prod.yaml logs -f redmine-web
+#
+# ★ 起動/停止順序は compose の depends_on (service_healthy) が保証します。
+#   redmine-db が healthy になってから redmine-web が起動し、停止は逆順です。
+#   そのためユニットは 1 つだけで、コンテナごとのユニットは作りません。
+#
+# ★ Type=oneshot + RemainAfterExit=yes です。`up -d --wait` は全コンテナが
+#   healthy になるまで戻らないため、systemctl start の完了 = スタック稼働開始
+#   になります。初回起動はイメージのマイグレーションとアセット生成が走るので
+#   数分かかります（TimeoutStartSec を長めにしてあります）。
+#
+# ★ コンテナ自体の再起動は compose.dev.yaml の `restart: always` が担当します
+#   （docker デーモン起動時の自動復帰もこれで行われます）。ユニット側の
+#   Restart= は設定しません（Type=oneshot と二重管理になるため）。
+
+[Unit]
+Description=redmine Redmine スタック (Docker Compose: redmine-db + redmine-web)
+Documentation=file:///opt/redmine/containers/docs/Setup.md
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=/opt/redmine/containers
+# 初回起動は db:migrate + プラグインマイグレーション + 初期データ投入が走ります。
+TimeoutStartSec=900
+TimeoutStopSec=120
+ExecStart=/usr/bin/docker compose -f compose.dev.yaml -f compose.prod.yaml up -d --wait
+ExecReload=/usr/bin/docker compose -f compose.dev.yaml -f compose.prod.yaml up -d --wait
+ExecStop=/usr/bin/docker compose -f compose.dev.yaml -f compose.prod.yaml down
+
+[Install]
+WantedBy=multi-user.target

@@ -17,9 +17,10 @@
 #      （REDMINE_LOAD_DEFAULT_DATA / REDMINE_DEFAULT_DATA_LANG で制御）
 #   4.9. REDMINE_MIGRATE_ONLY があればここで終了（Web サーバーを起動しない）
 #   5. アプリサーバー起動（REDMINE_WEB_SERVER で切り替え、サブ URI /redmine）
-#      puma      (既定) Apache(:80) 起動後、`rails server` で Puma(:3000) 起動
 #      passenger Apache(:80) を foreground 起動。mod_passenger が Redmine を
-#                直接起動するため Puma は起動しません。
+#                直接起動するため Puma は起動しません（7 系イメージの既定）。
+#      puma      Apache(:80) 起動後、`rails server` で Puma(:3000) 起動
+#                （5 系 / 6 系イメージの既定）。
 #
 # パスワードはイメージへ焼き込まず、平文環境変数でも渡しません。
 # *_FILE で参照されるシークレットファイルから読み込みます。
@@ -53,8 +54,12 @@ REDMINE_PUMA_PORT="${REDMINE_PUMA_PORT:-3000}"
 # アプリサーバーの選択。イメージにはどちらも同梱してあるため、
 # .env / Environment= の変更とコンテナ再起動だけで切り替わります
 # （イメージ再ビルドは不要）。
-#   puma      Apache -> ProxyPass -> Puma(:${REDMINE_PUMA_PORT})
 #   passenger Apache + mod_passenger が Redmine を直接起動（:3000 なし）
+#   puma      Apache -> ProxyPass -> Puma(:${REDMINE_PUMA_PORT})
+# 既定値は各 Containerfile の ENV REDMINE_WEB_SERVER が決めます
+# （7 系 = passenger、5 系 / 6 系 = puma）。ここでのフォールバックは、
+# その ENV を持たないイメージ（mod_passenger 非同梱の Containerfile.v5-mysql）や
+# 値を明示せずに起動したときのための保険なので puma のままにします。
 REDMINE_WEB_SERVER="${REDMINE_WEB_SERVER:-puma}"
 SMTP_HOST="${SMTP_HOST:-localhost}"
 SMTP_PORT="${SMTP_PORT:-25}"
@@ -149,6 +154,21 @@ envsubst '${SMTP_HOST} ${SMTP_PORT} ${SMTP_USER} ${SMTP_PASSWORD}' \
     < config/configuration.yml.tmpl > config/configuration.yml
 chown redmine:redmine config/configuration.yml
 chmod 640 config/configuration.yml
+
+# ── 2.5 bind mount のマウント直下の所有者を揃える ─────────────────────────────
+# 本番 (compose.prod.yaml) は files/ と log/ をホストの /opt/redmine/data 配下から
+# bind mount します。docker の bind mount は UID を変換しないため、ホスト側が
+# root 所有のままだと、アプリを動かす redmine ユーザー（Passenger の PassengerUser /
+# puma の runuser 先）が添付ファイルも production.log も書けません。
+# 名前付きボリュームではイメージ側の所有者が引き継がれるので、実質 bind mount 用の
+# 保険です。再帰はしません（既存の添付ファイル数が多いと起動が遅くなるため。
+# リストア時の再帰 chown は scripts/restore.sh が行います）。
+for _mount_dir in files log; do
+    if [[ -d "${REDMINE_HOME}/${_mount_dir}" ]]; then
+        chown redmine:redmine "${REDMINE_HOME}/${_mount_dir}" || \
+            log "WARNING: could not chown ${REDMINE_HOME}/${_mount_dir} (read-only mount?)."
+    fi
+done
 
 # Render from the .tmpl source, not the previously-rendered .conf — conf-enabled/
 # is a symlink to conf-available/<name>.conf (via a2enconf), so reading
@@ -279,10 +299,24 @@ fi
 if [[ "${REDMINE_WEB_SERVER}" == "passenger" ]]; then
     log "Starting Apache HTTPD on :80 with mod_passenger (sub-URI ${RAILS_RELATIVE_URL_ROOT}) ..."
     # APACHE_RUN_USER / APACHE_PID_FILE 等の Debian 既定値を読み込みます。
+    # 注意 1: envvars は先頭で APACHE_CONFDIR（本来は apache2ctl が設定する変数）を
+    #   未設定のまま参照するため、set -u のまま source すると
+    #   「APACHE_CONFDIR: unbound variable」で entrypoint ごと落ちます。
+    #   source の間だけ -u を外します。
+    # 注意 2: envvars は mod_dav 向けに LANG=C を export します。これがそのまま
+    #   Apache -> mod_passenger -> Redmine へ継承されると、Ruby の
+    #   default external が US-ASCII になり、bundler が日本語コメントを含む
+    #   config/database.yml やプラグインの Gemfile を読んだ時点で
+    #   「invalid byte sequence in US-ASCII」で起動に失敗します。
+    #   公式イメージが設定している LANG（C.UTF-8）を source 後に復元します。
+    saved_lang="${LANG:-C.UTF-8}"
+    set +u
     # shellcheck source=/dev/null
     source /etc/apache2/envvars
+    set -u
+    export LANG="${saved_lang}"
     # envvars はパスを export するだけでディレクトリは作りません（作るのは
-    # apache2ctl 側）。Podman は /run に tmpfs をマウントするため、イメージに
+    # apache2ctl 側）。Podman / docker は /run に tmpfs を張ることがあり、イメージに
     # 含まれる /run/apache2 は起動時に消えています。ここで作り直します。
     mkdir -p "${APACHE_RUN_DIR:-/var/run/apache2}" "${APACHE_LOCK_DIR:-/var/lock/apache2}"
     if [[ -n "${APACHE_PID_FILE:-}" ]]; then

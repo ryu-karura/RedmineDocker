@@ -4,7 +4,7 @@
 # 5 系は Containerfile.v5、7 系（既定）は Containerfile.v7 を参照してください。
 # 既定は 7 系なので、6 系を使うときは .env で REDMINE_VERSION=6.1.4 と
 # REDMINE_WEB_CONTAINERFILE=Containerfile.v6 を必ず明示してください
-# （本番の Quadlet は quadlets/v6/redmine-web.container で差し替えます）。
+# （本番も同じ .env を読むため、設定箇所は開発と同じ 1 か所です）。
 # 切り替えは .env の REDMINE_WEB_CONTAINERFILE / REDMINE_VERSION で行います
 # （docs/Design.md「Redmine シリーズの切り替え」参照）。
 #
@@ -63,7 +63,7 @@ ENV RAILS_RELATIVE_URL_ROOT=/redmine
 ENV RAILS_SERVE_STATIC_FILES=1
 # アプリサーバーの既定は puma（Apache -> ProxyPass -> Puma :3000）。
 # passenger にすると Apache + mod_passenger が Redmine を直接起動します。
-# compose / quadlet 側で上書きでき、コンテナ再起動のみで反映されます
+# compose / .env 側で上書きでき、コンテナ再起動のみで反映されます
 # （イメージ再ビルドは不要）。
 ENV REDMINE_WEB_SERVER=puma
 

@@ -130,7 +130,7 @@ in the image so the outcome is stable.
 
 ## 4. Build succeeds, but the container crash-loops on boot
 
-A green `podman build`/`docker compose build` only proves the image *compiles*.
+A green `docker compose build` (or a bare `docker build`) only proves the image *compiles*.
 These three bugs all look like "it built fine but won't start" and have
 already bitten this stack once each — check them in this order before
 assuming a new regression:
@@ -182,8 +182,8 @@ git ls-remote --tags https://github.com/haru/redmine_logs.git | grep -E 'v1\.0\.
 
 # Build the image end-to-end (must pass the plugin clones AND `bundle install`)
 docker compose -f compose.dev.yaml build redmine-web
-#   or: podman build -t localhost/redmine-web:6.1.4 \
-#         -f containers/redmine-web/Containerfile.v6 containers/redmine-web
+#   or: docker build -t localhost/redmine-web:7.0.1 \
+#         -f containers/redmine-web/Containerfile.v7 containers/redmine-web
 # Other series (sets Containerfile + base image + tag together):
 #   bash scripts/test-stack.sh --series 5   # or 7
 
@@ -197,15 +197,15 @@ curl -sf http://localhost:8080/redmine/login && echo OK
 ```
 
 **`up -d` after a rebuild can silently keep running the old container/image.**
-`podman-compose up -d` (the external compose provider `podman compose` uses)
-does not reliably recreate a container just because its image was rebuilt
-under the same tag — you can fix a bug, rebuild, `up -d`, and still be
+This bites on `podman-compose` (the external compose provider `podman compose`
+uses), which does not reliably recreate a container just because its image was
+rebuilt under the same tag — you can fix a bug, rebuild, `up -d`, and still be
 looking at the old image's crash. Confirm with
-`podman inspect --format '{{.Image}}' redmine-web` vs.
-`podman images localhost/redmine-web:6.1.4 --format '{{.ID}}'`; if they
-differ, force it: `podman compose -f compose.dev.yaml up -d --force-recreate
+`<cli> inspect --format '{{.Image}}' redmine-web` vs.
+`<cli> images localhost/redmine-web:7.0.1 --format '{{.ID}}'`; if they
+differ, force it: `<cli> compose -f compose.dev.yaml up -d --force-recreate
 redmine-web`. When troubleshooting a "residue" boot failure, tear all the way
-down first (`podman compose -f compose.dev.yaml down -v`, and clear any
-stray anonymous volumes with `podman volume ls` / `podman volume rm`) so
+down first (`<cli> compose -f compose.dev.yaml down -v`, and clear any
+stray anonymous volumes with `<cli> volume ls` / `<cli> volume rm`) so
 you're always diagnosing a clean start, not a stale container or a
 half-initialized `pgdata` volume from a previous failed boot.

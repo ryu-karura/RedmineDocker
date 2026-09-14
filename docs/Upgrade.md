@@ -24,7 +24,7 @@
 通しの自動検証は `bash scripts/test-upgrade.sh` です（段階 1〜3 を実データ入りで流し、
 各段の結果を検査します）。
 
-> **注意**: 本番 (Quadlet) 構成には MySQL 版のユニットはありません。移行元の再現は
+> **注意**: 本番 (Docker + systemd) 構成には MySQL 版の定義はありません。移行元の再現は
 > 開発 / リハーサル用の Compose のみで行います。移行完了後の本番構成はこれまでどおり
 > PostgreSQL 18 + PostGIS 3.6 です（`docs/Setup.md`）。
 
@@ -448,6 +448,11 @@ REDMINE_WEB_CONTAINERFILE=Containerfile.v7
 ```
 
 `.env` を `.env.example` から作り直した場合も、既定でこの 2 つになります。
+
+アップグレード先（7 系）のアプリサーバーは **既定が `passenger`**（Apache +
+mod_passenger が Redmine を直接起動、Puma と `:3000` は使いません）です。移行元の
+5.1.1 スタックは `puma` のままです。`puma` で動かしたい場合は `.env` に
+`REDMINE_WEB_SERVER=puma` を書いてください（`docs/Manual.md`「ケース E」）。
 
 ```bash
 docker compose -f compose.dev.yaml up --build -d

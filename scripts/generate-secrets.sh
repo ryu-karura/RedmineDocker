@@ -10,7 +10,8 @@
 #                                    通常の PostgreSQL 構成では使いません。
 #
 # これらは開発時は compose.dev.yaml の `secrets:` から参照され、
-# 本番時は `podman secret create` の入力ファイルになります（docs/Setup.md 参照）。
+# 本番 (Docker + systemd) でも同じファイルをそのまま compose の file secret として
+# マウントします。登録コマンドは不要です（docs/Setup.md 参照）。
 # git には含めないため、リポジトリ外へ安全にバックアップしてください。
 #
 # 使い方:
@@ -93,8 +94,8 @@ echo ""
 echo "Development (Docker Compose): ready — run"
 echo "    docker compose -f compose.dev.yaml up --build -d"
 echo ""
-echo "Production (Podman): register the files as Podman secrets, e.g."
-echo "    podman secret create db_password     ${DB_PASSWORD_FILE}"
-echo "    podman secret create secret_key_base ${SECRET_KEY_BASE_FILE}"
+echo "Production (Docker + systemd): no extra registration step — compose mounts"
+echo "these files as secrets. Start the stack with"
+echo "    sudo systemctl start redmine"
 echo ""
 echo "Keep a secure backup of these files outside the repository."

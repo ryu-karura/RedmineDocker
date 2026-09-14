@@ -15,8 +15,8 @@
 #
 # アプリ配置は /usr/src/redmine（公式イメージ標準）です。
 # Apache が :80 で受け、REDMINE_WEB_SERVER に応じて次のどちらかで処理します:
-#   puma      (既定) 内部の Puma（:3000）へ ProxyPass
-#   passenger mod_passenger が Redmine を直接起動（:3000 は使わない）
+#   passenger (既定) mod_passenger が Redmine を直接起動（:3000 は使わない）
+#   puma             内部の Puma（:3000）へ ProxyPass
 #
 # ★ mod_passenger は 5 / 6 系と同じ Debian trixie の 6.0.26 です
 #   以前は「Passenger の Ruby 4 対応は 6.1.1 以降」という CHANGELOG の記述
@@ -72,10 +72,12 @@ ENV RAILS_RELATIVE_URL_ROOT=/redmine
 # Redmine はアプリポートで静的資産も配信します。
 # このコンテナ内の Apache フロントはそこへ転送します。
 ENV RAILS_SERVE_STATIC_FILES=1
-# アプリサーバーの既定は puma（Apache -> ProxyPass -> Puma :3000）。
-# passenger にすると Apache + mod_passenger が Redmine を直接起動します
-# （7 系の mod_passenger は上記★のとおり trixie の 6.0.26）。
-ENV REDMINE_WEB_SERVER=puma
+# アプリサーバーの既定は passenger（Apache + mod_passenger が Redmine を直接起動。
+# 7 系の mod_passenger は上記★のとおり trixie の 6.0.26）。
+# puma にすると Apache -> ProxyPass -> Puma :3000 の構成に戻ります
+# （どちらもイメージに同梱しているため、切り替えは環境変数 + 再起動のみ）。
+# 5 系 / 6 系のイメージ (Containerfile.v5 / .v6) の既定は puma のままです。
+ENV REDMINE_WEB_SERVER=passenger
 
 # ── システムパッケージ（root） ────────────────────────────────────────────────
 USER root
@@ -248,14 +250,15 @@ COPY entrypoint.sh /usr/local/bin/redmine-entrypoint.sh
 COPY healthcheck.sh /usr/local/bin/redmine-healthcheck.sh
 RUN a2enmod headers rewrite proxy proxy_http \
     # mod_passenger は Debian パッケージの postinst が有効化しますが、
-    # 既定モード (puma) では不要なのでここで無効化しておきます。
-    # entrypoint.sh が REDMINE_WEB_SERVER に応じて起動時に切り替えます。
+    # ビルド時はいったん無効化しておきます。どちらのモードで起動するかは
+    # entrypoint.sh が REDMINE_WEB_SERVER を見て決め、passenger モード
+    # （7 系の既定）なら起動時に a2enmod passenger します。
     && a2dismod -f passenger \
     && a2dissite 000-default || true \
     # Build-time default render, purely so a2enconf has a file to enable;
-    # entrypoint.sh re-renders this from the .tmpl at container start in case
-    # RAILS_RELATIVE_URL_ROOT was overridden via .env, so this copy is never
-    # actually served as-is.
+    # entrypoint.sh re-renders the template for the selected mode at container
+    # start (and a2disconf's the other one), so this copy is never actually
+    # served as-is — least of all in the default passenger mode.
     && envsubst '${RAILS_RELATIVE_URL_ROOT}' \
         < /etc/apache2/conf-available/redmine-proxy.conf.tmpl \
         > /etc/apache2/conf-available/redmine-proxy.conf \

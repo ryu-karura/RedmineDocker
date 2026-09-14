@@ -3,8 +3,11 @@
 #
 # redmine スタック向け災害復旧リストアスクリプトです。
 #
-# rootless `redmine` ユーザーで実行します（sudo 不要。Podman と
-# systemd --user ユニットはユーザー単位で管理）。
+# 本番は Docker Engine + systemd (systemd/redmine.service) 構成のため、
+# docker デーモンを操作できる権限で実行します（root、または docker グループ）。
+# スタック全体は systemd ユニット (redmine.service) で管理しますが、この
+# スクリプトは redmine-web コンテナだけを止めて DB を入れ替えるため、
+# ユニットは停止せずコンテナ単位で stop/start します。
 #
 # 使い方:
 #   bash /opt/redmine/containers/scripts/restore.sh <db_dump> <files_archive>
@@ -32,13 +35,34 @@ DB_PASSWORD_FILE="${DB_PASSWORD_FILE:-${SECRETS_DIR}/db_password.txt}"
 DB_CONTAINER="${REDMINE_DB_CONTAINER:-redmine-db}"
 DB_NAME="${REDMINE_DB_NAME:-redmine}"
 DB_USER="${REDMINE_DB_USER:-redmine}"
-SERVICE="${REDMINE_WEB_CONTAINER:-redmine-web}"
+WEB_CONTAINER="${REDMINE_WEB_CONTAINER:-redmine-web}"
 DATA_DIR="${REDMINE_DATA_DIR:-/opt/redmine/data/redmine}"
 FILES_DIR="${DATA_DIR}/files"
+# 添付ファイルの所有者。docker の bind mount は UID を変換しないため、
+# 展開後にコンテナ内 redmine ユーザーの uid:gid へ揃えます
+# （公式 redmine イメージでは 999:999）。
+REDMINE_APP_UID="${REDMINE_APP_UID:-999}"
+REDMINE_APP_GID="${REDMINE_APP_GID:-999}"
 LOG_PREFIX="[$(date -u '+%Y-%m-%dT%H:%M:%SZ')] [restore]"
 
 log()  { echo "${LOG_PREFIX} $*"; }
 die()  { echo "${LOG_PREFIX} ERROR: $*" >&2; exit 1; }
+warn() { echo "${LOG_PREFIX} WARNING: $*" >&2; }
+
+# ── コンテナ CLI ───────────────────────────────────────────────────────────────
+# 本番・開発とも Docker Engine を既定にし、docker が無い環境（rootless Podman
+# だけの WSL など）では podman へフォールバックします。CONTAINER_CLI で明示指定も可。
+CONTAINER_CLI="${CONTAINER_CLI:-}"
+if [ -z "${CONTAINER_CLI}" ]; then
+    if command -v docker >/dev/null 2>&1; then
+        CONTAINER_CLI=docker
+    elif command -v podman >/dev/null 2>&1; then
+        CONTAINER_CLI=podman
+    else
+        die "Neither docker nor podman found. Set CONTAINER_CLI explicitly."
+    fi
+fi
+cli() { "${CONTAINER_CLI}" "$@"; }
 
 usage() {
     echo "Usage: $0 <db_dump_file> <files_archive>"
@@ -62,7 +86,7 @@ echo ""
 echo "  ╔══════════════════════════════════════════════════════════╗"
 echo "  ║           REDMINE DISASTER RECOVERY RESTORE         ║"
 echo "  ╠══════════════════════════════════════════════════════════╣"
-echo "  ║ Service:   ${SERVICE}"
+echo "  ║ Container: ${WEB_CONTAINER}"
 echo "  ║ Database:  ${DB_NAME}"
 echo "  ║ DB dump:   ${DB_DUMP}"
 echo "  ║ Files:     ${FILES_ARCHIVE}"
@@ -74,54 +98,73 @@ echo ""
 read -r -p "Type 'RESTORE' to confirm: " CONFIRM
 [ "${CONFIRM}" = "RESTORE" ] || { echo "Aborted."; exit 1; }
 
-# ── 手順 1: Redmine サービス停止 ───────────────────────────────────────────────
-log "Step 1/6: Stopping ${SERVICE} ..."
-if systemctl --user is-active --quiet "${SERVICE}" 2>/dev/null; then
-    systemctl --user stop "${SERVICE}"
-    log "  ${SERVICE} stopped."
+# ── 手順 1: Redmine (web) コンテナ停止 ─────────────────────────────────────────
+# redmine-db は起動したまま（この後 psql / pg_restore で使います）、
+# アプリだけを止めます。systemd ユニット (redmine.service) は触りません。
+log "Step 1/6: Stopping ${WEB_CONTAINER} ..."
+if cli container inspect "${WEB_CONTAINER}" --format '{{.State.Status}}' 2>/dev/null | grep -q 'running'; then
+    cli stop "${WEB_CONTAINER}" >/dev/null
+    log "  ${WEB_CONTAINER} stopped."
 else
-    log "  ${SERVICE} was not running."
+    log "  ${WEB_CONTAINER} was not running."
 fi
 
 # ── 手順 2: DB コンテナ稼働確認 ────────────────────────────────────────────────
 log "Step 2/6: Verifying database container ..."
-podman container inspect "${DB_CONTAINER}" --format '{{.State.Status}}' 2>/dev/null | grep -q 'running' \
+cli container inspect "${DB_CONTAINER}" --format '{{.State.Status}}' 2>/dev/null | grep -q 'running' \
     || die "Container '${DB_CONTAINER}' is not running."
 log "  ${DB_CONTAINER} is running."
 
 # コンテナ内 psql / pg_restore はこのパスワードで認証します。
-PSQL() { podman exec -e PGPASSWORD="${DB_PASSWORD}" "${DB_CONTAINER}" psql -U "${DB_USER}" "$@"; }
+PSQL() { cli exec -e PGPASSWORD="${DB_PASSWORD}" "${DB_CONTAINER}" psql -U "${DB_USER}" "$@"; }
 
 # ── 手順 3: DB を削除して再作成 ──────────────────────────────────────────────
+# ★ ここで PostGIS 拡張は作りません（作るのは手順 4 の pg_restore のあと）。
+#   backup.sh のダンプは PostGIS 入りの DB から取っているため、ダンプ自身が
+#   `CREATE EXTENSION postgis` と `CREATE SCHEMA topology` を含みます。先に
+#   postgis_topology を作ってしまうと topology スキーマが二重定義になり、
+#   pg_restore が `--exit-on-error` で
+#   `ERROR: schema "topology" already exists` を出して中断します。
 log "Step 3/6: Recreating database ${DB_NAME} ..."
 PSQL -d postgres -c "DROP DATABASE IF EXISTS ${DB_NAME};" || true
 PSQL -d postgres -c "CREATE DATABASE ${DB_NAME} OWNER ${DB_USER} ENCODING 'UTF8' \
     LC_COLLATE 'C.UTF-8' LC_CTYPE 'C.UTF-8' TEMPLATE template0;"
-PSQL -d "${DB_NAME}" -c "CREATE EXTENSION IF NOT EXISTS postgis;"
-PSQL -d "${DB_NAME}" -c "CREATE EXTENSION IF NOT EXISTS postgis_topology;"
-log "  Database ${DB_NAME} recreated."
+log "  Database ${DB_NAME} recreated (empty)."
 
 # ── 手順 4: ダンプから DB 復元 ───────────────────────────────────────────────
 log "Step 4/6: Restoring database from $(basename "${DB_DUMP}") ..."
 DUMP_BASENAME=$(basename "${DB_DUMP}")
-podman cp "${DB_DUMP}" "${DB_CONTAINER}:/tmp/${DUMP_BASENAME}"
-podman exec -e PGPASSWORD="${DB_PASSWORD}" "${DB_CONTAINER}" \
+cli cp "${DB_DUMP}" "${DB_CONTAINER}:/tmp/${DUMP_BASENAME}"
+cli exec -e PGPASSWORD="${DB_PASSWORD}" "${DB_CONTAINER}" \
     pg_restore -U "${DB_USER}" -d "${DB_NAME}" --no-owner --role="${DB_USER}" \
         --exit-on-error "/tmp/${DUMP_BASENAME}"
-podman exec "${DB_CONTAINER}" rm -f "/tmp/${DUMP_BASENAME}"
-log "  Database restore complete."
+cli exec "${DB_CONTAINER}" rm -f "/tmp/${DUMP_BASENAME}"
+# ダンプに PostGIS が含まれていなかった場合の保険（含まれていれば no-op）。
+# redmine_gtt は postgis / postgis_topology が無いと起動できません。
+PSQL -d "${DB_NAME}" -c "CREATE EXTENSION IF NOT EXISTS postgis;" >/dev/null
+PSQL -d "${DB_NAME}" -c "CREATE EXTENSION IF NOT EXISTS postgis_topology;" >/dev/null
+log "  Database restore complete (PostGIS extensions verified)."
 
 # ── 手順 5: 添付ファイル復元 ─────────────────────────────────────────────────
 log "Step 5/6: Restoring files from $(basename "${FILES_ARCHIVE}") ..."
 mkdir -p "${FILES_DIR}"
 rm -rf "${FILES_DIR:?}"/*
 tar -xzf "${FILES_ARCHIVE}" -C "${DATA_DIR}/"
+# bind mount では所有者がそのままコンテナ内に見えるため、アプリ
+# （コンテナ内 redmine ユーザー）が書き込めるように揃えます。
+if [ "$(id -u)" = "0" ]; then
+    chown -R "${REDMINE_APP_UID}:${REDMINE_APP_GID}" "${FILES_DIR}"
+else
+    warn "Not running as root — skipped chown of ${FILES_DIR} to ${REDMINE_APP_UID}:${REDMINE_APP_GID}."
+    warn "If the app cannot write attachments, run: sudo chown -R ${REDMINE_APP_UID}:${REDMINE_APP_GID} ${FILES_DIR}"
+fi
 log "  Files restore complete."
 
-# ── 手順 6: サービス再起動 ────────────────────────────────────────────────────
-log "Step 6/6: Restarting ${SERVICE} ..."
-systemctl --user start "${SERVICE}"
-log "  ${SERVICE} started."
+# ── 手順 6: Redmine (web) コンテナ再起動 ──────────────────────────────────────
+log "Step 6/6: Restarting ${WEB_CONTAINER} ..."
+cli start "${WEB_CONTAINER}" >/dev/null
+log "  ${WEB_CONTAINER} started."
 log ""
 log "Restore complete. Monitor startup:"
-log "  journalctl -u ${SERVICE} -f"
+log "  ${CONTAINER_CLI} logs -f ${WEB_CONTAINER}"
+log "  (systemd 側の状態は 'systemctl status redmine' で確認できます)"

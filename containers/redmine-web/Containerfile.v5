@@ -4,7 +4,7 @@
 # 6 系は Containerfile.v6、7 系（既定）は Containerfile.v7 を参照してください。
 # 既定は 7 系なので、5 系を使うときは .env で REDMINE_VERSION=5.1.12 と
 # REDMINE_WEB_CONTAINERFILE=Containerfile.v5 を必ず明示してください
-# （本番の Quadlet は quadlets/v5/redmine-web.container で差し替えます）。
+# （本番も同じ .env を読むため、設定箇所は開発と同じ 1 か所です）。
 # 切り替えは .env の REDMINE_WEB_CONTAINERFILE / REDMINE_VERSION で行います
 # （docs/Design.md「Redmine シリーズの切り替え」参照）。
 #

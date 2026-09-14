@@ -4,11 +4,16 @@ set -u
 
 COMPOSE_FILE="compose.dev.yaml"
 
+# コンテナランタイム。既定は docker です（本番の systemd + docker compose
+# 構成と揃えるため）。docker が無いホストでは podman へフォールバックします。
+# CONTAINER_CLI=podman ./menu.sh のように明示指定もできます。
 detect_runtime() {
-    if command -v podman >/dev/null 2>&1; then
-        echo "podman"
+    if [ -n "${CONTAINER_CLI:-}" ]; then
+        echo "${CONTAINER_CLI}"
     elif command -v docker >/dev/null 2>&1; then
         echo "docker"
+    elif command -v podman >/dev/null 2>&1; then
+        echo "podman"
     else
         echo "NONE"
     fi

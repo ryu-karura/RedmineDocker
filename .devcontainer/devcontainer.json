@@ -11,7 +11,7 @@
       "onAutoForward": "notify"
     },
     "8080": {
-      "label": "Redmine (Apache + Puma in redmine-web)",
+      "label": "Redmine (Apache + Passenger/Puma in redmine-web)",
       "onAutoForward": "notify"
     }
   },
