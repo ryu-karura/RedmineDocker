@@ -18,8 +18,7 @@ RedmineDocker は 2 つのコンテナが連携して Redmine 7.0.1 を動作さ
 | Apache フロントエンド | `httpd` 2.4（`redmine-web` に内蔵） |
 | DB 名 / 所有者 | `redmine` / `redmine` |
 | DB コンテナ | `redmine-db` |
-| Redmine アプリコンテナ | `redmine-web` |
-| Web フロントコンテナ | `redmine-web` |
+| Redmine アプリ / Web フロントコンテナ | `redmine-web` |
 | アプリサーバー | `passenger`（既定）または `puma`（`REDMINE_WEB_SERVER`） |
 | Puma 内部ポート | `3000`（ホスト公開なし。`passenger` では未使用） |
 | PostgreSQL 内部ポート | `5432`（ホスト公開なし） |
@@ -118,17 +117,16 @@ docker の bind mount は UID を変換しません（rootless Podman のよう�
 | `db_password` | redmine-db, redmine-web | `secrets/db_password.txt` |
 | `secret_key_base` | redmine-web | `secrets/secret_key_base.txt` |
 
-`scripts/generate-secrets.sh` がファイルを作成します（mode 600、git ignore）。開発・本番とも `compose.dev.yaml` の `secrets:`（file secret）でコンテナの `/run/secrets/<name>` にマウントされるため、**本番でも登録コマンドは不要**です（以前の Podman Quadlet 構成では `podman secret create` が必要でした）。コンテナ側は `REDMINE_DB_PASSWORD_FILE` などの `*_FILE` 経由で読み込みます。
+`scripts/generate-secrets.sh` がファイルを作成します（mode 600、git ignore）。開発・本番とも `compose.dev.yaml` の `secrets:`（file secret）でコンテナの `/run/secrets/<name>` にマウントされるため、**本番でも登録コマンドは不要**です。コンテナ側は `REDMINE_DB_PASSWORD_FILE` などの `*_FILE` 経由で読み込みます。
 
 ## 6. ユーザーと権限
 
-- コンテナ内では公式イメージが持つユーザーをそのまま使用します: `redmine`（Redmine アプリ）と `postgres` / `redmine`（データベース）。独自の UID/GID リマップは行いません。これは、以前の rbenv ベースイメージよりも簡素化した設計です。
+- コンテナ内では公式イメージが持つユーザーをそのまま使用します: `redmine`（Redmine アプリ）と `postgres` / `redmine`（データベース）。独自の UID/GID リマップは行いません。
 - 本番の docker デーモンは root で動き、`redmine.service` も root の system ユニットです。コンテナ内の UID はホストの UID にそのまま対応するため、bind mount するデータディレクトリは `999:999`（コンテナ内 `redmine`）で所有させます（「4. データと永続化」参照）。SELinux 環境向けに `compose.prod.yaml` の bind mount には `:Z` を付けています。
 - `docker` グループへの追加は root 相当の権限付与に等しいため、運用コマンド（`scripts/backup.sh` など）は root（`sudo`）実行を既定にしています。
 
 ## 7. 補足 / 注意点
 
-- Apache フロントエンドは `redmine-web` イメージに組み込まれ、個別の `redmine-static` イメージは不要になりました。
 - 追加の Web プロキシコンテナを置かず、Redmine コンテナ内で Apache とアプリサーバーを運用しています。既定の `passenger` モードでは Apache が `public/` を直接配信し、`puma` モードでは Redmine（Rails）側がアセットを配信します。
 
 ## 8. 設定パラメータ (.env)
@@ -154,9 +152,11 @@ docker の bind mount は UID を変換しません（rootless Podman のよう�
 | DB ボリューム名 | `REDMINE_DB_VOLUME` | `redmine_pgdata` |
 | 添付ファイルボリューム名 | `REDMINE_FILES_VOLUME` | `redmine_web_files` |
 | DB 名 / ユーザー | `REDMINE_DB_NAME` / `REDMINE_DB_USER` | `redmine` / `redmine` |
-| データルート | `REDMINE_DATA_DIR` | `/opt/redmine/data/redmine` |
+| データルート（本番の bind mount 元） | `REDMINE_DATA_ROOT` | `/opt/redmine/data` |
+| Redmine データディレクトリ | `REDMINE_DATA_DIR` | `${REDMINE_DATA_ROOT}/redmine` |
 | SUBURI | `REDMINE_SUBURI` | `/redmine` |
 | 開発公開ポート | `REDMINE_WEB_HOST_PORT` | `8080` |
+| 本番公開ポート | `REDMINE_PROD_HOST_PORT` | `80`（`compose.prod.yaml` のみが参照） |
 | アプリサーバー | `REDMINE_WEB_SERVER` | `passenger`（`puma` も可） |
 | Puma 内部ポート | `REDMINE_PUMA_PORT` | `3000`（`passenger` では未使用） |
 | YJIT 有効化 | `RUBY_YJIT_ENABLE` | `1` |
@@ -191,11 +191,6 @@ docker の bind mount は UID を変換しません（rootless Podman のよう�
 `.env` を自動読込します。つまりコンテナ名・ネットワーク名・DB 名/ユーザー名・サブ URI・
 データルート (`REDMINE_DATA_ROOT`) まで、**開発と同じ 1 ファイル**で設定できます。
 
-以前の Podman Quadlet 構成では、`*.container` ユニットが `Image=` / `ContainerName=` /
-`Volume=` / `PublishPort=` などに変数展開を持たないため、これらの値をユニットへ
-ハードコードする必要がありました。Docker Compose + systemd へ移行したことでこの制約は
-無くなり、`.env` が唯一の設定元になっています。
-
 残る注意点は 2 つです。
 
 - 公開ポートだけは開発と本番で変数を分けています（`REDMINE_WEB_HOST_PORT` = 開発の 8080 /
@@ -205,8 +200,8 @@ docker の bind mount は UID を変換しません（rootless Podman のよう�
   `ProxyPass /redmine ...` は静的です。`REDMINE_SUBURI` を変える場合は、このファイルも
   合わせて編集してください。
 
-ヘルスチェックの判定ロジックをイメージ内の `/usr/local/bin/redmine-healthcheck.sh`
-（`containers/redmine-web/healthcheck.sh`）へ置いているのは変わりません。サブ URI と
+ヘルスチェックの判定ロジックはイメージ内の `/usr/local/bin/redmine-healthcheck.sh`
+（`containers/redmine-web/healthcheck.sh`）に置いています。サブ URI と
 `REDMINE_WEB_SERVER` で検証内容が変わるため、コンテナの環境変数から解決できる場所に
 まとめてあります。
 
@@ -254,7 +249,6 @@ REDMINE_WEB_CONTAINERFILE=Containerfile.v7
 
 **本番 (Docker + systemd)** — 本番も同じ `compose.dev.yaml` を使うため、開発とまったく同じく
 `.env` の 2 行（`REDMINE_VERSION` / `REDMINE_WEB_CONTAINERFILE`）を変えるだけです。
-系列ごとのユニットは不要になりました。
 
 ```bash
 cd /opt/redmine/containers
