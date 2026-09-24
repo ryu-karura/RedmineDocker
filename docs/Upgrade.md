@@ -127,8 +127,8 @@ docker compose --env-file .env.legacy -f compose.legacy.yaml logs -f redmine-leg
 
 ### 2.1 プラグイン構成（16 個）と、除外したもの
 
-`Containerfile.v5` の 11 個から `redmine_gtt` を除いた 10 個に、実際の移行元環境
-（本番相当）のプラグイン構成に合わせて 6 個を追加したものです。
+`Containerfile.v5` の 12 個から `redmine_gtt` を除いた 11 個に、実際の移行元環境
+（本番相当）のプラグイン構成に合わせて 5 個を追加したものです。
 
 | # | プラグイン | バージョン |
 |---|-----------|-----------|
@@ -509,7 +509,7 @@ docker compose -f compose.dev.yaml logs -f redmine-web
 
 | 段階 | 切り戻し方 |
 |------|-----------|
-| 段階 3 の途中で失敗 | `docker compose -f compose.dev.yaml down` → `.env` を 5 系相当に戻す前に、5.3 で取った `redmine_before_v7.dump` を `scripts/restore.sh` 相当の手順でリストアし、`localhost/redmine-web:5.1.1-mysql` を PostgreSQL 向けに起動（4 章）して確認 |
+| 段階 3 の途中で失敗 | `docker compose -f compose.dev.yaml down` → 5.2 で取った `redmine_before_v7.dump` を `redmine-db` へ `scripts/restore.sh` 相当の手順でリストアし、`localhost/redmine-web:5.1.1-mysql` を PostgreSQL 向けに起動（4 章）して確認 |
 | 段階 2 の途中で失敗 | 移行元 (MySQL) には一切書き込んでいないため、移行先の DB を捨てて (`docker compose -f compose.dev.yaml down -v`) やり直す |
 | 全体を中止 | 移行元スタックはそのまま動いています（`:8081`）。移行先を `down -v` で破棄するだけです |
 

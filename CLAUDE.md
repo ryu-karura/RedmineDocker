@@ -117,7 +117,7 @@ plugin/theme versions that actually work differ per series:
 | 7 (default) | `Containerfile.v7` | `redmine:7.0.1` | 4.0 / 8.1.3.1 | 14 |
 
 A fourth Containerfile, `Containerfile.v5-mysql` (Redmine 5.1.1 + MySQL 8.0 CE,
-16 plugins — the 10 shared with `Containerfile.v5` minus `redmine_gtt`, plus 6
+16 plugins — the 11 of `Containerfile.v5` other than `redmine_gtt`, plus 5
 more pinned to match a real legacy production plugin set), exists **only to
 rehearse the upgrade** from a legacy MySQL install
 — see "Upgrade rehearsal path" below and `docs/Upgrade.md`. It is not part of
