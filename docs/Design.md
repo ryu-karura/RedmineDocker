@@ -160,10 +160,9 @@ docker の bind mount は UID を変換しません（rootless Podman のよう�
 | アプリサーバー | `REDMINE_WEB_SERVER` | `passenger`（`puma` も可） |
 | Puma 内部ポート | `REDMINE_PUMA_PORT` | `3000`（`passenger` では未使用） |
 | YJIT 有効化 | `RUBY_YJIT_ENABLE` | `1` |
-| DB アダプタ | `REDMINE_DB_ADAPTER` | `postgis`（`.env` 側は常にこれで固定。`postgresql` / `mysql2` は `.env.legacy` 側でのみ使用。「10. 移行元 (MySQL) の再現と DB コンバート」参照） |
-| マイグレーション専用起動 | `REDMINE_MIGRATE_ONLY` | 未設定（設定するとマイグレーション後に Web サーバーを起動せず終了） |
 
 補足:
+- 次の変数は `.env` では変更できません。`REDMINE_DB_ADAPTER` は `compose.dev.yaml` で `postgis` に固定しています（`postgresql` / `mysql2` は移行元スタック側でのみ使用。「10. 移行元 (MySQL) の再現と DB コンバート」参照）。`REDMINE_MIGRATE_ONLY`（マイグレーション後に Web サーバーを起動せず終了）は `restart: always` と組み合わせると再起動を繰り返すため compose では渡さず、`docker compose -f compose.dev.yaml run --rm -e REDMINE_MIGRATE_ONLY=1 redmine-web` のように単発起動で指定します。
 - `compose.dev.yaml` の build args で `REDMINE_WEB_BASE_IMAGE` / `REDMINE_DB_BASE_IMAGE` を Containerfile の `FROM` に渡します。`redmine-web` の Containerfile は `REDMINE_WEB_CONTAINERFILE` で選びます（系列切り替えのため。「9. Redmine シリーズの切り替え」参照）。`REDMINE_VERSION` と `REDMINE_WEB_CONTAINERFILE` は必ずセットで変更してください。
 - 同じバージョン変数から、ビルド済みローカルイメージタグ（`REDMINE_WEB_IMAGE` / `REDMINE_DB_IMAGE`）も構成されます。
 - 本番も `systemd/redmine.service` が `WorkingDirectory=/opt/redmine/containers` で compose を実行するため、同じ `.env` がそのまま読み込まれます（SMTP/TZ を含む全項目）。

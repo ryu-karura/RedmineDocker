@@ -468,7 +468,7 @@ docker compose -f compose.dev.yaml logs -f redmine-web
 データ量によっては数分〜数十分かかります。**途中で止めないでください。**
 
 マイグレーションだけ先に流してからアプリを公開したい場合は、
-`REDMINE_MIGRATE_ONLY=1` を付けて単発起動します（Web サーバーを起動せずに終了します）。
+`docker compose -f compose.dev.yaml run --rm -e REDMINE_MIGRATE_ONLY=1 redmine-web` で単発起動します（Web サーバーを起動せずに終了します）。
 
 ### 5.4 プラグイン構成の変化
 
@@ -584,9 +584,10 @@ bash scripts/test-webflow.sh --url http://localhost:8080/redmine \
 | 変数 | 既定 | 意味 |
 |------|------|------|
 | `REDMINE_WEB_CONTAINERFILE` | `Containerfile.v7` | 段階 3 の移行先そのもの。5 系 / 6 系に留める場合だけ `.v5` / `.v6` を明示する |
-| `REDMINE_DB_ADAPTER` | `postgis` | 通常構成では変更不要。段階 3 で `Containerfile.v7` に切り替えても既定の `postgis` のまま |
-| `REDMINE_MIGRATE_ONLY` | 未設定 | 設定するとマイグレーションだけ実行して終了（Web サーバーを起動しない） |
 | `REDMINE_NETWORK` / `REDMINE_DB_CONTAINER` | `redmine-net` / `redmine-db` | 4.1 の恒久運用 override（`compose.legacy-on-postgres.yaml`）が接続先として参照 |
+
+`REDMINE_DB_ADAPTER`（`compose.dev.yaml` で `postgis` に固定）と `REDMINE_MIGRATE_ONLY`
+（5.3 のとおり `run -e` で単発指定）は `.env` では設定しません。
 
 **`.env.legacy`（`.env.legacy.example` から作成）**
 

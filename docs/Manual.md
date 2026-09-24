@@ -228,7 +228,7 @@ sudo systemctl restart redmine
 - Redmine 7 へ上げる前に、7 系イメージに無いプラグインをアンインストールしてください
   （マイグレーションを持つのは `redmine_theme_changer` だけです。
   `rake redmine:plugins:migrate NAME=redmine_theme_changer VERSION=0`）。
-- アプリを公開せずにマイグレーションだけ先に流したい場合は `REDMINE_MIGRATE_ONLY=1` で単発起動します。
+- アプリを公開せずにマイグレーションだけ先に流したい場合は `docker compose -f compose.dev.yaml run --rm -e REDMINE_MIGRATE_ONLY=1 redmine-web` で単発起動します（本番は `dcp run --rm -e REDMINE_MIGRATE_ONLY=1 redmine-web`）。
 - 通しの自動検証は `bash scripts/test-upgrade.sh`。
 
 ### ケース C: 完全再作成（データを消して作り直す）
@@ -403,9 +403,10 @@ sudo systemctl reload redmine     # entrypoint でマイグレーションを再
 ```
 
 マイグレーションを実行せずに起動したい場合（アップグレード前の DB 確認など）は、
-公式イメージと同じく `REDMINE_NO_DB_MIGRATE` に値を設定します
-（`.env` に `REDMINE_NO_DB_MIGRATE=1` と書き、`sudo systemctl reload redmine`）。
-値を空にする / 行を消すと再びコアの `db:migrate` を実行します。
+公式イメージと同じく `REDMINE_NO_DB_MIGRATE` に値を設定します。この変数は `.env` からは
+渡らないため、`compose.dev.yaml` の `redmine-web` の `environment:` にあるコメント行
+`# REDMINE_NO_DB_MIGRATE: "1"` の `#` を外して `sudo systemctl reload redmine` します。
+元に戻す（コメントアウトする）と再びコアの `db:migrate` を実行します。
 
 ### Apache フロントエンド
 Apache の設定は `redmine-web` イメージに含まれています。変更後は Redmine イメージを再ビルドして再起動します。設定は
