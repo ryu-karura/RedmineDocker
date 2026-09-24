@@ -196,7 +196,7 @@ docker compose -f compose.dev.yaml up -d --build redmine-web
 
 ```bash
 # 1) 事前バックアップ
-bash /opt/redmine/containers/scripts/backup.sh
+sudo bash /opt/redmine/containers/scripts/backup.sh
 
 # 2) 新バージョンでイメージ再ビルド
 cd /opt/redmine/containers
@@ -347,7 +347,9 @@ sudo docker exec redmine-web dpkg-query -W -f='${Version}\n' libapache2-mod-pass
 
 ```bash
 # 0) 事前バックアップ（系列を戻せるようにするため必須）
-bash scripts/backup.sh
+#    scripts/backup.sh は本番専用なので、開発では DB を直接ダンプします
+docker exec -e PGPASSWORD="$(cat secrets/db_password.txt)" redmine-db \
+  pg_dump -U redmine -F c redmine > redmine_before_switch.dump
 
 # 1) .env を 2 つセットで変更（例: 既定の 7 系から 6 系へ下げる）
 #      REDMINE_VERSION=6.1.4
@@ -419,7 +421,7 @@ Apache の設定は `redmine-web` イメージに含まれています。変更�
 
 ## バックアップ
 
-`scripts/backup.sh` は `redmine` データベースのダンプ（pg_dump のカスタム形式）を作成し、`/opt/redmine/data/redmine/files` をアーカイブして `/opt/redmine/backup/` 配下に 7 世代保存します。DB パスワードは `secrets/db_password.txt` から読み取ります。DB 名・ユーザー名・コンテナ名・データルートは `/opt/redmine/containers/.env` があればそこから読み込みます（既定値は上記の通り。`docs/Design.md` 参照）。
+`scripts/backup.sh` は `redmine` データベースのダンプ（pg_dump のカスタム形式）を作成し、`${REDMINE_DATA_DIR}/files`（既定 `/opt/redmine/data/redmine/files`）をアーカイブして `/opt/redmine/backup/` 配下に 7 世代保存します（出力先は固定）。DB パスワードはスクリプトと同じリポジトリの `secrets/db_password.txt` から読み取ります。DB 名・ユーザー名・コンテナ名・`REDMINE_DATA_DIR` は同じリポジトリの `.env` があればそこから読み込みます（`docs/Design.md` 参照）。本番（bind mount）構成専用で、開発環境の名前付きボリュームは対象外です。
 
 docker デーモンを操作するため、root（または docker グループのユーザー）で実行します。
 
