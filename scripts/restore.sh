@@ -30,7 +30,7 @@ if [ -f "${ROOT_DIR}/.env" ]; then
     set -a; source "${ROOT_DIR}/.env"; set +a
 fi
 
-SECRETS_DIR="${SECRETS_DIR:-/opt/redmine/containers/secrets}"
+SECRETS_DIR="${SECRETS_DIR:-${ROOT_DIR}/secrets}"
 DB_PASSWORD_FILE="${DB_PASSWORD_FILE:-${SECRETS_DIR}/db_password.txt}"
 DB_CONTAINER="${REDMINE_DB_CONTAINER:-redmine-db}"
 DB_NAME="${REDMINE_DB_NAME:-redmine}"

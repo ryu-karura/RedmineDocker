@@ -6,7 +6,7 @@
 #
 # バックアップ対象:
 #   - PostgreSQL データベース: redmine（pg_dump カスタム形式）
-#   - 添付ファイル: /opt/redmine/data/redmine/files/（tar+gzip）
+#   - 添付ファイル: ${REDMINE_DATA_DIR}/files/（tar+gzip。既定 /opt/redmine/data/redmine/files/）
 #
 # 出力先:
 #   - DB ダンプ:      /opt/redmine/backup/db/
@@ -17,6 +17,9 @@
 # Cron 設定例（毎日 02:00、root の crontab: `sudo crontab -e`）:
 #   0 2 * * * /opt/redmine/containers/scripts/backup.sh >> /opt/redmine/backup/backup.log 2>&1
 # docker が無い環境では podman へ自動フォールバックします（CONTAINER_CLI）。
+#
+# 対象は本番（compose.prod.yaml の bind mount）構成です。開発環境 (compose.dev.yaml 単体)
+# の添付ファイルは名前付きボリュームにあるため、このスクリプトでは取得できません。
 
 set -euo pipefail
 
@@ -28,11 +31,11 @@ if [ -f "${ROOT_DIR}/.env" ]; then
 fi
 
 # ── 設定値 ─────────────────────────────────────────────────────────────────────
-SECRETS_DIR="${SECRETS_DIR:-/opt/redmine/containers/secrets}"
+SECRETS_DIR="${SECRETS_DIR:-${ROOT_DIR}/secrets}"
 DB_PASSWORD_FILE="${DB_PASSWORD_FILE:-${SECRETS_DIR}/db_password.txt}"
 BACKUP_DB_DIR="/opt/redmine/backup/db"
 BACKUP_FILES_DIR="/opt/redmine/backup/files"
-FILES_SOURCE_DIR="/opt/redmine/data/redmine/files"
+FILES_SOURCE_DIR="${REDMINE_DATA_DIR:-/opt/redmine/data/redmine}/files"
 DB_CONTAINER="${REDMINE_DB_CONTAINER:-redmine-db}"
 DB_NAME="${REDMINE_DB_NAME:-redmine}"
 DB_USER="${REDMINE_DB_USER:-redmine}"

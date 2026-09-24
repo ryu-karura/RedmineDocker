@@ -155,7 +155,7 @@ sudo docker build -t "${REDMINE_WEB_IMAGE}" \
 ### Docker Compose (開発)
 
 ```bash
-cd /workspaces/RedmineDocker
+cd <リポジトリのルート>   # Codespaces なら /workspaces/RedmineDocker
 docker compose -f compose.dev.yaml build --pull
 docker compose -f compose.dev.yaml up -d
 ```
@@ -180,7 +180,7 @@ sudo systemctl reload redmine # up -d --wait で差分だけ作り直し、healt
 手順 (開発: Docker Compose):
 
 ```bash
-cd /workspaces/RedmineDocker
+cd <リポジトリのルート>
 docker compose -f compose.dev.yaml up -d --build redmine-web
 ```
 
@@ -196,7 +196,7 @@ docker compose -f compose.dev.yaml up -d --build redmine-web
 
 ```bash
 # 1) 事前バックアップ
-bash /opt/redmine/containers/scripts/backup.sh
+sudo bash /opt/redmine/containers/scripts/backup.sh
 
 # 2) 新バージョンでイメージ再ビルド
 cd /opt/redmine/containers
@@ -228,7 +228,7 @@ sudo systemctl restart redmine
 - Redmine 7 へ上げる前に、7 系イメージに無いプラグインをアンインストールしてください
   （マイグレーションを持つのは `redmine_theme_changer` だけです。
   `rake redmine:plugins:migrate NAME=redmine_theme_changer VERSION=0`）。
-- アプリを公開せずにマイグレーションだけ先に流したい場合は `REDMINE_MIGRATE_ONLY=1` で単発起動します。
+- アプリを公開せずにマイグレーションだけ先に流したい場合は `docker compose -f compose.dev.yaml run --rm -e REDMINE_MIGRATE_ONLY=1 redmine-web` で単発起動します（本番は `dcp run --rm -e REDMINE_MIGRATE_ONLY=1 redmine-web`）。
 - 通しの自動検証は `bash scripts/test-upgrade.sh`。
 
 ### ケース C: 完全再作成（データを消して作り直す）
@@ -238,7 +238,7 @@ sudo systemctl restart redmine
 Docker Compose (開発) で全削除:
 
 ```bash
-cd /workspaces/RedmineDocker
+cd <リポジトリのルート>
 docker compose -f compose.dev.yaml down -v
 docker compose -f compose.dev.yaml up -d --build
 ```
@@ -257,9 +257,10 @@ sudo systemctl start redmine
 
 ### ケース D: SUBURI / ポート / コンテナ名変更
 
-対象: `.env` の `REDMINE_SUBURI`、`REDMINE_WEB_HOST_PORT`、`REDMINE_DB_CONTAINER` などを変更する場合。
+対象: `.env` の `REDMINE_SUBURI`、公開ポート、`REDMINE_DB_CONTAINER` などを変更する場合。
+公開ポートの変数は開発と本番で別です（開発: `REDMINE_WEB_HOST_PORT`、本番: `REDMINE_PROD_HOST_PORT`）。
 
-手順:
+手順 (開発: Docker Compose):
 
 ```bash
 # 1) .env 変更後に構成確認
@@ -269,8 +270,18 @@ docker compose -f compose.dev.yaml config
 docker compose -f compose.dev.yaml up -d --build --force-recreate
 ```
 
+手順 (本番: Docker + systemd):
+
+```bash
+cd /opt/redmine/containers
+# 1) .env 変更後に構成確認
+dcp config
+# 2) 再作成（コンテナ名を変える場合は先に sudo systemctl stop redmine）
+sudo systemctl restart redmine
+```
+
 ポイント:
-- SUBURI 変更時は `host-apache/redmine-proxy.conf` の転送先パスも合わせて更新してください。
+- SUBURI や本番の公開ポートを変更したときは `host-apache/redmine-proxy.conf` の転送先も合わせて更新してください。
 - コンテナ名変更時は、既存コンテナとの衝突回避のため `down` 後の再作成が安全です。
 
 ### ケース E: アプリサーバー切り替え（Puma ⇄ Passenger）
@@ -310,9 +321,8 @@ sudo docker exec redmine-web /usr/local/bin/redmine-healthcheck.sh   # どちら
 ヘルスチェックはイメージ内の `/usr/local/bin/redmine-healthcheck.sh` が担当し、
 モードに応じて Puma 直叩きの検証を自動で省きます。
 
-なお **mod_passenger は 3 系列とも Debian trixie の 6.0.26** です（Ruby 4.0 の 7 系でも
-同じ版で動作することを確認済みで、7 系ではこれを既定にしています。根拠は
-`docs/Design.md`「9. Redmine シリーズの切り替え」）。
+mod_passenger の版（3 系列とも Debian trixie の 6.0.26）と採用根拠は
+`docs/Design.md`「9. Redmine シリーズの切り替え」を参照してください。
 稼働中のバージョンは次で確認できます。
 
 ```bash
@@ -337,7 +347,9 @@ sudo docker exec redmine-web dpkg-query -W -f='${Version}\n' libapache2-mod-pass
 
 ```bash
 # 0) 事前バックアップ（系列を戻せるようにするため必須）
-bash scripts/backup.sh
+#    scripts/backup.sh は本番専用なので、開発では DB を直接ダンプします
+docker exec -e PGPASSWORD="$(cat secrets/db_password.txt)" redmine-db \
+  pg_dump -U redmine -F c redmine > redmine_before_switch.dump
 
 # 1) .env を 2 つセットで変更（例: 既定の 7 系から 6 系へ下げる）
 #      REDMINE_VERSION=6.1.4
@@ -384,7 +396,7 @@ sudo docker exec redmine-web /usr/local/bin/redmine-healthcheck.sh
 ## 更新
 
 ### Redmine / プラグイン / テーマ
-`containers/redmine-web/Containerfile`（イメージタグやプラグイン参照）を変更し、再ビルドして再起動します。
+使用中の系列の `containers/redmine-web/Containerfile.v*`（プラグイン参照など）を変更し、再ビルドして再起動します。
 
 ```bash
 cd /opt/redmine/containers
@@ -393,12 +405,13 @@ sudo systemctl reload redmine     # entrypoint でマイグレーションを再
 ```
 
 マイグレーションを実行せずに起動したい場合（アップグレード前の DB 確認など）は、
-公式イメージと同じく `REDMINE_NO_DB_MIGRATE` に値を設定します
-（`.env` に `REDMINE_NO_DB_MIGRATE=1` と書き、`sudo systemctl reload redmine`）。
-値を空にする / 行を消すと再びコアの `db:migrate` を実行します。
+公式イメージと同じく `REDMINE_NO_DB_MIGRATE` に値を設定します。この変数は `.env` からは
+渡らないため、`compose.dev.yaml` の `redmine-web` の `environment:` にあるコメント行
+`# REDMINE_NO_DB_MIGRATE: "1"` の `#` を外して `sudo systemctl reload redmine` します。
+元に戻す（コメントアウトする）と再びコアの `db:migrate` を実行します。
 
 ### Apache フロントエンド
-`redmine-web` イメージに Apache の設定を入れたため、個別の `redmine-static` イメージは不要です。変更後は Redmine イメージを再ビルドして再起動します。設定は
+Apache の設定は `redmine-web` イメージに含まれています。変更後は Redmine イメージを再ビルドして再起動します。設定は
 `containers/redmine-web/httpd-redmine.conf.tmpl`（`puma` 用）と
 `containers/redmine-web/httpd-redmine-passenger.conf.tmpl`（`passenger` 用）の
 テンプレートから `entrypoint.sh` が起動時に描画します。生成後の `.conf` ではなく
@@ -408,7 +421,7 @@ sudo systemctl reload redmine     # entrypoint でマイグレーションを再
 
 ## バックアップ
 
-`scripts/backup.sh` は `redmine` データベースのダンプ（pg_dump のカスタム形式）を作成し、`/opt/redmine/data/redmine/files` をアーカイブして `/opt/redmine/backup/` 配下に 7 世代保存します。DB パスワードは `secrets/db_password.txt` から読み取ります。DB 名・ユーザー名・コンテナ名・データルートは `/opt/redmine/containers/.env` があればそこから読み込みます（既定値は上記の通り。`docs/Design.md` 参照）。
+`scripts/backup.sh` は `redmine` データベースのダンプ（pg_dump のカスタム形式）を作成し、`${REDMINE_DATA_DIR}/files`（既定 `/opt/redmine/data/redmine/files`）をアーカイブして `/opt/redmine/backup/` 配下に 7 世代保存します（出力先は固定）。DB パスワードはスクリプトと同じリポジトリの `secrets/db_password.txt` から読み取ります。DB 名・ユーザー名・コンテナ名・`REDMINE_DATA_DIR` は同じリポジトリの `.env` があればそこから読み込みます（`docs/Design.md` 参照）。本番（bind mount）構成専用で、開発環境の名前付きボリュームは対象外です。
 
 docker デーモンを操作するため、root（または docker グループのユーザー）で実行します。
 
@@ -474,7 +487,7 @@ sudo logrotate --debug /etc/logrotate.d/redmine-web     # ドライラン
 ```bash
 sudo docker exec redmine-web /usr/local/bin/redmine-healthcheck.sh
 sudo docker exec -e PGPASSWORD="$(sudo cat /opt/redmine/containers/secrets/db_password.txt)" \
-	redmine-db psql -U redmine -d redmine -c '\\dx'   # 拡張機能を表示（postgis を期待）
+	redmine-db psql -U redmine -d redmine -c '\dx'   # 拡張機能を表示（postgis を期待）
 curl -sf http://127.0.0.1:80/redmine/login >/dev/null && echo OK
 ```
 
