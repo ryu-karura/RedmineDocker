@@ -170,6 +170,7 @@ sudo systemctl daemon-reload && sudo systemctl enable --now redmine
 - **[セットアップ手順](docs/Setup.md)** — 本番 / 開発環境の導入手順。
 - **[運用手順](docs/Manual.md)** — バックアップ、復旧、ログ管理。
 - **[アップグレード手順](docs/Upgrade.md)** — Redmine 5.1.1 + MySQL 8.0 からの移行（DB コンバートと Redmine 7 へのアップグレード）。
+- **[同梱プラグイン解説](docs/Plugins.md)** — 同梱プラグイン 14 個とテーマの機能・版・対応 Redmine バージョン（スクリーンショット付き）。
 
 ## ライセンス
 

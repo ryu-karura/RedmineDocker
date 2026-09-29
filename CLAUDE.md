@@ -67,7 +67,7 @@ each other by name on the `redmine-net` bridge network. Public URL:
 ```
 RedmineDocker/
 ├── README.md                    # overview (Japanese)
-├── docs/                        # Design.md / Setup.md / Manual.md / Upgrade.md (Japanese)
+├── docs/                        # Design.md / Setup.md / Manual.md / Upgrade.md / Plugins.md (Japanese)
 ├── .github/copilot-instructions.md # pointer to this file, no duplicated content
 ├── containers/
 │   ├── redmine-db/                # Containerfile + init-redmine.sh (PostGIS ext)
@@ -576,7 +576,7 @@ to duplicate.
 
 - **File-header comments and this CLAUDE.md are in English.**
 - **User-facing docs are in Japanese**: `README.md`, everything in `docs/`
-  (`Design.md`, `Setup.md`, `Manual.md`, `Upgrade.md`), and the comment blocks inside
+  (`Design.md`, `Setup.md`, `Manual.md`, `Upgrade.md`, `Plugins.md`), and the comment blocks inside
   `compose.dev.yaml` / `compose.prod.yaml` / `systemd/redmine.service`. When editing
   those, keep them in Japanese and consistent with the existing tone.
 - **`.github/copilot-instructions.md` is a pointer, not a second source of
@@ -586,7 +586,9 @@ to duplicate.
 - When you change architecture, versions, ports, plugin lists, or workflows,
   update the affected docs in the same change: `docs/Design.md` (architecture),
   `docs/Setup.md` (install), `docs/Manual.md` (operations), `docs/Upgrade.md`
-  (migration from Redmine 5.1.1 + MySQL), `README.md` (overview), and this file.
+  (migration from Redmine 5.1.1 + MySQL), `docs/Plugins.md` (per-plugin Japanese
+  guide with screenshots under `docs/images/plugins/` — update it when a plugin is
+  added, removed or re-pinned), `README.md` (overview), and this file.
 
 ## Verification (no CI pipeline; one integration test script)
 
