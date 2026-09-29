@@ -497,12 +497,15 @@ Redmine のバックグラウンドジョブ（メール通知の送信など）
 - Puma 以外のアプリケーションサーバーでは、`plugins/redmine_solid_queue/bin/jobs start`
   で別途ジョブ処理プロセスを起動する必要があります（プラグインの README より）。
 
-> **本スタックでの注意（要確認）**: 7 系の既定は `REDMINE_WEB_SERVER=passenger` です。
-> 上記のとおり自動起動は Puma 前提のため、Passenger モードではジョブ処理プロセスが
-> 起動せず、キューに積まれたメールが送信されない可能性があります。スクリーンショットの
-> 環境（Puma）ではジョブ処理プロセスの起動を確認済みですが、Passenger モードでの動作は
-> 未検証です。メール通知を使う場合は、Passenger モードで通知メールが実際に届くことを
-> 確認するか、`REDMINE_WEB_SERVER=puma` での運用を検討してください。
+> **本スタックでの扱い**: ジョブ処理プロセスの自動起動は Puma 前提のため、7 系の既定である
+> `REDMINE_WEB_SERVER=passenger` では **Solid Queue を使いません**。イメージに入れた
+> `config/additional_environment.rb` が Passenger モードのときだけキューアダプターを
+> **Redmine 標準の `:async`** に固定し、メールはアプリプロセス内で送信されます
+> （管理 → 情報の「Mailer queue」は `ActiveJob::QueueAdapters::AsyncAdapter`）。
+> Solid Queue が有効になるのは `REDMINE_WEB_SERVER=puma` のときだけです（6 系 / 7 系）。
+> プラグインとテーブルは残しているので、切り替えは環境変数の変更と再起動だけです。
+> Redmine 7.0 本体は Solid Queue を同梱していません（標準は Rails 既定の `:async`）。
+> 詳細は [Design.md](Design.md)「バックグラウンドジョブ（`redmine_solid_queue` と Passenger）」。
 
 ### スクリーンショット
 

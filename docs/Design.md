@@ -79,6 +79,7 @@ RedmineDocker は 2 つのコンテナが連携して Redmine 7.0.1 を動作さ
 | コンテナの PID 1 | `apache2 -DFOREGROUND` | `entrypoint.sh`（Apache 起動後 Puma を監視） |
 | 実行ユーザー | `PassengerUser redmine` | `runuser -u redmine` で Puma |
 | `:3000` | なし | あり |
+| Active Job（メール送信など） | Redmine 標準の `:async`（アプリプロセス内のスレッド） | 6 / 7 系は `redmine_solid_queue`（Puma プラグインとしてジョブ処理を自動起動）、5 系は `:async` |
 
 `entrypoint.sh` が起動時にテンプレートを描画し、`a2enmod passenger` / `a2dismod -f passenger` と `a2enconf` / `a2disconf` で該当する設定だけを有効化します（どちらも `*:80` の VirtualHost を定義するため、同時に有効化はできません）。
 
@@ -88,6 +89,16 @@ RedmineDocker は 2 つのコンテナが連携して Redmine 7.0.1 を動作さ
 2. **`LANG` を元に戻す。** `envvars` は mod_dav 向けに `LANG=C` を `export` します。この値は Apache → `mod_passenger` → Redmine と継承され、Ruby の `Encoding.default_external` が US-ASCII になります。すると bundler が `Gemfile` を評価する際、日本語コメントを含む `config/database.yml` を読んだ時点で `invalid byte sequence in US-ASCII` となり、アプリが起動しません。公式イメージが設定している `LANG=C.UTF-8` を `source` 後に復元します。
 
 どちらも `puma` モードでは起きません（`apache2ctl -k start` が別プロセスで `envvars` を読むため）。`passenger` を既定にしたことで両方とも通常経路に乗るようになりました。
+
+#### バックグラウンドジョブ（`redmine_solid_queue` と Passenger）
+
+`redmine_solid_queue` はキューアダプターを `:solid_queue` に切り替えますが、ジョブ処理プロセス（supervisor / dispatcher / worker）を自動起動するのは **Puma プラグインとしてだけ** です（プラグインの `Gemfile` が `Puma::Configuration` に `plugin :solid_queue` を差し込む実装）。`passenger` モードでは Puma が動かないため、そのままではジョブがキューに積まれるだけで誰も処理せず、メール通知が届きません。
+
+そこで `passenger` モードでは Solid Queue を使わず、**Redmine 標準の `:async`** に固定します。`containers/redmine-web/additional_environment.rb` を `config/additional_environment.rb` としてイメージに入れ、`REDMINE_WEB_SERVER=passenger` のときだけ `config.active_job.queue_adapter = :async` を設定します。プラグインは管理者がアダプターを設定済みならそれを尊重する（未設定のときだけ `:solid_queue` にする）ため、これだけで切り替わります。プラグイン自体と Solid Queue のテーブルは残るので、`puma` へ戻すときも環境変数の変更と再起動だけで済みます。
+
+- 「Redmine 標準」の中身は、Redmine 7.0.1 のソースで確認しています。`Gemfile` に `solid_queue` は無く、`config/` でもアダプターを設定していないため、Rails 既定の `:async`（`ActiveJob::QueueAdapters::AsyncAdapter`）です。Redmine 本体が Solid Queue を同梱・既定化したわけではありません（Solid Queue を使うには、プラグインか redmine.org Wiki「SolidQueueConfiguration」の手順で別途導入します）。
+- `:async` は Passenger が起動したアプリプロセス内のスレッドでジョブを処理します。キューはメモリ上にしかないため、送信前にプロセスが終了するとそのジョブは失われます。管理 → 情報の「キューアダプターがデフォルト（開発・テスト用）以外のものに変更済み」にはチェックが付きません（Redmine 標準のままであることを表示しているだけで、異常ではありません）。
+- `passenger` モードへ切り替える前に Solid Queue に積まれていた未処理ジョブは、`puma` モードで起動し直すと処理されます。
 
 実装上の注意点:
 

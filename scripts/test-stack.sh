@@ -352,7 +352,47 @@ else
     }
     check "static asset served by Apache from public/ (Alias + <Directory>)" \
         passenger_static_200
+
+    # config/additional_environment.rb は REDMINE_WEB_SERVER=passenger を見て
+    # Active Job を :async に固定します。rails runner（docker exec の環境）では
+    # なく、Passenger が spawn したアプリ本体にその変数が届いていることを
+    # 確認します（アプリはログインページの確認で既に起動済みです）。
+    passenger_app_sees_web_server() {
+        # shellcheck disable=SC2016
+        cli exec redmine-web sh -c \
+            'for d in /proc/[0-9]*; do
+                 tr "\0" " " < "$d/cmdline" 2>/dev/null | grep -q "Passenger RubyApp" \
+                     && tr "\0" "\n" < "$d/environ"
+             done' \
+            2>/dev/null | grep -qx 'REDMINE_WEB_SERVER=passenger'
+    }
+    check "Passenger app process has REDMINE_WEB_SERVER=passenger in its env" \
+        passenger_app_sees_web_server
 fi
+
+# Active Job のキューアダプター（メール通知の送信経路）。
+#   passenger          → Redmine 標準の AsyncAdapter（redmine_solid_queue の
+#                        ジョブ処理プロセスは Puma 内でしか自動起動しないため）
+#   puma + 6 / 7 系    → redmine_solid_queue の SolidQueueAdapter
+#   puma + 5 系        → AsyncAdapter（5 系は redmine_solid_queue 非同梱）
+if [ "${WEB_SERVER}" = "puma" ] && [ "${SERIES}" != "5" ]; then
+    EXPECTED_QUEUE_ADAPTER="ActiveJob::QueueAdapters::SolidQueueAdapter"
+else
+    EXPECTED_QUEUE_ADAPTER="ActiveJob::QueueAdapters::AsyncAdapter"
+fi
+queue_adapter_is_expected() {
+    # redmine ユーザーで実行します（root で動かすと log/production.log が
+    # root 所有になりアプリが書けなくなるため）。SECRET_KEY_BASE は entrypoint
+    # の中でしか export されないので、起動確認用のダミーを渡します。
+    local adapter
+    adapter="$(cli exec -u redmine -e SECRET_KEY_BASE=test-stack-dummy redmine-web \
+        bundle exec rails runner -e production \
+        'puts ActionMailer::MailDeliveryJob.queue_adapter.class.name' 2>/dev/null | tail -n 1)"
+    log "  Mailer queue adapter: ${adapter:-<none>}"
+    [ "${adapter}" = "${EXPECTED_QUEUE_ADAPTER}" ]
+}
+check "Mailer queue adapter is ${EXPECTED_QUEUE_ADAPTER##*::} (${WEB_SERVER} mode)" \
+    queue_adapter_is_expected
 
 # docker には healthcheck の手動実行コマンドが無いため、イメージ内のスクリプトを
 # 直接叩きます（podman healthcheck run redmine-web と同じ判定です）。

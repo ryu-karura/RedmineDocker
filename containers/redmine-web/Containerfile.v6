@@ -219,6 +219,10 @@ COPY configuration.yml.tmpl ${REDMINE_HOME}/config/configuration.yml.tmpl
 # RAILS_RELATIVE_URL_ROOT (/redmine) を正しく mount させます。
 # 理由は config.ru のコメントを参照してください。
 COPY config.ru ${REDMINE_HOME}/config.ru
+# passenger モードでは Active Job を Redmine 標準の :async に固定します
+# （redmine_solid_queue のジョブ処理プロセスは Puma 内でしか自動起動しないため）。
+# 理由は additional_environment.rb のコメントを参照してください。
+COPY additional_environment.rb ${REDMINE_HOME}/config/additional_environment.rb
 COPY httpd-redmine.conf.tmpl /etc/apache2/conf-available/redmine-proxy.conf.tmpl
 COPY httpd-redmine-passenger.conf.tmpl /etc/apache2/conf-available/redmine-passenger.conf.tmpl
 COPY entrypoint.sh /usr/local/bin/redmine-entrypoint.sh
