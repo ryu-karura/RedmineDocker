@@ -79,7 +79,7 @@ RedmineDocker は 2 つのコンテナが連携して Redmine 7.0.1 を動作さ
 | コンテナの PID 1 | `apache2 -DFOREGROUND` | `entrypoint.sh`（Apache 起動後 Puma を監視） |
 | 実行ユーザー | `PassengerUser redmine` | `runuser -u redmine` で Puma |
 | `:3000` | なし | あり |
-| Active Job（メール送信など） | Redmine 標準の `:async`（アプリプロセス内のスレッド） | 6 / 7 系は `redmine_solid_queue`（Puma プラグインとしてジョブ処理を自動起動）、5 系は `:async` |
+| Active Job（メール送信など） | `:inline`（リクエスト処理の中でその場で実行） | 6 / 7 系は `redmine_solid_queue`（Puma プラグインとしてジョブ処理を自動起動）、5 系は `:async` |
 
 `entrypoint.sh` が起動時にテンプレートを描画し、`a2enmod passenger` / `a2dismod -f passenger` と `a2enconf` / `a2disconf` で該当する設定だけを有効化します（どちらも `*:80` の VirtualHost を定義するため、同時に有効化はできません）。
 
@@ -94,10 +94,18 @@ RedmineDocker は 2 つのコンテナが連携して Redmine 7.0.1 を動作さ
 
 `redmine_solid_queue` はキューアダプターを `:solid_queue` に切り替えますが、ジョブ処理プロセス（supervisor / dispatcher / worker）を自動起動するのは **Puma プラグインとしてだけ** です（プラグインの `Gemfile` が `Puma::Configuration` に `plugin :solid_queue` を差し込む実装）。`passenger` モードでは Puma が動かないため、そのままではジョブがキューに積まれるだけで誰も処理せず、メール通知が届きません。
 
-そこで `passenger` モードでは Solid Queue を使わず、**Redmine 標準の `:async`** に固定します。`containers/redmine-web/additional_environment.rb` を `config/additional_environment.rb` としてイメージに入れ、`REDMINE_WEB_SERVER=passenger` のときだけ `config.active_job.queue_adapter = :async` を設定します。プラグインは管理者がアダプターを設定済みならそれを尊重する（未設定のときだけ `:solid_queue` にする）ため、これだけで切り替わります。プラグイン自体と Solid Queue のテーブルは残るので、`puma` へ戻すときも環境変数の変更と再起動だけで済みます。
+そこで `passenger` モードでは Solid Queue を使わず、キューアダプターを **`:inline`** に固定します。`containers/redmine-web/additional_environment.rb` を `config/additional_environment.rb` としてイメージに入れ、`REDMINE_WEB_SERVER=passenger` のときだけ `config.active_job.queue_adapter = :inline` を設定します。プラグインは管理者がアダプターを設定済みならそれを尊重する（未設定のときだけ `:solid_queue` にする）ため、これだけで切り替わります。プラグイン自体と Solid Queue のテーブルは残るので、`puma` へ戻すときも環境変数の変更と再起動だけで済みます。
 
-- 「Redmine 標準」の中身は、Redmine 7.0.1 のソースで確認しています。`Gemfile` に `solid_queue` は無く、`config/` でもアダプターを設定していないため、Rails 既定の `:async`（`ActiveJob::QueueAdapters::AsyncAdapter`）です。Redmine 本体が Solid Queue を同梱・既定化したわけではありません（Solid Queue を使うには、プラグインか redmine.org Wiki「SolidQueueConfiguration」の手順で別途導入します）。
-- `:async` は Passenger が起動したアプリプロセス内のスレッドでジョブを処理します。キューはメモリ上にしかないため、送信前にプロセスが終了するとそのジョブは失われます。管理 → 情報の「キューアダプターがデフォルト（開発・テスト用）以外のものに変更済み」にはチェックが付きません（Redmine 標準のままであることを表示しているだけで、異常ではありません）。
+`:inline` を選んだ理由は、redmine.jp の Redmine 7 Docker（PostgreSQL）構築手順「キューアダプターの利用方法を選ぶ」に従ったためです。
+
+| 用途 | アダプター | 挙動 |
+|---|---|---|
+| 一時的な検証・評価 | 設定なし（Redmine 標準の `AsyncAdapter`） | メモリ上でジョブを処理。コンテナの停止・再起動で処理待ちのジョブが失われる可能性があり、管理 → 情報に警告が出る |
+| 継続的に利用（本スタックの `passenger` モード） | `:inline` | ジョブをキューへ保存せず、その場で実行。失われるジョブがなく、警告も出ない |
+
+- 「Redmine 標準」は Redmine 7.0.1 のソースでも確認しています。`Gemfile` に `solid_queue` は無く、`config/` でもアダプターを設定していないため、Rails 既定の `:async`（`AsyncAdapter`）です。Redmine 本体は Solid Queue を同梱していません。
+- `:inline` ではメール送信（SMTP）やプロジェクト削除がリクエストの処理中に実行されるため、SMTP サーバーの応答が遅いとその画面操作も遅くなります。送信に失敗した場合はその操作のリクエスト内でエラーとして扱われます（ログ `log/production.log` を確認してください）。
+- 管理 → 情報の「キューアダプターがデフォルト（開発・テスト用）以外のものに変更済み」にはチェックが付き、「Mailer queue」は `ActiveJob::QueueAdapters::InlineAdapter` と表示されます。
 - `passenger` モードへ切り替える前に Solid Queue に積まれていた未処理ジョブは、`puma` モードで起動し直すと処理されます。
 
 実装上の注意点:

@@ -337,20 +337,22 @@ compose.prod.yaml …`, not systemd.
   silently demotes the app to `nobody`, which then can't write `files/` or `log/`.
   `PassengerRuby` must point at `/usr/local/bin/ruby` (the official image's Ruby
   3.4), not Debian's `/usr/bin/ruby`, which has none of Redmine's gems.
-- **In `passenger` mode the Active Job adapter is Redmine's standard `:async`,
-  not Solid Queue.** `redmine_solid_queue` (series 6/7) switches the adapter to
-  `:solid_queue` from its `Gemfile`, but it only auto-starts the job supervisor
-  as a Puma plugin — under `mod_passenger` nothing runs `bin/jobs`, so mail
-  notifications would sit in the queue forever. `containers/redmine-web/additional_environment.rb`
+- **In `passenger` mode the Active Job adapter is `:inline`, not Solid Queue.**
+  `redmine_solid_queue` (series 6/7) switches the adapter to `:solid_queue` from
+  its `Gemfile`, but it only auto-starts the job supervisor as a Puma plugin —
+  under `mod_passenger` nothing runs `bin/jobs`, so mail notifications would sit
+  in the queue forever. `containers/redmine-web/additional_environment.rb`
   (→ `config/additional_environment.rb`, v5/v6/v7) sets
-  `config.active_job.queue_adapter = :async` when `REDMINE_WEB_SERVER=passenger`;
+  `config.active_job.queue_adapter = :inline` when `REDMINE_WEB_SERVER=passenger`;
   the plugin only sets its adapter when none is configured, so that wins. The
   plugin and its tables stay, so `puma` mode still uses Solid Queue and switching
-  remains a restart. "Standard" was checked against the Redmine 7.0.1 source: no
-  `solid_queue` in its `Gemfile`, no adapter set in `config/`, i.e. Rails'
-  default `:async` — Redmine 7 core does not bundle Solid Queue.
-  `test-stack.sh` asserts the Mailer adapter per mode and that the
-  Passenger-spawned app actually sees `REDMINE_WEB_SERVER`.
+  remains a restart. `:inline` (not Redmine's default `:async`) follows the
+  redmine.jp Redmine 7 Docker/PostgreSQL guide's "continuous use" advice:
+  `AsyncAdapter` keeps jobs in memory (lost on restart) and triggers the
+  default-queue-adapter warning on Administration > Information. Redmine 7.0.1
+  core does not bundle Solid Queue (no `solid_queue` in its `Gemfile`, no
+  adapter set in `config/`). `test-stack.sh` asserts the Mailer adapter per mode
+  and that the Passenger-spawned app actually sees `REDMINE_WEB_SERVER`.
 - **The container healthcheck lives in the image
   (`containers/redmine-web/healthcheck.sh` → `/usr/local/bin/redmine-healthcheck.sh`),
   not inline in compose.** What it must verify depends on `REDMINE_SUBURI` and

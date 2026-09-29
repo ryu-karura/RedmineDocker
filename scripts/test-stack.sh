@@ -354,7 +354,7 @@ else
         passenger_static_200
 
     # config/additional_environment.rb は REDMINE_WEB_SERVER=passenger を見て
-    # Active Job を :async に固定します。rails runner（docker exec の環境）では
+    # Active Job を :inline に固定します。rails runner（docker exec の環境）では
     # なく、Passenger が spawn したアプリ本体にその変数が届いていることを
     # 確認します（アプリはログインページの確認で既に起動済みです）。
     passenger_app_sees_web_server() {
@@ -371,11 +371,13 @@ else
 fi
 
 # Active Job のキューアダプター（メール通知の送信経路）。
-#   passenger          → Redmine 標準の AsyncAdapter（redmine_solid_queue の
-#                        ジョブ処理プロセスは Puma 内でしか自動起動しないため）
+#   passenger          → InlineAdapter（redmine_solid_queue のジョブ処理プロセスは
+#                        Puma 内でしか自動起動しないため、ジョブをその場で実行）
 #   puma + 6 / 7 系    → redmine_solid_queue の SolidQueueAdapter
 #   puma + 5 系        → AsyncAdapter（5 系は redmine_solid_queue 非同梱）
-if [ "${WEB_SERVER}" = "puma" ] && [ "${SERIES}" != "5" ]; then
+if [ "${WEB_SERVER}" = "passenger" ]; then
+    EXPECTED_QUEUE_ADAPTER="ActiveJob::QueueAdapters::InlineAdapter"
+elif [ "${SERIES}" != "5" ]; then
     EXPECTED_QUEUE_ADAPTER="ActiveJob::QueueAdapters::SolidQueueAdapter"
 else
     EXPECTED_QUEUE_ADAPTER="ActiveJob::QueueAdapters::AsyncAdapter"
