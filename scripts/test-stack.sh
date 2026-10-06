@@ -30,11 +30,13 @@
 # together (same triples as the .env.example presets):
 #   5 -> Containerfile.v5 / redmine:5.1.12
 #   6 -> Containerfile.v6 / redmine:6.1.3   (default)
-#   7 -> Containerfile.v7 / redmine:7.0.0
+#   7 -> Containerfile.v7 / redmine:7.0.2
 # Series images have different tags, so --skip-build only reuses an image built
-# for that same series. Note that --series 7 --web-server passenger is the
-# open question this stack has not answered yet: Debian trixie ships Passenger
-# 6.0.26 and Ruby 4 support landed in 6.1.1 (see Containerfile.v7).
+# for that same series. --series 7 --web-server passenger (Debian trixie's
+# Passenger 6.0.26 on Ruby 4.0.7) has been verified working against
+# redmine:7.0.2 via a manual Playwright walkthrough (tests/e2e, 45/45 PASS) —
+# see Containerfile.v7's ★ note for the two entrypoint.sh fixes that were
+# needed (envvars APACHE_CONFDIR / LANG).
 #
 # This is a destructive test against compose.dev.yaml ONLY: it tears down and
 # recreates the redmine-db/redmine-web containers under a dedicated compose
@@ -127,7 +129,7 @@ esac
 case "${SERIES}" in
     5) REDMINE_SERIES_VERSION=5.1.12; REDMINE_SERIES_CONTAINERFILE=Containerfile.v5 ;;
     6) REDMINE_SERIES_VERSION=6.1.3;  REDMINE_SERIES_CONTAINERFILE=Containerfile.v6 ;;
-    7) REDMINE_SERIES_VERSION=7.0.0;  REDMINE_SERIES_CONTAINERFILE=Containerfile.v7 ;;
+    7) REDMINE_SERIES_VERSION=7.0.2;  REDMINE_SERIES_CONTAINERFILE=Containerfile.v7 ;;
     *) echo "--series must be '5', '6' or '7' (got '${SERIES}')" >&2; exit 2 ;;
 esac
 export REDMINE_WEB_CONTAINERFILE="${REDMINE_SERIES_CONTAINERFILE}"

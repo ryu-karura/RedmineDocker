@@ -272,9 +272,11 @@ podman healthcheck run redmine-web                       # どちらのモード
 ヘルスチェックはイメージ内の `/usr/local/bin/redmine-healthcheck.sh` が担当し、
 モードに応じて Puma 直叩きの検証を自動で省きます。
 
-なお **Redmine 7 系の `passenger` は未検証** です（Debian trixie の mod_passenger は 6.0.26、
-Passenger の Ruby 4 対応は 6.1.1 以降）。7 系で使う前に
-`bash scripts/test-stack.sh --series 7 --web-server passenger` で実測してください。
+なお **Redmine 7 系の `passenger` は動作確認済み** です（`redmine:7.0.2`、Debian trixie の
+mod_passenger 6.0.26 のまま、Playwright E2E 45/45 PASS。[tests/e2e/README.md](../tests/e2e/README.md)。
+結果レポートはコミットせず該当 PR の説明に記載）。
+イメージを更新した際などの再確認には
+`bash scripts/test-stack.sh --series 7 --web-server passenger` を使ってください。
 
 ### ケース F: Redmine のメジャーバージョン系列切り替え（5 ⇄ 6 ⇄ 7）
 
@@ -292,7 +294,7 @@ Passenger の Ruby 4 対応は 6.1.1 以降）。7 系で使う前に
 bash scripts/backup.sh
 
 # 1) .env を 2 つセットで変更（例: 6 系 → 7 系）
-#      REDMINE_VERSION=7.0.0
+#      REDMINE_VERSION=7.0.2
 #      REDMINE_WEB_CONTAINERFILE=Containerfile.v7
 
 # 2) 再ビルドして再作成

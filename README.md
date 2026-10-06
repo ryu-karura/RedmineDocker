@@ -4,6 +4,8 @@
 
 このリポジトリでは、運用時は systemd Quadlet で管理する 2 コンテナ構成の Redmine 基盤を構築・展開・運用し、開発時は Docker Compose で動かします。設計は [redmine.jp の Docker ガイド](https://blog.redmine.jp/articles/6_1/redmine-6_1-docker/) を踏襲し、公式 Redmine イメージと Docker/Podman シークレットを用いた 2 層構成へ拡張したものです。
 
+[![E2E (Redmine 7.0.2, passenger)](https://img.shields.io/badge/E2E%20Redmine%207.0.2%20passenger-45%2F45%20PASS-brightgreen)](tests/e2e/README.md)
+
 ---
 
 ## アーキテクチャ
@@ -67,7 +69,7 @@ redmine_login_audit2, redmine_wiki_extensions, redmine_solid_queue, redmine_gtt�
 |------|---------------|----------------|-----------|------|
 | Redmine 5 | `Containerfile.v5` | `redmine:5.1.12` | 11 個 | 公式イメージは 5.1.12 で打ち切り（Ruby 3.2 EOL）。login_audit2 / solid_queue は 5.1 で導入不可 |
 | Redmine 6 | `Containerfile.v6` | `redmine:6.1.3` | 13 個 | 既定 |
-| Redmine 7 | `Containerfile.v7` | `redmine:7.0.0` | 12 個 | banner は 7.0 未対応のため非同梱。passenger モードは未検証 |
+| Redmine 7 | `Containerfile.v7` | `redmine:7.0.2` | 12 個 | banner は 7.0 未対応のため非同梱。passenger モードも動作確認済み（[tests/e2e](tests/e2e/README.md)、45/45 PASS） |
 
 ---
 
@@ -82,7 +84,7 @@ RedmineDocker/
 │   └── redmine-web/            # Redmine + plugin/theme スタック + Apache フロントエンド
 │       ├── Containerfile.v5        #   Redmine 5.1.12 用
 │       ├── Containerfile.v6        #   Redmine 6.1.3 用（既定）
-│       └── Containerfile.v7        #   Redmine 7.0.0 用
+│       └── Containerfile.v7        #   Redmine 7.0.2 用
 ├── quadlets/                     # 本番用 Podman Quadlet ユニット
 │   ├── redmine.network
 │   ├── redmine-db.container
@@ -91,6 +93,7 @@ RedmineDocker/
 │   └── v7/redmine-web.container    #   Redmine 7 系の差し替え用
 ├── host-apache/                  # ホスト Apache のリバースプロキシ (TLS)
 ├── scripts/                      # generate-secrets, backup, restore
+├── tests/e2e/                     # Playwright E2E（画面操作の一通り確認、report/ に結果とスクショ）
 ├── logrotate/                    # ログローテーション
 ├── compose.dev.yaml              # 開発用 Docker Compose
 ├── .devcontainer/                # GitHub Codespaces / VS Code dev container
@@ -150,6 +153,7 @@ podman secret create secret_key_base secrets/secret_key_base.txt
 - **[設計書](docs/Design.md)** — アーキテクチャ、ネットワーク、データ配置、シークレット。
 - **[セットアップ手順](docs/Setup.md)** — 本番 / 開発環境の導入手順。
 - **[運用手順](docs/Manual.md)** — バックアップ、復旧、ログ管理。
+- **[E2E テスト](tests/e2e/README.md)** — Redmine 7.0.2 / passenger モードでの画面操作確認（Playwright、45/45 PASS）。結果（スクリーンショット付きレポート）はコミットせず、各 PR の説明に記載しています。
 
 ## ライセンス
 

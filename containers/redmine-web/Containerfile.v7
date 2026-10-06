@@ -1,13 +1,13 @@
-# redmine-web (Redmine 7 系): Redmine 7.0.0（公式イメージ）+ プラグイン/テーマ一式
+# redmine-web (Redmine 7 系): Redmine 7.0.2（公式イメージ）+ プラグイン/テーマ一式
 #
 # シリーズ別 Containerfile のうち Redmine 7 用です。
 # 5 系は Containerfile.v5、6 系（既定）は Containerfile.v6 を参照してください。
 # 切り替えは .env の REDMINE_WEB_CONTAINERFILE / REDMINE_VERSION で行います
 # （docs/Design.md「Redmine シリーズの切り替え」参照）。
 #
-# ベースイメージ: docker.io/library/redmine:7.0.0
+# ベースイメージ: docker.io/library/redmine:7.0.2
 #   ruby:4.0-slim-trixie ベース / Rails 8.1.3
-#   （Redmine 7.0.0 の Gemfile は ruby '>= 3.2.0', '< 4.1.0'、公式イメージは Ruby 4.0）
+#   （Redmine 7.0.2 の Gemfile は ruby '>= 3.2.0', '< 4.1.0'、公式イメージは Ruby 4.0）
 #
 # 公式イメージに対して次を追加します:
 #   - 日本語 CJK フォント（fonts-noto-cjk）
@@ -21,11 +21,15 @@
 # ★ passenger モードの注意（7 系のみ）
 #   Debian trixie の libapache2-mod-passenger は 6.0.26 です。Passenger が
 #   Ruby 4 対応に言及したのは 6.1.1（CHANGELOG: "[Ruby] Improve support for
-#   Ruby 4 and Frozen String Literals"）以降のため、Ruby 4.0 のこのイメージで
-#   6.0.26 が動くかは未確定です。まず素の Debian パッケージのまま入れて
-#   実測する方針を採っています（scripts/test-stack.sh --series 7
-#   --web-server passenger）。動作しない場合の選択肢は
-#   docs/Design.md「Redmine シリーズの切り替え」に記載しています。
+#   Ruby 4 and Frozen String Literals"）以降でしたが、Redmine 7.0.2 イメージ
+#   （Ruby 4.0.7）で実測した結果、6.0.26 のまま動作しています
+#   （tests/e2e、E2E 45/45 PASS。手順は scripts/test-stack.sh --series 7
+#   --web-server passenger、または tests/e2e/README.md）。ただし envvars 由来の
+#   2 点の落とし穴があり、entrypoint.sh 側で対処済みです:
+#   /etc/apache2/envvars が未定義の APACHE_CONFDIR を参照するため set -u の
+#   まま source すると落ちる点と、同ファイルが export する LANG=C がイメージの
+#   C.UTF-8 を上書きし、日本語コメント入りの config/database.yml を Gemfile が
+#   読む際に "invalid byte sequence in US-ASCII" になる点です。
 #
 # サブ URI: /redmine（RAILS_RELATIVE_URL_ROOT）
 #
@@ -51,7 +55,7 @@
 #
 # テーマ: farend_fancy（farend、既定ブランチ master）
 
-ARG WEB_BASE_IMAGE=docker.io/library/redmine:7.0.0
+ARG WEB_BASE_IMAGE=docker.io/library/redmine:7.0.2
 FROM ${WEB_BASE_IMAGE}
 
 ARG REDMINE_HOME=/usr/src/redmine
@@ -63,7 +67,7 @@ ENV RAILS_RELATIVE_URL_ROOT=/redmine
 ENV RAILS_SERVE_STATIC_FILES=1
 # アプリサーバーの既定は puma（Apache -> ProxyPass -> Puma :3000）。
 # passenger にすると Apache + mod_passenger が Redmine を直接起動します
-# （7 系では上記★の未確定事項あり）。
+# （7 系の動作実績は上記★参照）。
 ENV REDMINE_WEB_SERVER=puma
 
 # ── システムパッケージ（root） ────────────────────────────────────────────────
@@ -86,7 +90,7 @@ RUN apt-get update \
                 # コンテナヘルスチェック + Apache フロント
         curl apache2 \
                 # REDMINE_WEB_SERVER=passenger 用の mod_passenger（6.0.26）。
-                # Ruby 4 での動作は未確定（先頭の★参照）。
+                # Ruby 4 での動作実績は先頭の★参照。
         libapache2-mod-passenger \
     && rm -rf /var/lib/apt/lists/* \
     && fc-cache -fv

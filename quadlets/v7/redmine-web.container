@@ -1,6 +1,6 @@
 # quadlets/v7/redmine-web.container
 #
-# Redmine 7 系（7.0.0）用の redmine-web Quadlet ユニットです。
+# Redmine 7 系（7.0.2）用の redmine-web Quadlet ユニットです。
 # quadlets/redmine-web.container（6 系・既定）の差し替え版で、変更点は
 # Image= のタグと、7 系特有の注意書きだけです。redmine-db.container と
 # redmine.network は系列共通なのでそのまま使います。
@@ -12,12 +12,14 @@
 #
 # 起動できるシリーズは一度に 1 つだけです（コンテナ名・ポート・データが共通）。
 #
-# ★ passenger モードは未検証です
-#   7 系のベースは Ruby 4.0 ですが、Debian trixie の mod_passenger は 6.0.26
-#   で、Passenger が Ruby 4 対応に言及したのは 6.1.1 以降です。下の
-#   Environment=REDMINE_WEB_SERVER= を passenger にする前に、開発環境で
+# ★ passenger モードは動作確認済みです
+#   7 系のベースは Ruby 4.0、Debian trixie の mod_passenger は 6.0.26 です。
+#   Passenger が Ruby 4 対応に言及したのは 6.1.1 以降でしたが、redmine:7.0.2
+#   のイメージで 6.0.26 のまま問題なく動作することを Playwright E2E（45/45
+#   PASS、結果レポートは該当 PR の説明に記載）で確認済みです。イメージを更新した際
+#   などの再確認には開発環境で
 #   `bash scripts/test-stack.sh --series 7 --web-server passenger` を
-#   実行して動作を確認してください。
+#   実行してください。
 #
 # ★ 同梱プラグインが 6 系と異なります（12 個）
 #   redmine_banner は master が Redmine 7 未対応（修正は未マージのブランチ
@@ -27,14 +29,14 @@
 # DB パスワードと secret_key_base は Podman シークレットです（docs/Setup.md 参照）。
 
 [Unit]
-Description=redmine Redmine アプリケーション 7.0.0
+Description=redmine Redmine アプリケーション 7.0.2
 Documentation=file:///opt/redmine/containers/docs/Design.md
 After=network-online.target redmine-db.service
 Wants=network-online.target
 Requires=redmine-db.service
 
 [Container]
-Image=localhost/redmine-web:7.0.0
+Image=localhost/redmine-web:7.0.2
 ContainerName=redmine-web
 Network=redmine-net
 PublishPort=127.0.0.1:80:80
@@ -42,7 +44,7 @@ PublishPort=127.0.0.1:80:80
 Environment=RAILS_ENV=production
 Environment=RAILS_RELATIVE_URL_ROOT=/redmine
 Environment=RUBY_YJIT_ENABLE=1
-# アプリサーバー: puma（既定）。passenger は上記★の理由で未検証です。
+# アプリサーバー: puma（既定）。passenger の動作実績は上記★参照。
 Environment=REDMINE_WEB_SERVER=puma
 Environment=REDMINE_PUMA_PORT=3000
 Environment=REDMINE_DB_HOST=redmine-db

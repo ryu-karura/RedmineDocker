@@ -177,11 +177,13 @@ systemctl --user start redmine-db redmine-web
 `REDMINE_WEB_SERVER=passenger` と書く方法でも同じです。切り替え後の確認方法と
 トラブルシューティングは `docs/Manual.md` を参照してください。
 
-ただし **Redmine 7 系での Passenger は未検証** です。7 系のベースは Ruby 4.0 ですが、
-Debian trixie の `mod_passenger` は 6.0.26 で、Passenger が Ruby 4 対応に言及したのは
-6.1.1 以降のためです。7 系で使う前に、開発環境で
-`bash scripts/test-stack.sh --series 7 --web-server passenger` を実行して動作を
-確認してください（5 系 / 6 系は両モードとも利用できます）。
+**Redmine 7 系での Passenger は動作確認済み**です（`redmine:7.0.2`、Playwright E2E
+45/45 PASS。詳細は `docs/Design.md`「Redmine シリーズの切り替え」）。7 系のベースは
+Ruby 4.0、Debian trixie の `mod_passenger` は 6.0.26 で、Passenger が Ruby 4 対応に
+言及したのは 6.1.1 以降でしたが、6.0.26 のまま問題なく動作します。心配な場合や
+イメージを更新した際は、開発環境で
+`bash scripts/test-stack.sh --series 7 --web-server passenger` を実行して確認してください
+（5 系 / 6 系は両モードとも利用できます）。
 
 ### 6. ホスト Apache を設定する (TLS)
 

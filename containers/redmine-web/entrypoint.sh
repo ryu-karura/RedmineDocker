@@ -209,8 +209,19 @@ fi
 if [[ "${REDMINE_WEB_SERVER}" == "passenger" ]]; then
     log "Starting Apache HTTPD on :80 with mod_passenger (sub-URI ${RAILS_RELATIVE_URL_ROOT}) ..."
     # APACHE_RUN_USER / APACHE_PID_FILE 等の Debian 既定値を読み込みます。
+    # envvars は未定義の APACHE_CONFDIR を参照するため、set -u のまま
+    # source すると "APACHE_CONFDIR: unbound variable" で即終了します。
+    # また envvars は LANG=C を export します。mod_passenger が起動する
+    # Ruby はこの環境を継承するため、そのままだと外部エンコーディングが
+    # US-ASCII になり、日本語コメントを含む config/database.yml を Gemfile が
+    # 読む時点で "invalid byte sequence in US-ASCII" になります。
+    # イメージの LANG（C.UTF-8）を退避して戻します。
+    local_lang="${LANG:-C.UTF-8}"
+    set +u
     # shellcheck source=/dev/null
     source /etc/apache2/envvars
+    set -u
+    export LANG="${local_lang}"
     # envvars はパスを export するだけでディレクトリは作りません（作るのは
     # apache2ctl 側）。Podman は /run に tmpfs をマウントするため、イメージに
     # 含まれる /run/apache2 は起動時に消えています。ここで作り直します。

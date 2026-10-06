@@ -189,7 +189,7 @@ Redmine・PostgreSQL・プラグインのバージョン変更は、`git ls-remo
 |------|---------------|----------------|--------------|--------------|
 | Redmine 5 | `Containerfile.v5` | `redmine:5.1.12` | Ruby 3.2 / Rails 6.1.7.10 | 11 |
 | Redmine 6（既定） | `Containerfile.v6` | `redmine:6.1.3` | Ruby 3.4 / Rails 7.2.3.1 | 13 |
-| Redmine 7 | `Containerfile.v7` | `redmine:7.0.0` | Ruby 4.0 / Rails 8.1.3 | 12 |
+| Redmine 7 | `Containerfile.v7` | `redmine:7.0.2` | Ruby 4.0 / Rails 8.1.3 | 12 |
 
 `entrypoint.sh` / `healthcheck.sh` / `config.ru` / 各 `*.tmpl` / `redmine-db` は 3 系列で共通です。
 系列間の差分は「ベースイメージ」「プラグインのピン」「テーマの配置先」だけに閉じています。
@@ -207,7 +207,7 @@ REDMINE_WEB_CONTAINERFILE=Containerfile.v5
 REDMINE_VERSION=6.1.3
 REDMINE_WEB_CONTAINERFILE=Containerfile.v6
 # 7 系
-REDMINE_VERSION=7.0.0
+REDMINE_VERSION=7.0.2
 REDMINE_WEB_CONTAINERFILE=Containerfile.v7
 ```
 
@@ -261,7 +261,7 @@ systemctl --user daemon-reload
 ### 系列固有の注意点
 
 - **テーマの置き場が 5 系だけ違います。** Redmine 6.0 でテーマが `public/themes/` から
-  `themes/` へ移動しました（5.1.13 のツリーには `public/themes`、6.1.3 / 7.0.0 には `themes`）。
+  `themes/` へ移動しました（5.1.13 のツリーには `public/themes`、6.1.3 / 7.0.2 には `themes`）。
   `Containerfile.v5` だけ `public/themes/farend_fancy` へ clone し、`chown` 対象も
   `public/` 配下で完結させています。
 - **5 系の geo gem スタックは固定が必要です。** `redmine_gtt` 6.0.3 の Gemfile は既定で
@@ -274,11 +274,20 @@ systemctl --user daemon-reload
   commit `ac72cc3` "Remove 5.1 (Ruby 3.2 EOL)" で 5.1 を削除しました。Docker Hub に残る
   `redmine:5.1.12`（2026-04-14 push）が最後で、Redmine 本体のソースにある 5.1.13 に対応する
   公式イメージはありません。ベース OS と Ruby 3.2 の更新は止まっています。
-- **7 系の `passenger` モードは未検証です。** Debian trixie の `libapache2-mod-passenger` は
+- **7 系の `passenger` モードは動作確認済みです。** Debian trixie の `libapache2-mod-passenger` は
   6.0.26 で、Passenger が Ruby 4 対応に言及したのは 6.1.1（CHANGELOG: "[Ruby] Improve support
-  for Ruby 4 and Frozen String Literals"）以降です。7 系のベースは Ruby 4.0 のため、まずは
-  Debian パッケージのまま入れて `bash scripts/test-stack.sh --series 7 --web-server passenger`
-  で実測する方針にしています。動かない場合の選択肢は次の 2 つです。
+  for Ruby 4 and Frozen String Literals"）以降でしたが、`redmine:7.0.2`（Ruby 4.0.7）のイメージ
+  に対する Playwright E2E（[tests/e2e](../tests/e2e/README.md)、45/45 PASS。結果レポートは
+  コミットせず該当 PR の説明に記載）では 6.0.26 のまま問題なく動作しています。ただし
+  素の Debian パッケージの `/etc/apache2/envvars` に
+  起因する落とし穴が 2 つあり、`entrypoint.sh` 側で対処が必要でした。
+  1. `envvars` は未定義の `APACHE_CONFDIR` を参照するため、`set -u` のまま `source` すると
+     `unbound variable` で即落ちる（`source` の前後だけ `set +u`/`set -u`）。
+  2. `envvars` は `LANG=C` を `export` し、イメージの `LANG=C.UTF-8` を上書きする。mod_passenger
+     が起動する Ruby がこの環境を継承すると外部エンコーディングが US-ASCII になり、日本語コメント
+     入りの `config/database.yml` を Gemfile が読む際に `invalid byte sequence in US-ASCII` で
+     落ちる（`source` の前後で `LANG` を退避・復元）。
+  もし将来別の問題が出た場合の選択肢は次の 2 つです。
   1. Phusion の APT リポジトリ（Passenger 6.1.0 で Debian 13 trixie パッケージが追加済み）から
      6.1.x を導入する。外部 APT リポジトリ依存が増えます。
   2. 7 系は `puma` 専用と割り切り、`Containerfile.v7` から `libapache2-mod-passenger` を外す。

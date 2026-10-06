@@ -105,7 +105,7 @@ plugin/theme versions that actually work differ per series:
 |--------|---------------|------------|--------------|---------|
 | 5 | `Containerfile.v5` | `redmine:5.1.12` | 3.2 / 6.1.7.10 | 11 |
 | 6 (default) | `Containerfile.v6` | `redmine:6.1.3` | 3.4 / 7.2.3.1 | 13 |
-| 7 | `Containerfile.v7` | `redmine:7.0.0` | 4.0 / 8.1.3 | 12 |
+| 7 | `Containerfile.v7` | `redmine:7.0.2` | 4.0 / 8.1.3 | 12 |
 
 `entrypoint.sh`, `healthcheck.sh`, `config.ru`, the `*.tmpl` files and
 `redmine-db` are shared by all three — keep it that way; series differences
@@ -143,9 +143,23 @@ Series-specific facts that are easy to get wrong (full evidence in
   release tarball (`redmine_gtt-v7.1.0.tar.gz`), which ships prebuilt
   `assets/javascripts/main.js` + `assets/stylesheets/main.css` and needs no
   Node toolchain at all. Don't reintroduce yarn/webpack there.
-- Redmine 7's `passenger` mode is **unverified**: Debian trixie ships Passenger
-  6.0.26 and Ruby 4 support landed in 6.1.1. The v7 image installs the Debian
-  package anyway so it can be measured with
+- Redmine 7's `passenger` mode is **verified working** against `redmine:7.0.2`
+  (Ruby 4.0.7): Debian trixie ships Passenger 6.0.26, and although Ruby 4
+  support wasn't mentioned until 6.1.1, 6.0.26 runs fine as-is — confirmed by
+  a Playwright E2E walkthrough (`tests/e2e`, 45/45 PASS — the result report
+  and screenshots aren't committed; see the PR that made this change).
+  Getting there required two `entrypoint.sh`
+  fixes around `/etc/apache2/envvars`, both in the passenger branch that does
+  `source /etc/apache2/envvars`:
+  1. `envvars` references the undefined `APACHE_CONFDIR`, so sourcing it under
+     `set -u` aborted with `unbound variable` — wrap the `source` in
+     `set +u` / `set -u`.
+  2. `envvars` exports `LANG=C`, clobbering the image's `LANG=C.UTF-8`. The
+     Ruby process mod_passenger spawns inherits that, so its external encoding
+     becomes US-ASCII and Bundler chokes on the Japanese comments in
+     `config/database.yml` (`invalid byte sequence in US-ASCII`, raised from
+     Gemfile) — save/restore `LANG` around the `source`.
+  Re-verify after any `entrypoint.sh` or base-image change with
   `bash scripts/test-stack.sh --series 7 --web-server passenger`.
 
 ## Development workflow (Docker Compose: WSL or Codespaces)
@@ -450,6 +464,17 @@ own image tag, `--skip-build` only reuses an image of that same series. It only
 exercises **default** `.env` values otherwise — it does not verify that a
 `.env` override (`REDMINE_SUBURI`, `REDMINE_DB_NAME`, etc., see
 `docs/Design.md`) actually takes effect.
+
+`tests/e2e/` adds a Playwright walkthrough on top of that: it drives an actual
+browser through login, project/issue/wiki CRUD, user administration, every
+plugin's admin screen, and REST API access, screenshotting each step. It's a
+manual/occasional check (not wired into `test-stack.sh`), useful after a
+Redmine series bump or an `entrypoint.sh`/`config.ru` change that
+`test-stack.sh`'s curl-level checks wouldn't catch. See `tests/e2e/README.md`
+for how to run it against an isolated stack. Its output (`tests/e2e/report/`,
+including screenshots) is generated per run and not committed — a result
+(Redmine 7.0.2, passenger mode: 45/45 PASS) is instead recorded in the PR
+description of the change that produced it.
 
 For a quicker manual check, or when investigating a single failure:
 
