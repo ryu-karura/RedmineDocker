@@ -36,8 +36,8 @@ jobs:
       - name: シークレット生成
         run: bash scripts/generate-secrets.sh
 
-      - name: "redmine-web イメージをビルド（既定: Redmine 7 系）"
-        run: docker compose -f compose.dev.yaml build redmine-web
+      - name: "イメージをビルド（redmine-db / redmine-web、既定: Redmine 7 系）"
+        run: docker compose -f compose.dev.yaml build
 
       - name: 隔離スタックを起動 (${{ matrix.web_server }} モード)
         run: docker compose -f compose.dev.yaml up -d --no-build
