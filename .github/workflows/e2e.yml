@@ -47,7 +47,7 @@ jobs:
 
       - name: ログイン画面が応答するまで待機
         run: |
-          for i in $(seq 1 60); do
+          for _ in $(seq 1 60); do
             code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 http://127.0.0.1:18080/redmine/login || true)
             if [ "$code" = "200" ]; then
               echo "login reachable (HTTP 200)"
