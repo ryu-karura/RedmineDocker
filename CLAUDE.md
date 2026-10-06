@@ -590,9 +590,13 @@ to duplicate.
   guide with screenshots under `docs/images/plugins/` — update it when a plugin is
   added, removed or re-pinned), `README.md` (overview), and this file.
 
-## Verification (no CI pipeline; one integration test script)
+## Verification (one CI workflow: E2E; plus three manual integration test scripts)
 
-There is no CI pipeline, but three self-contained integration tests exist:
+`.github/workflows/e2e.yml` runs the Playwright suite in `tests/e2e` on pull
+requests that touch `containers/redmine-web/**`, `containers/redmine-db/**`,
+`compose.dev.yaml` or `tests/e2e/**` (plus `workflow_dispatch`), once with
+`REDMINE_WEB_SERVER=puma` and once with `passenger`. The three scripts below are
+not wired into CI and are run by hand:
 `scripts/test-stack.sh` for the normal dev (Compose) path,
 `scripts/test-upgrade.sh` for the legacy-MySQL upgrade path (builds the 5.1.1 +
 MySQL stack, seeds Japanese/boolean test data, runs
@@ -653,6 +657,12 @@ own image tag, `--skip-build` only reuses an image of that same series. It only
 exercises **default** `.env` values otherwise — it does not verify that a
 `.env` override (`REDMINE_SUBURI`, `REDMINE_DB_NAME`, etc., see
 `docs/Design.md`) actually takes effect.
+
+`tests/e2e/` (Playwright, 47 steps: login, project/issue/wiki CRUD, user admin,
+every bundled plugin's admin screen, REST API) is the browser-level check. Run it
+against a fresh isolated stack in both modes (`down -v` between them) — see
+`tests/e2e/README.md`. Its per-run output (`tests/e2e/out/`) is not committed;
+results go in the PR description.
 
 For a quicker manual check, or when investigating a single failure:
 

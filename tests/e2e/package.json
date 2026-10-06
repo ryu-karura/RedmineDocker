@@ -1,0 +1,12 @@
+{
+  "name": "redmine-docker-e2e",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Playwright E2E walkthrough for the redmine-web image (login, projects, issues, wiki, user admin, plugins, REST API).",
+  "scripts": {
+    "test": "node run.js"
+  },
+  "dependencies": {
+    "playwright": "1.62.1"
+  }
+}

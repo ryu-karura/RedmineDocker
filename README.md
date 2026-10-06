@@ -4,6 +4,8 @@
 
 このリポジトリでは、2 コンテナ構成の Redmine 基盤を構築・展開・運用します。開発も本番も同じ Docker Compose 定義 (`compose.dev.yaml`) を使い、本番はそこへ `compose.prod.yaml` を重ねて systemd ユニット (`systemd/redmine.service`) から起動します。設計は [redmine.jp の Docker ガイド](https://blog.redmine.jp/articles/6_1/redmine-6_1-docker/) を踏襲し、公式 Redmine イメージとファイルベースのシークレットを用いた 2 層構成へ拡張したものです。
 
+[![E2E (Redmine 7.0.1, puma / passenger)](https://img.shields.io/badge/E2E%20Redmine%207.0.1-47%2F47%20PASS-brightgreen)](tests/e2e/README.md)
+
 ---
 
 ## アーキテクチャ
@@ -170,6 +172,7 @@ sudo systemctl daemon-reload && sudo systemctl enable --now redmine
 - **[セットアップ手順](docs/Setup.md)** — 本番 / 開発環境の導入手順。
 - **[運用手順](docs/Manual.md)** — バックアップ、復旧、ログ管理。
 - **[アップグレード手順](docs/Upgrade.md)** — Redmine 5.1.1 + MySQL 8.0 からの移行（DB コンバートと Redmine 7 へのアップグレード）。
+- **[E2E テスト](tests/e2e/README.md)** — Playwright による画面操作の確認（47 ステップ、puma / passenger 両モードを CI で実行）。
 - **[同梱プラグイン解説](docs/Plugins.md)** — 同梱プラグイン 14 個とテーマの機能・版・対応 Redmine バージョン（スクリーンショット付き）。
 
 ## ライセンス
