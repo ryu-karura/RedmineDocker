@@ -410,12 +410,13 @@ docker rm -f redmine-legacy-on-pg
 
 #### 5.1.1 アップグレード後もこの 5 個を使いたい場合
 
-5 個とも **Redmine 6.1.4 / 7.0.1 で動く版が存在します**（2026-09 時点。公式イメージ
-`redmine:6.1.4` / `redmine:7.0.1` に載せて起動・`/admin/plugins`・各プラグインの
-設定画面/マイページ/チケット画面まで確認済み）。使い続けたい場合は
+5 個とも **Redmine 6.1.4 / 7.0.2 で動く版が存在します**（6.1.4 は 2026-09、7.0.2 は 2026-10 に確認。
+公式イメージ `redmine:6.1.4` / `redmine:7.0.2` に載せて起動・`/admin/plugins`・各プラグインの
+設定画面/マイページ/チケット画面まで確認済み。7.0.2 では本番と同じ 15 プラグインに加えて
+この 5 個を載せた 20 プラグイン構成で起動・画面表示を確認しました）。使い続けたい場合は
 `Containerfile.v7`（または `.v6`）に下表の版を追加してイメージを焼き直してください。
 
-| プラグイン | 追加する版 | 6.1.4 | 7.0.1 | 備考 |
+| プラグイン | 追加する版 | 6.1.4 | 7.0.2 | 備考 |
 |-----------|-----------|:---:|:---:|------|
 | redmine_theme_changer | **0.7.1** | OK | OK | CI に 6.0/6.1-stable と master を含む |
 | redmine_issue_assign_notice | **v2.3.0** | OK | OK | 2026-08 更新。dev container が `redmine:6.1.3` |
@@ -424,10 +425,10 @@ docker rm -f redmine-legacy-on-pg
 | redmine_hide_sidebar | master | OK | OK | タグ無し。CI は 2024 年（master = 当時の 6.0-devel）まで |
 
 > ⚠ **移行元の版のまま持ち込まないでください。** `redmine_theme_changer` **0.6.0**
-> を `redmine:7.0.1` に載せると、Rails から削除された `unloadable` を呼ぶため
+> を `redmine:7.0.2` に載せると、Rails から削除された `unloadable` を呼ぶため
 > `undefined local variable or method 'unloadable' for class ThemeChangerUserSetting
 > (NameError)` で **Redmine 全体が起動不能**になります（0.7.1 で解消）。残り 4 個は
-> 移行元の版のままでも 7.0.1 で起動しますが、更新のある 3 個は上表の版を推奨します。
+> 移行元の版のままでも 7.0.2 で起動しますが、更新のある 3 個は上表の版を推奨します。
 
 ### 5.2 バックアップ（切り戻し用）
 
@@ -472,7 +473,7 @@ docker compose -f compose.dev.yaml logs -f redmine-web
 
 ### 5.4 プラグイン構成の変化
 
-| プラグイン | 5.1.1 (移行元) | 7.0.1 (移行先) | 備考 |
+| プラグイン | 5.1.1 (移行元) | 7.0.2 (移行先) | 備考 |
 |-----------|:---:|:---:|------|
 | redmine_wiki_lists | 0.0.11 | 0.0.11 | |
 | redmine_banner | 0.3.5 | master | 7.0 対応は 0.3.5 より後の master にのみ存在 |
@@ -488,6 +489,7 @@ docker compose -f compose.dev.yaml logs -f redmine-web
 | redmine_solid_queue | — | v1.0.0 | 新規（5.1 では導入不可だった） |
 | redmine_gtt | — | v7.1.0 | 新規（PostGIS が必要なため MySQL 環境では不可だった） |
 | redmine_xlsx_format_issue_exporter | 0.2.1 | 0.2.1 | |
+| redmine_cascading_custom_fields | — | v0.2.0 | 新規（7 系のみ。移行元には無い） |
 | redmine_issue_assign_notice | v2.2.1 | — | **7 系イメージに無い（5.1 参照）** |
 | redmine_theme_changer | 0.6.0 | — | **7 系イメージに無い。マイグレーションを戻してから外す（5.1 参照）** |
 | redmine_absolute_dates | 0.0.4 | — | **7 系イメージに無い（5.1 参照）** |

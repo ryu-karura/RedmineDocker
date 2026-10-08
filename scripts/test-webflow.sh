@@ -124,9 +124,14 @@ checkbox_values() {
 }
 
 # GET してファイルへ保存し、HTTP ステータスを返す。
+# ブラウザ同様 Accept: text/html を送る。curl 既定の "*/*" だと、respond_to の
+# 先頭にある形式が選ばれ、redmine_gtt 入りのイメージでは /projects/:id が
+# GeoJSON（本文 "null"、content-disposition: attachment）で返ってしまう。
+ACCEPT_HTML='Accept: text/html,application/xhtml+xml'
+
 http_get() {
     local url="$1" out="$2"
-    curl -sS -L -b "${COOKIES}" -c "${COOKIES}" \
+    curl -sS -L -H "${ACCEPT_HTML}" -b "${COOKIES}" -c "${COOKIES}" \
         -o "${out}" -w '%{http_code}' "${url}"
 }
 
@@ -145,7 +150,7 @@ page_contains() { grep -qF "$2" "$1"; }
 http_post() {
     local url="$1"; shift
     local out="$1"; shift
-    curl -sS -L -b "${COOKIES}" -c "${COOKIES}" "$@" -o "${out}" -w '%{http_code}' "${url}"
+    curl -sS -L -H "${ACCEPT_HTML}" -b "${COOKIES}" -c "${COOKIES}" "$@" -o "${out}" -w '%{http_code}' "${url}"
 }
 
 # ── 1. ログイン ────────────────────────────────────────────────────────────────
@@ -185,6 +190,10 @@ attempt_login() {
     code="$(http_get "${BASE_URL}/my/account" "${WORK_DIR}/my_account.html")"
     [ "${code}" = "200" ] || return 1
     page_contains "${WORK_DIR}/my_account.html" "${LOGIN_USER}" || return 1
+    # 未ログインでもログインページ（/my/account からのリダイレクト先）にログイン名が
+    # 現れることがある（view_customize が埋め込む JS コンテキストの "admin":false など）。
+    # ログアウトリンクの有無でもセッション確立を確かめる。
+    grep -qE '/logout|signout' "${WORK_DIR}/my_account.html" || return 1
     return 0
 }
 
