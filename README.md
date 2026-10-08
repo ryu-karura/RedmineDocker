@@ -26,7 +26,7 @@
 | コンテナ | ビルドコンテキスト | イメージ | 役割 | 公開先 |
 |----------|-------------------|----------|------|--------|
 | `redmine-db` | `containers/redmine-db/` | `postgis/postgis:18-3.6` | PostgreSQL 18 + PostGIS 3.6 | なし（内部 5432） |
-| `redmine-web` | `containers/redmine-web/` | `docker.io/library/redmine:7.0.1` + plugin stack + Apache 2.4 | Redmine アプリ、Apache フロントエンド、Puma | `127.0.0.1:80` |
+| `redmine-web` | `containers/redmine-web/` | `docker.io/library/redmine:7.0.1` + plugin stack + Apache 2.4 | Redmine アプリ、Apache フロントエンド、Passenger / Puma | `127.0.0.1:80` |
 
 `redmine-web` だけがループバックに公開されます。ホスト側 Apache が 443 で TLS を終端し、`/redmine` をその先へ転送します。PostgreSQL (5432) と Puma (3000) はホストからは到達できません。
 
@@ -49,7 +49,7 @@
 | Passenger | `REDMINE_WEB_SERVER=passenger`（7 系の既定）用。3 系列とも Debian trixie の `libapache2-mod-passenger` (6.0.26) |
 | Node.js / Yarn | Debian `nodejs` + Yarn 1.22.22（5 系のみ。redmine_gtt 6.0.3 の webpack ビルド用） |
 
-`redmine-web` に焼き込まれているプラグイン (6 系は 14 個): redmine_wiki_lists, redmine_banner,
+`redmine-web` に焼き込まれているプラグイン (既定の 7 系は 14 個): redmine_wiki_lists, redmine_banner,
 redmine_issues_panel, redmica_ui_extension, redmine_ip_filter,
 redmine_message_customize, redmine_issue_templates, view_customize, redmine_logs,
 redmine_login_audit2, redmine_wiki_extensions, redmine_solid_queue, redmine_gtt,
@@ -101,15 +101,21 @@ RedmineDocker/
 │   └── redmine.service             #   docker compose で 2 コンテナを起動/停止
 ├── host-apache/                  # ホスト Apache のリバースプロキシ (TLS)
 ├── scripts/                      # generate-secrets, backup, restore
+│   ├── test-stack.sh                 # 通常スタック (5/6/7 系) のビルド・起動検証
+│   ├── test-webflow.sh               # 稼働中 Redmine のログイン/プロジェクト/チケット操作検証
 │   ├── migrate-mysql-to-postgres.sh  # MySQL → PostgreSQL 18 コンバート
 │   ├── test-upgrade.sh               # 5.1.1+MySQL → PG18 → 7.0.1 の通し検証
 │   └── pgloader/                     # pgloader コマンドファイル + シーケンス再設定 SQL
 ├── logrotate/                    # ログローテーション
+├── Makefile / menu.sh            # 対話メニュー（`make` で起動）
 ├── compose.dev.yaml              # Docker Compose 本体（開発・本番共通）
 ├── compose.prod.yaml             # 本番オーバーレイ（bind mount + 127.0.0.1:80）
+├── compose.codespaces.yaml       # Codespaces 用オーバーライド（ポート 80 公開）
 ├── compose.legacy.yaml           # 移行元 (Redmine 5.1.1 + MySQL 8.0) 再現用
+├── compose.legacy-on-postgres.yaml # 移行元を PostgreSQL で恒久運用する場合の override
 ├── .devcontainer/                # GitHub Codespaces / VS Code dev container
-├── .env.example                  # SMTP / TZ などのオプション設定テンプレート
+├── .env.example                  # 非シークレット設定のテンプレート（コンテナ名・ポート・SMTP / TZ など）
+├── .env.legacy.example           # 移行元スタック用（.env とは混在させない）
 └── .gitignore
 ```
 
@@ -119,24 +125,31 @@ RedmineDocker/
 
 開発環境は 2 つあります。手順の細部（前提条件、systemd 設定など）は `docs/Setup.md` を参照してください。
 
-**開発環境 A — WSL (AlmaLinux 9.5 以上)**、**開発環境 B — GitHub Codespaces** のどちらも同じコマンドで起動します。
-
 ```bash
 # 0. 非シークレット設定 (.env) を作成（初回のみ）
 cp .env.example .env
 # 必要に応じて REDMINE_SUBURI / REDMINE_WEB_HOST_PORT / TZ / SMTP_* を編集
 
 bash scripts/generate-secrets.sh                 # ./secrets/*.txt を生成
-docker compose -f compose.dev.yaml up --build -d  # 初回ビルドは重めです（プラグインと webpack の構築）
-# その後、転送ポートを開きます:
+```
+
+**開発環境 A — WSL (AlmaLinux 9.5 以上)**:
+
+```bash
+docker compose -f compose.dev.yaml up --build -d  # 初回ビルドは重めです（プラグイン gem の構築）
 #   http://localhost:8080/redmine/   (初期ログイン: admin / admin)
+```
+
+**開発環境 B — GitHub Codespaces**（ポート 80 で公開するオーバーライドを重ねます）:
+
+```bash
+docker compose -f compose.dev.yaml -f compose.codespaces.yaml up --build -d
+#   http://localhost/redmine/   (初期ログイン: admin / admin。Ports タブでポート 80 が自動フォワードされます)
 ```
 
 `compose.dev.yaml` は名前付きボリュームを使うため、`docker compose down` してもデータは残ります。
 
-WSL は Docker Engine を推奨（Podman 上で `docker` CLI をエミュレートする構成でも `compose.dev.yaml` は動きます）、Codespaces は devcontainer の docker-in-docker で動作します。コマンドは共通ですが、実行環境の違いは `docs/Setup.md` を参照してください。
-
-`.env.example` には、コンテナ名・ネットワーク名・SUBURI・公開ポート・イメージタグ・ベースイメージタグの既定値が含まれます。通常は `cp .env.example .env` で開始し、必要項目だけ変更してください。
+WSL は Docker Engine を推奨（Podman 上で `docker` CLI をエミュレートする構成でも `compose.dev.yaml` は動きます）、Codespaces は devcontainer の docker-in-docker で動作します。実行環境の違いは `docs/Setup.md` を参照してください。
 
 ---
 

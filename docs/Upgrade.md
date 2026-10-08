@@ -127,8 +127,8 @@ docker compose --env-file .env.legacy -f compose.legacy.yaml logs -f redmine-leg
 
 ### 2.1 プラグイン構成（16 個）と、除外したもの
 
-`Containerfile.v5` の 11 個から `redmine_gtt` を除いた 10 個に、実際の移行元環境
-（本番相当）のプラグイン構成に合わせて 6 個を追加したものです。
+`Containerfile.v5` の 12 個から `redmine_gtt` を除いた 11 個に、実際の移行元環境
+（本番相当）のプラグイン構成に合わせて 5 個を追加したものです。
 
 | # | プラグイン | バージョン |
 |---|-----------|-----------|
@@ -468,7 +468,7 @@ docker compose -f compose.dev.yaml logs -f redmine-web
 データ量によっては数分〜数十分かかります。**途中で止めないでください。**
 
 マイグレーションだけ先に流してからアプリを公開したい場合は、
-`REDMINE_MIGRATE_ONLY=1` を付けて単発起動します（Web サーバーを起動せずに終了します）。
+`docker compose -f compose.dev.yaml run --rm -e REDMINE_MIGRATE_ONLY=1 redmine-web` で単発起動します（Web サーバーを起動せずに終了します）。
 
 ### 5.4 プラグイン構成の変化
 
@@ -509,7 +509,7 @@ docker compose -f compose.dev.yaml logs -f redmine-web
 
 | 段階 | 切り戻し方 |
 |------|-----------|
-| 段階 3 の途中で失敗 | `docker compose -f compose.dev.yaml down` → `.env` を 5 系相当に戻す前に、5.3 で取った `redmine_before_v7.dump` を `scripts/restore.sh` 相当の手順でリストアし、`localhost/redmine-web:5.1.1-mysql` を PostgreSQL 向けに起動（4 章）して確認 |
+| 段階 3 の途中で失敗 | `docker compose -f compose.dev.yaml down` → 5.2 で取った `redmine_before_v7.dump` を `redmine-db` へ `scripts/restore.sh` 相当の手順でリストアし、`localhost/redmine-web:5.1.1-mysql` を PostgreSQL 向けに起動（4 章）して確認 |
 | 段階 2 の途中で失敗 | 移行元 (MySQL) には一切書き込んでいないため、移行先の DB を捨てて (`docker compose -f compose.dev.yaml down -v`) やり直す |
 | 全体を中止 | 移行元スタックはそのまま動いています（`:8081`）。移行先を `down -v` で破棄するだけです |
 
@@ -584,9 +584,10 @@ bash scripts/test-webflow.sh --url http://localhost:8080/redmine \
 | 変数 | 既定 | 意味 |
 |------|------|------|
 | `REDMINE_WEB_CONTAINERFILE` | `Containerfile.v7` | 段階 3 の移行先そのもの。5 系 / 6 系に留める場合だけ `.v5` / `.v6` を明示する |
-| `REDMINE_DB_ADAPTER` | `postgis` | 通常構成では変更不要。段階 3 で `Containerfile.v7` に切り替えても既定の `postgis` のまま |
-| `REDMINE_MIGRATE_ONLY` | 未設定 | 設定するとマイグレーションだけ実行して終了（Web サーバーを起動しない） |
 | `REDMINE_NETWORK` / `REDMINE_DB_CONTAINER` | `redmine-net` / `redmine-db` | 4.1 の恒久運用 override（`compose.legacy-on-postgres.yaml`）が接続先として参照 |
+
+`REDMINE_DB_ADAPTER`（`compose.dev.yaml` で `postgis` に固定）と `REDMINE_MIGRATE_ONLY`
+（5.3 のとおり `run -e` で単発指定）は `.env` では設定しません。
 
 **`.env.legacy`（`.env.legacy.example` から作成）**
 

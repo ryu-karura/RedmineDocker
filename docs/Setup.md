@@ -317,8 +317,9 @@ sudo systemctl reload httpd
 - 日本語の初期データ（トラッカー/ロール/ワークフロー等）は `redmine-web` の
   `entrypoint.sh` が初回起動時（trackers テーブルが空のとき）に自動投入します
   （`REDMINE_LOAD_DEFAULT_DATA=1` / `REDMINE_DEFAULT_DATA_LANG=ja` が既定）。
-  2 回目以降の起動では既存データがあるためスキップされ、無効化したい場合は
-  `.env` に `REDMINE_LOAD_DEFAULT_DATA=0` と書きます。
+  2 回目以降の起動では既存データがあるためスキップされます。無効化したい場合は
+  `compose.dev.yaml` の `REDMINE_LOAD_DEFAULT_DATA: "1"` を `"0"` に変更します
+  （この変数は `.env` からは渡りません）。
 - ログローテーションを有効化します: `sudo cp logrotate/redmine /etc/logrotate.d/redmine-web`。
 - バックアップは root の cron に登録します（`scripts/backup.sh` は docker を操作します）:
   `sudo crontab -e` で
