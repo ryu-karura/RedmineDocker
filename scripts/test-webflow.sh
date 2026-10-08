@@ -7,29 +7,19 @@
 #   3. チケットを作成でき、作成後のページとチケット一覧に表示される
 # ことを確認します。
 #
-# scripts/test-upgrade.sh の rails runner による検査がモデル層の確認なのに対し、
-# こちらは「ブラウザで操作したときに実際に表示されるか」を確認するものです。
-# アップグレードの前後で同じ検査を流し、データが引き継がれていることも見ます。
+# rails runner によるモデル層の確認とは違い、「ブラウザで操作したときに実際に
+# 表示されるか」を確認するものです。
 #
 # 稼働中の Redmine であれば系列 (5 / 6 / 7) を問わず使えます。
-# 単体でも使えますし、scripts/test-upgrade.sh から呼ばれます。
 #
 # 使い方:
 #   # 作成して表示を確認する（--tag でこの実行分の識別子が決まります）
-#   bash scripts/test-webflow.sh --url http://localhost:8081/redmine --tag before
-#
-#   # 過去の実行で作ったものが今も表示されるか確認する（アップグレード後の確認）
-#   bash scripts/test-webflow.sh --url http://localhost:8080/redmine \
-#       --tag after --expect-tag before
-#
-#   # 作成はせず、既存の表示確認だけ
-#   bash scripts/test-webflow.sh --url http://localhost:8080/redmine \
-#       --expect-tag before --skip-create
+#   bash scripts/test-webflow.sh --url http://localhost:8080/redmine --tag run1
 #
 # ★ 初回ログイン時のパスワード強制変更に対応しています。
 #   Redmine の admin は must_change_passwd が立っているため、初回ログイン後に
 #   /my/password へ誘導されます。--password で入れず --new-password で入れた
-#   場合はそのまま続行するので、アップグレード前後で同じ引数のまま使えます。
+#   場合（前回の実行でパスワードを変更済みの場合）はそのまま続行します。
 #
 # 終了コード: 0 = 全項目 OK、1 = 失敗あり。
 
@@ -41,8 +31,6 @@ LOGIN_USER="admin"
 LOGIN_PASSWORD="admin"
 NEW_PASSWORD="RedmineWebflow123!"
 TAG=""
-EXPECT_TAGS=()
-SKIP_CREATE=0
 
 while [ "$#" -gt 0 ]; do
     case "$1" in
@@ -58,9 +46,6 @@ while [ "$#" -gt 0 ]; do
         --new-password=*) NEW_PASSWORD="${1#--new-password=}" ;;
         --tag)          [ "$#" -ge 2 ] || { echo "--tag requires an argument" >&2; exit 2; }; TAG="$2"; shift ;;
         --tag=*)        TAG="${1#--tag=}" ;;
-        --expect-tag)   [ "$#" -ge 2 ] || { echo "--expect-tag requires an argument" >&2; exit 2; }; EXPECT_TAGS+=("$2"); shift ;;
-        --expect-tag=*) EXPECT_TAGS+=("${1#--expect-tag=}") ;;
-        --skip-create)  SKIP_CREATE=1 ;;
         -h|--help)      sed -n '2,40p' "${BASH_SOURCE[0]}"; exit 0 ;;
         *) echo "Unknown option: $1" >&2; exit 2 ;;
     esac
@@ -70,9 +55,7 @@ done
 [ -n "${BASE_URL}" ] || { echo "ERROR: --url is required (e.g. http://localhost:8081/redmine)" >&2; exit 2; }
 BASE_URL="${BASE_URL%/}"
 [ -n "${LABEL}" ] || LABEL="${BASE_URL}"
-if [ "${SKIP_CREATE}" -eq 0 ] && [ -z "${TAG}" ]; then
-    echo "ERROR: --tag is required unless --skip-create is given" >&2; exit 2
-fi
+[ -n "${TAG}" ] || { echo "ERROR: --tag is required (it names the project/issue created by this run)" >&2; exit 2; }
 
 log()  { echo "[$(date -u '+%Y-%m-%dT%H:%M:%SZ')] [webflow:${LABEL}] $*"; }
 warn() { echo "[$(date -u '+%Y-%m-%dT%H:%M:%SZ')] [webflow:${LABEL}] WARNING: $*" >&2; }
@@ -219,114 +202,81 @@ else
     fail "authenticated session on /my/page (HTTP ${code})"
 fi
 
-# ── 2. 既存データの表示確認（アップグレード後の引き継ぎ確認） ─────────────────
-verify_tag() {
-    local tag="$1"
-    local identifier="webflow-${tag}"
-    local project_name="Webflow 検証 ${tag}"
-    local issue_subject="Webflow 検証チケット ${tag}"
-    local code
+# ── 2. プロジェクト作成 → 表示確認 ────────────────────────────────────────────
+IDENTIFIER="webflow-${TAG}"
+PROJECT_NAME="Webflow 検証 ${TAG}"
+ISSUE_SUBJECT="Webflow 検証チケット ${TAG}"
+ISSUE_DESCRIPTION="Web UI 経由で作成したチケットです（日本語の本文を含みます）。"
 
-    code="$(http_get "${BASE_URL}/projects/${identifier}" "${WORK_DIR}/verify_project_${tag}.html")"
-    if [ "${code}" = "200" ] && page_contains "${WORK_DIR}/verify_project_${tag}.html" "${project_name}"; then
-        ok "existing project '${identifier}' still displays (name shown)"
-    else
-        fail "existing project '${identifier}' displays (HTTP ${code})"
-        return
-    fi
-
-    code="$(http_get "${BASE_URL}/projects/${identifier}/issues" "${WORK_DIR}/verify_issues_${tag}.html")"
-    if [ "${code}" = "200" ] && page_contains "${WORK_DIR}/verify_issues_${tag}.html" "${issue_subject}"; then
-        ok "existing issue of '${identifier}' still displays in the issue list"
-    else
-        fail "existing issue of '${identifier}' displays in the issue list (HTTP ${code})"
-    fi
-}
-
-for t in ${EXPECT_TAGS[@]+"${EXPECT_TAGS[@]}"}; do
-    log "Verifying data created by an earlier run (tag: ${t}) ..."
-    verify_tag "${t}"
-done
-
-# ── 3. プロジェクト作成 → 表示確認 ────────────────────────────────────────────
-if [ "${SKIP_CREATE}" -eq 1 ]; then
-    log "--skip-create given — not creating a project/issue."
+log "Creating project '${IDENTIFIER}' ..."
+code="$(http_get "${BASE_URL}/projects/new" "${WORK_DIR}/project_new.html")"
+if [ "${code}" != "200" ]; then
+    fail "GET /projects/new (HTTP ${code})"
 else
-    IDENTIFIER="webflow-${TAG}"
-    PROJECT_NAME="Webflow 検証 ${TAG}"
-    ISSUE_SUBJECT="Webflow 検証チケット ${TAG}"
-    ISSUE_DESCRIPTION="Web UI 経由で作成したチケットです（日本語の本文を含みます）。"
+    ok "the new-project form is served"
+    token="$(csrf_token "${WORK_DIR}/project_new.html")"
 
-    log "Creating project '${IDENTIFIER}' ..."
-    code="$(http_get "${BASE_URL}/projects/new" "${WORK_DIR}/project_new.html")"
-    if [ "${code}" != "200" ]; then
-        fail "GET /projects/new (HTTP ${code})"
+    # 有効化するモジュールとトラッカーはフォームから拾う（系列差を吸収するため）。
+    TRACKER_ARGS=()
+    while IFS= read -r tid; do
+        [ -n "${tid}" ] || continue
+        TRACKER_ARGS+=(--data-urlencode "project[tracker_ids][]=${tid}")
+    done < <(checkbox_values "${WORK_DIR}/project_new.html" 'project[tracker_ids][]')
+
+    http_post "${BASE_URL}/projects" "${WORK_DIR}/project_create.html" \
+        --data-urlencode "authenticity_token=${token}" \
+        --data-urlencode "project[name]=${PROJECT_NAME}" \
+        --data-urlencode "project[identifier]=${IDENTIFIER}" \
+        --data-urlencode "project[description]=Web UI 経由の検証用プロジェクト" \
+        --data-urlencode "project[is_public]=1" \
+        --data-urlencode "project[enabled_module_names][]=issue_tracking" \
+        --data-urlencode "project[enabled_module_names][]=wiki" \
+        "${TRACKER_ARGS[@]+"${TRACKER_ARGS[@]}"}" >/dev/null
+
+    code="$(http_get "${BASE_URL}/projects/${IDENTIFIER}" "${WORK_DIR}/project_show.html")"
+    if [ "${code}" = "200" ] && page_contains "${WORK_DIR}/project_show.html" "${PROJECT_NAME}"; then
+        ok "project '${IDENTIFIER}' was created and its overview page displays the name"
     else
-        ok "the new-project form is served"
-        token="$(csrf_token "${WORK_DIR}/project_new.html")"
+        fail "project '${IDENTIFIER}' is created and displayed (HTTP ${code})"
+    fi
+fi
 
-        # 有効化するモジュールとトラッカーはフォームから拾う（系列差を吸収するため）。
-        TRACKER_ARGS=()
-        while IFS= read -r tid; do
-            [ -n "${tid}" ] || continue
-            TRACKER_ARGS+=(--data-urlencode "project[tracker_ids][]=${tid}")
-        done < <(checkbox_values "${WORK_DIR}/project_new.html" 'project[tracker_ids][]')
+# ── 3. チケット作成 → 表示確認 ────────────────────────────────────────────
+log "Creating an issue in '${IDENTIFIER}' ..."
+code="$(http_get "${BASE_URL}/projects/${IDENTIFIER}/issues/new" "${WORK_DIR}/issue_new.html")"
+if [ "${code}" != "200" ]; then
+    fail "GET /projects/${IDENTIFIER}/issues/new (HTTP ${code})"
+else
+    ok "the new-issue form is served"
+    token="$(csrf_token "${WORK_DIR}/issue_new.html")"
+    TRACKER_ID="$(select_value "${WORK_DIR}/issue_new.html" 'issue[tracker_id]')"
+    STATUS_ID="$(select_value  "${WORK_DIR}/issue_new.html" 'issue[status_id]')"
+    PRIORITY_ID="$(select_value "${WORK_DIR}/issue_new.html" 'issue[priority_id]')"
 
-        http_post "${BASE_URL}/projects" "${WORK_DIR}/project_create.html" \
-            --data-urlencode "authenticity_token=${token}" \
-            --data-urlencode "project[name]=${PROJECT_NAME}" \
-            --data-urlencode "project[identifier]=${IDENTIFIER}" \
-            --data-urlencode "project[description]=Web UI 経由の検証用プロジェクト" \
-            --data-urlencode "project[is_public]=1" \
-            --data-urlencode "project[enabled_module_names][]=issue_tracking" \
-            --data-urlencode "project[enabled_module_names][]=wiki" \
-            "${TRACKER_ARGS[@]+"${TRACKER_ARGS[@]}"}" >/dev/null
+    ISSUE_ARGS=()
+    [ -n "${TRACKER_ID}" ]  && ISSUE_ARGS+=(--data-urlencode "issue[tracker_id]=${TRACKER_ID}")
+    [ -n "${STATUS_ID}" ]   && ISSUE_ARGS+=(--data-urlencode "issue[status_id]=${STATUS_ID}")
+    [ -n "${PRIORITY_ID}" ] && ISSUE_ARGS+=(--data-urlencode "issue[priority_id]=${PRIORITY_ID}")
 
-        code="$(http_get "${BASE_URL}/projects/${IDENTIFIER}" "${WORK_DIR}/project_show.html")"
-        if [ "${code}" = "200" ] && page_contains "${WORK_DIR}/project_show.html" "${PROJECT_NAME}"; then
-            ok "project '${IDENTIFIER}' was created and its overview page displays the name"
-        else
-            fail "project '${IDENTIFIER}' is created and displayed (HTTP ${code})"
-        fi
+    http_post "${BASE_URL}/projects/${IDENTIFIER}/issues" "${WORK_DIR}/issue_create.html" \
+        --data-urlencode "authenticity_token=${token}" \
+        --data-urlencode "issue[subject]=${ISSUE_SUBJECT}" \
+        --data-urlencode "issue[description]=${ISSUE_DESCRIPTION}" \
+        "${ISSUE_ARGS[@]+"${ISSUE_ARGS[@]}"}" >/dev/null
+
+    # 作成直後のページ（リダイレクト先）に件名が出ていること。
+    if page_contains "${WORK_DIR}/issue_create.html" "${ISSUE_SUBJECT}"; then
+        ok "the created issue is displayed on the page returned after submitting"
+    else
+        fail "the created issue is displayed right after submitting"
     fi
 
-    # ── 4. チケット作成 → 表示確認 ────────────────────────────────────────────
-    log "Creating an issue in '${IDENTIFIER}' ..."
-    code="$(http_get "${BASE_URL}/projects/${IDENTIFIER}/issues/new" "${WORK_DIR}/issue_new.html")"
-    if [ "${code}" != "200" ]; then
-        fail "GET /projects/${IDENTIFIER}/issues/new (HTTP ${code})"
+    # チケット一覧にも出ていること。
+    code="$(http_get "${BASE_URL}/projects/${IDENTIFIER}/issues" "${WORK_DIR}/issue_list.html")"
+    if [ "${code}" = "200" ] && page_contains "${WORK_DIR}/issue_list.html" "${ISSUE_SUBJECT}"; then
+        ok "the created issue appears in the project's issue list"
     else
-        ok "the new-issue form is served"
-        token="$(csrf_token "${WORK_DIR}/issue_new.html")"
-        TRACKER_ID="$(select_value "${WORK_DIR}/issue_new.html" 'issue[tracker_id]')"
-        STATUS_ID="$(select_value  "${WORK_DIR}/issue_new.html" 'issue[status_id]')"
-        PRIORITY_ID="$(select_value "${WORK_DIR}/issue_new.html" 'issue[priority_id]')"
-
-        ISSUE_ARGS=()
-        [ -n "${TRACKER_ID}" ]  && ISSUE_ARGS+=(--data-urlencode "issue[tracker_id]=${TRACKER_ID}")
-        [ -n "${STATUS_ID}" ]   && ISSUE_ARGS+=(--data-urlencode "issue[status_id]=${STATUS_ID}")
-        [ -n "${PRIORITY_ID}" ] && ISSUE_ARGS+=(--data-urlencode "issue[priority_id]=${PRIORITY_ID}")
-
-        http_post "${BASE_URL}/projects/${IDENTIFIER}/issues" "${WORK_DIR}/issue_create.html" \
-            --data-urlencode "authenticity_token=${token}" \
-            --data-urlencode "issue[subject]=${ISSUE_SUBJECT}" \
-            --data-urlencode "issue[description]=${ISSUE_DESCRIPTION}" \
-            "${ISSUE_ARGS[@]+"${ISSUE_ARGS[@]}"}" >/dev/null
-
-        # 作成直後のページ（リダイレクト先）に件名が出ていること。
-        if page_contains "${WORK_DIR}/issue_create.html" "${ISSUE_SUBJECT}"; then
-            ok "the created issue is displayed on the page returned after submitting"
-        else
-            fail "the created issue is displayed right after submitting"
-        fi
-
-        # チケット一覧にも出ていること。
-        code="$(http_get "${BASE_URL}/projects/${IDENTIFIER}/issues" "${WORK_DIR}/issue_list.html")"
-        if [ "${code}" = "200" ] && page_contains "${WORK_DIR}/issue_list.html" "${ISSUE_SUBJECT}"; then
-            ok "the created issue appears in the project's issue list"
-        else
-            fail "the created issue appears in the issue list (HTTP ${code})"
-        fi
+        fail "the created issue appears in the issue list (HTTP ${code})"
     fi
 fi
 

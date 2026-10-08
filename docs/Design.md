@@ -131,7 +131,7 @@ docker の bind mount は UID を変換しません（rootless Podman のよう�
 
 ## 8. 設定パラメータ (.env)
 
-非シークレット設定は `.env`（テンプレート: `.env.example`）で管理します。Compose は自動で `.env` を読み込み、運用スクリプト（`scripts/backup.sh` / `scripts/restore.sh`）も同じ値を参照します。この節で扱うのは通常スタック（`compose.dev.yaml`）用の `.env` です。移行元スタック（`compose.legacy.yaml`）用の変数は別ファイル `.env.legacy`（テンプレート: `.env.legacy.example`）にあり、混在させません — 詳細は「10. 移行元 (MySQL) の再現と DB コンバート」参照。
+非シークレット設定は `.env`（テンプレート: `.env.example`）で管理します。Compose は自動で `.env` を読み込み、運用スクリプト（`scripts/backup.sh` / `scripts/restore.sh`）も同じ値を参照します。この節で扱うのは `compose.dev.yaml` 用の `.env` です。
 
 主なパラメータ:
 
@@ -162,7 +162,7 @@ docker の bind mount は UID を変換しません（rootless Podman のよう�
 | YJIT 有効化 | `RUBY_YJIT_ENABLE` | `1` |
 
 補足:
-- 次の変数は `.env` では変更できません。`REDMINE_DB_ADAPTER` は `compose.dev.yaml` で `postgis` に固定しています（`postgresql` / `mysql2` は移行元スタック側でのみ使用。「10. 移行元 (MySQL) の再現と DB コンバート」参照）。`REDMINE_MIGRATE_ONLY`（マイグレーション後に Web サーバーを起動せず終了）は `restart: always` と組み合わせると再起動を繰り返すため compose では渡さず、`docker compose -f compose.dev.yaml run --rm -e REDMINE_MIGRATE_ONLY=1 redmine-web` のように単発起動で指定します。
+- 次の変数は `.env` では変更できません。`REDMINE_MIGRATE_ONLY`（マイグレーション後に Web サーバーを起動せず終了）は `restart: always` と組み合わせると再起動を繰り返すため compose では渡さず、`docker compose -f compose.dev.yaml run --rm -e REDMINE_MIGRATE_ONLY=1 redmine-web` のように単発起動で指定します。
 - `compose.dev.yaml` の build args で `REDMINE_WEB_BASE_IMAGE` / `REDMINE_DB_BASE_IMAGE` を Containerfile の `FROM` に渡します。`redmine-web` の Containerfile は `REDMINE_WEB_CONTAINERFILE` で選びます（系列切り替えのため。「9. Redmine シリーズの切り替え」参照）。`REDMINE_VERSION` と `REDMINE_WEB_CONTAINERFILE` は必ずセットで変更してください。
 - 同じバージョン変数から、ビルド済みローカルイメージタグ（`REDMINE_WEB_IMAGE` / `REDMINE_DB_IMAGE`）も構成されます。
 - 本番も `systemd/redmine.service` が `WorkingDirectory=/opt/redmine/containers` で compose を実行するため、同じ `.env` がそのまま読み込まれます（SMTP/TZ を含む全項目）。
@@ -222,10 +222,6 @@ Redmine・PostgreSQL・プラグインのバージョン変更は、`git ls-remo
 
 `entrypoint.sh` / `healthcheck.sh` / `config.ru` / 各 `*.tmpl` / `redmine-db` は 3 系列で共通です。
 系列間の差分は「ベースイメージ」「プラグインのピン」「テーマの配置先」だけに閉じています。
-
-このほかに、移行元 (as-is) を再現するための `Containerfile.v5-mysql`（Redmine 5.1.1 +
-MySQL 8.0 CE、プラグイン 16 個）があります。通常構成では使わない検証専用のイメージで、
-`compose.legacy.yaml` からのみ参照します（「10. 移行元 (MySQL) の再現と DB コンバート」）。
 
 ### 切り替え方法
 
@@ -393,95 +389,3 @@ upstream の `init.rb` は `version '0.3.4'` のままなので、管理画面�
   既定マーカーへフォールバックするため、管理画面で選び直しが必要です。
 
 ---
-
-## 10. 移行元 (MySQL) の再現と DB コンバート
-
-既存の **Redmine 5.1.1 + MySQL 8.0 CE** から本構成へ移行するための設計です。
-実際の作業手順は [docs/Upgrade.md](Upgrade.md) にまとめています。ここでは
-「なぜその作り方なのか」だけを記録します。
-
-### 構成要素
-
-| 要素 | 位置づけ |
-|------|---------|
-| `.env.legacy.example` | `compose.legacy.yaml` 専用の環境変数テンプレート。通常スタックの `.env.example` とは別ファイル（8 章参照） |
-| `containers/redmine-db-mysql/` | MySQL 8.0 CE。移行元 DB の再現専用（本番構成には無い） |
-| `containers/redmine-web/Containerfile.v5-mysql` | Redmine 5.1.1 + プラグイン 16 個。mysql2 / postgresql の両アダプタで起動できる |
-| `compose.legacy.yaml` | 移行元スタック。コンテナ名・ネットワーク・ボリューム・ポートを通常構成と分けており、`compose.dev.yaml` と同時起動できる |
-| `compose.legacy-on-postgres.yaml` | `compose.legacy.yaml` への override。移行元のバージョン・プラグイン構成のまま DB だけ PostgreSQL へ恒久的に切り替える場合に重ねる（下記参照） |
-| `scripts/migrate-mysql-to-postgres.sh` | コンバート本体（preflight / schema / data / sequences / files / verify）。`.env` と `.env.legacy` の両方を読む |
-| `scripts/pgloader/` | pgloader コマンドファイルのテンプレートとシーケンス再設定 SQL |
-| `scripts/test-upgrade.sh` | 段階 1〜3 の通し検証 |
-
-### なぜ「スキーマは Rails、データは pgloader」なのか
-
-pgloader にスキーマ生成まで任せると、MySQL の型からの機械変換になります
-（`id` 列が `serial` にならない、`tinyint(1)` が `boolean` にならない等）。
-Rails から見ると壊れているスキーマになり、その後の Redmine 7 へのマイグレーションで
-破綻します。
-
-そこで移行先には、**移行元とまったく同じ Redmine 5.1.1・同じプラグイン構成**で
-`rake db:migrate` を実行させてスキーマを作り、pgloader には `data only` で中身だけを
-運ばせます。両者は同じマイグレーション列で作られるため、テーブル・列・列順が一致し、
-列名ベースの投入が安全に行えます。`schema_migrations` / `ar_internal_metadata` は
-移行先が作ったものをそのまま使うため転送対象外です。
-
-### `REDMINE_DB_ADAPTER` とテンプレートの選択規則
-
-`entrypoint.sh` は `config/database.${REDMINE_DB_ADAPTER}.yml.tmpl` があればそれを、
-無ければ既定の `config/database.yml.tmpl`（postgis 用）を描画します。
-どのテンプレートをイメージに含めるかは Containerfile 側の責務で、entrypoint に系列別の
-分岐は置きません。
-
-| イメージ | 同梱テンプレート | 既定アダプタ |
-|----------|-----------------|--------------|
-| `Containerfile.v5` / `.v6` / `.v7` | `database.yml.tmpl` | `postgis` |
-| `Containerfile.v5-mysql` | `database.mysql2.yml.tmpl` / `database.postgresql.yml.tmpl` | `mysql2` |
-
-コンバートの 1 ステップ目では、同じ 5.1.1 イメージを `REDMINE_DB_ADAPTER=postgresql` +
-`REDMINE_MIGRATE_ONLY=1` で単発起動します。gtt を同梱していないため
-`activerecord-postgis-adapter` は無く、素の `postgresql` アダプタで接続します
-（テーブル定義は同一で、後から 6/7 系が `postgis` アダプタで接続し直すだけです）。
-
-この単発起動の代わりに `compose.legacy.yaml` の `redmine-legacy-web` を
-恒久稼働させることもできます — 移行元のバージョン・プラグイン構成を変えず、
-DB だけ MySQL から PostgreSQL（`redmine-db`）へ切り替えたまま運用を続ける構成
-です。`redmine-legacy-web` は既定では `redmine-legacy-net`（MySQL 側）にしか
-繋がっていないため、`compose.legacy-on-postgres.yaml` という override を
-重ねて `redmine-net`（`compose.dev.yaml` が作る、`external: true` で参照）
-にも接続し、`REDMINE_DB_ADAPTER=postgresql` で `redmine-db` を向くよう
-環境変数を上書きします。通常スタック（`.env` / `compose.dev.yaml`）側は
-一切変更しません — `Containerfile.v5-mysql` を通常スタックの
-`REDMINE_WEB_CONTAINERFILE` に指定することはなく、常に `compose.legacy.yaml`
-の管轄に留めます（`.env` と `.env.legacy` を混在させない、という設計方針の
-帰結です。8 章参照）。`redmine-db` の実体は PostGIS 拡張入りの PostgreSQL 18
-ですが、gtt を積まないこの構成では PostGIS 固有機能を使わないため、
-`postgresql` アダプタで機能的に過不足ありません（`postgis` は指定できません
-— このイメージに `database.postgis.yml.tmpl` は無いため）。手順は
-[docs/Upgrade.md](Upgrade.md) §4.1 参照。
-
-### `config/database.yml` が bundle の内容を決めてしまう
-
-Redmine の `Gemfile` は `config/database.yml` に現れる `adapter:` 行を集め、その集合に
-応じて DB gem（`mysql2` + `with_advisory_lock` / `pg`）を宣言します
-（公式 Docker イメージも、全アダプタを事前インストールするためにダミーの
-`database.yml` を置いてから `bundle install` しています）。
-
-このため `Containerfile.v5-mysql` は、
-
-1. ビルド時に **両アダプタを書いたダミー `config/database.yml`** を置いてから `bundle install`
-2. `mysql2` / `with_advisory_lock` / `pg` が bundle に入ったことをビルド時に検証
-3. 実行時テンプレート側にも常に両アダプタ（末尾の `gem_pin_*` スタンザ）を含める
-
-という作りにしています。ビルド時と実行時で adapter 集合が変わると、bundler が実行時に
-Gemfile.lock を解決し直し、ネットワーク不通の環境では起動に失敗するためです。
-
-なお通常構成（postgis）では、ビルド時に `database.yml` が無く、実行時の `adapter: postgis`
-は Redmine の Gemfile のどの分岐にも当たらないため、どちらも「DB gem の宣言なし」で一致
-しています。`pg` は `redmine_gtt` の Gemfile が持ち込んでいます。
-
-### 移行元プラグイン構成の一致が前提
-
-移行先スキーマは「`Containerfile.v5-mysql` が持つ 16 プラグイン」で作られます。移行元に
-それ以外のプラグインが入っていると、そのテーブルの投入先が存在せず pgloader が失敗します。
-`schema` ステップが移行元と移行先のテーブル集合を突き合わせ、事前に検出して止めます。

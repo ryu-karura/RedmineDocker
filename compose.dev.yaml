@@ -148,11 +148,6 @@ services:
       # puma なので、それらへ切り替えるときは .env で明示してください。
       REDMINE_WEB_SERVER: ${REDMINE_WEB_SERVER:-passenger}
       REDMINE_PUMA_PORT: ${REDMINE_PUMA_PORT:-3000}
-      # このスタックは常に postgis です。移行元のバージョン/プラグイン構成の
-      # まま DB だけ PostgreSQL へ恒久的に切り替える場合は、こちらではなく
-      # compose.legacy.yaml + compose.legacy-on-postgres.yaml を使います
-      # （docs/Upgrade.md §4.1 — .env と .env.legacy を混在させない設計のため）。
-      REDMINE_DB_ADAPTER: postgis
       REDMINE_DB_HOST: ${REDMINE_DB_CONTAINER:-redmine-db}
       REDMINE_DB_NAME: ${REDMINE_DB_NAME:-redmine}
       REDMINE_DB_USER: ${REDMINE_DB_USER:-redmine}
