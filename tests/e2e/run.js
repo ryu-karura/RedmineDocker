@@ -1,4 +1,4 @@
-// Redmine 7.0.1 (passenger mode) E2E walkthrough with screenshots.
+// Redmine 7.0.2 (passenger mode) E2E walkthrough with screenshots.
 const { chromium } = require('playwright');
 const fs = require('fs');
 const path = require('path');
@@ -146,13 +146,13 @@ async function login(page, user, pw) {
     const ver = (txt.match(/Redmine version\s+([^\n]+)/) || [])[1];
     const ruby = (txt.match(/Ruby version\s+([^\n]+)/) || [])[1];
     const rails = (txt.match(/Rails version\s+([^\n]+)/) || [])[1];
-    if (!ver || !ver.includes('7.0.1')) throw new Error(`Redmine version: ${ver}`);
+    if (!ver || !ver.includes('7.0.2')) throw new Error(`Redmine version: ${ver}`);
     return `Redmine ${ver.trim()} / Ruby ${ruby && ruby.trim()} / Rails ${rails && rails.trim()}`;
   });
   await step('B. 管理画面', 'プラグイン一覧', page, async () => {
     await go(page, `${BASE}/admin/plugins`);
     const rows = await page.locator('table.plugins tr[id^="plugin-"]').count();
-    if (rows !== 14) throw new Error(`plugin rows=${rows} (expected 14)`);
+    if (rows !== 15) throw new Error(`plugin rows=${rows} (expected 15)`);
     return `${rows} プラグイン`;
   });
   await step('B. 設定', '設定（全般）', page, async () => {
@@ -230,7 +230,7 @@ async function login(page, user, pw) {
     await page.selectOption('#issue_status_id', { label: '進行中' });
     await page.fill('#issue_notes', 'E2E: 添付ファイルをアップロードして進行中に変更。');
     const f = path.join(OUT, 'e2e-attachment.txt');
-    fs.writeFileSync(f, 'Redmine 7.0.1 passenger E2E attachment\n');
+    fs.writeFileSync(f, 'Redmine 7.0.2 passenger E2E attachment\n');
     await page.setInputFiles('input[type="file"].file_selector', f);
     await page.waitForSelector('.attachments_fields input.filename', { timeout: 30000 });
     await page.waitForFunction(() => !document.querySelector('.attachments_fields .ajax-loading'));
@@ -404,7 +404,7 @@ async function login(page, user, pw) {
     await go(page, `${BASE}/view_customizes/new`);
     await page.fill('#view_customize_path_pattern', '.*');
     await page.selectOption('#view_customize_customize_type', 'css');
-    await page.fill('#view_customize_code', '#header h1::after { content: "  [E2E 7.0.1 passenger]"; color: #ffeb3b; }');
+    await page.fill('#view_customize_code', '#header h1::after { content: "  [E2E 7.0.2 passenger]"; color: #ffeb3b; }');
     await page.fill('#view_customize_comments', 'E2E 確認用');
     await submit(page, page.locator(SUBMIT).first());
     await flash(page);
@@ -433,6 +433,14 @@ async function login(page, user, pw) {
     if (buf.length < 1000) throw new Error(`xlsx too small: ${buf.length}`);
     return `${ct.split(';')[0]}, ${buf.length} bytes`;
   }, { shot: false });
+  await step('H. プラグイン', 'カスケードリスト形式のカスタムフィールド（redmine_cascading_custom_fields）', page, async () => {
+    await go(page, `${BASE}/custom_fields/new?type=IssueCustomField`);
+    const values = await page.$$eval('#custom_field_field_format option', os => os.map(o => o.value));
+    if (!values.includes('cascading_list')) throw new Error(`cascading_list format missing: ${values.join(',')}`);
+    await page.selectOption('#custom_field_field_format', 'cascading_list');
+    await page.locator('#custom_field_cascade_parent_id').waitFor({ timeout: 10000 });
+    return '形式 cascading_list を選択、親フィールド選択欄が表示';
+  });
   await step('H. プラグイン', 'グローバルバナー表示（redmine_banner）', page, async () => {
     await go(page, `${BASE}/global_banner`);
     await noErrorPage(page);

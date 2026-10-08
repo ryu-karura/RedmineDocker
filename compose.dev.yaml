@@ -99,7 +99,7 @@ services:
       start_period: 30s
 
   # ── Redmine + Apache 2.4 frontend (port 80 / Passenger or Puma :3000) ──────
-  # 既定は Redmine 7 系（Containerfile.v7 / redmine:7.0.1）です。5 系・6 系へ
+  # 既定は Redmine 7 系（Containerfile.v7 / redmine:7.0.2）です。5 系・6 系へ
   # 切り替えるときは .env で REDMINE_WEB_CONTAINERFILE / REDMINE_VERSION（=
   # REDMINE_WEB_BASE_IMAGE, REDMINE_WEB_IMAGE）を 3 つセットで変更します
   # （.env.example のプリセットと docs/Design.md「Redmine シリーズの切り替え」参照）。
@@ -109,7 +109,7 @@ services:
       context: containers/redmine-web
       dockerfile: ${REDMINE_WEB_CONTAINERFILE:-Containerfile.v7}
       args:
-        WEB_BASE_IMAGE: ${REDMINE_WEB_BASE_IMAGE:-docker.io/library/redmine:7.0.1}
+        WEB_BASE_IMAGE: ${REDMINE_WEB_BASE_IMAGE:-docker.io/library/redmine:7.0.2}
         # ── プロキシ環境用（社内プロキシ経由でビルドする場合） ──────────────
         # HTTP_PROXY / HTTPS_PROXY / NO_PROXY は docker の predefined build args
         # なので、Containerfile 側に ARG 宣言は不要です。ビルド中の apt-get /
@@ -120,7 +120,7 @@ services:
         HTTP_PROXY: ${HTTP_PROXY:-}
         HTTPS_PROXY: ${HTTPS_PROXY:-}
         NO_PROXY: ${NO_PROXY:-}
-    image: ${REDMINE_WEB_IMAGE:-localhost/redmine-web:7.0.1}
+    image: ${REDMINE_WEB_IMAGE:-localhost/redmine-web:7.0.2}
     container_name: ${REDMINE_WEB_CONTAINER:-redmine-web}
     restart: always
     networks:

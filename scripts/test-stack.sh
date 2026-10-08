@@ -35,7 +35,7 @@
 # together (same triples as the .env.example presets):
 #   5 -> Containerfile.v5 / redmine:5.1.12
 #   6 -> Containerfile.v6 / redmine:6.1.4
-#   7 -> Containerfile.v7 / redmine:7.0.1   (default)
+#   7 -> Containerfile.v7 / redmine:7.0.2   (default)
 # Series images have different tags, so --skip-build only reuses an image built
 # for that same series. In --web-server passenger mode the test also asserts the
 # running container's libapache2-mod-passenger is 6.0.25 or newer — that is the
@@ -154,7 +154,7 @@ fi
 case "${SERIES}" in
     5) REDMINE_SERIES_VERSION=5.1.12; REDMINE_SERIES_CONTAINERFILE=Containerfile.v5; SERIES_WEB_SERVER=puma ;;
     6) REDMINE_SERIES_VERSION=6.1.4;  REDMINE_SERIES_CONTAINERFILE=Containerfile.v6; SERIES_WEB_SERVER=puma ;;
-    7) REDMINE_SERIES_VERSION=7.0.1;  REDMINE_SERIES_CONTAINERFILE=Containerfile.v7; SERIES_WEB_SERVER=passenger ;;
+    7) REDMINE_SERIES_VERSION=7.0.2;  REDMINE_SERIES_CONTAINERFILE=Containerfile.v7; SERIES_WEB_SERVER=passenger ;;
     *) echo "--series must be '5', '6' or '7' (got '${SERIES}')" >&2; exit 2 ;;
 esac
 # --web-server 未指定なら、そのシリーズの Containerfile が持つ

@@ -20,7 +20,7 @@ The `redmine-web` image layers a plugin/theme stack and native-gem build
 tooling onto an official `redmine` base image. There is **one Containerfile per
 Redmine major series** — `Containerfile.v5` (`redmine:5.1.12`),
 `Containerfile.v6` (`redmine:6.1.4`) and `Containerfile.v7`
-(`redmine:7.0.1`, the default) — because the plugin versions that actually work differ per
+(`redmine:7.0.2`, the default) — because the plugin versions that actually work differ per
 series. Everything else (`entrypoint.sh`, `healthcheck.sh`, `config.ru`, the
 `*.tmpl` files) is shared. Pick the file matching the series you are building;
 when a change is generic, apply it to all three. Two classes of mistake break
@@ -32,7 +32,7 @@ All plugins and the `farend_fancy` theme are `git clone`d **at build time** so
 the code is baked into the image (the one exception is `redmine_gtt` in the
 v6/v7 images — see section 3). Each plugin is pinned with
 `git clone --depth 1 --branch <TAG> <url>`, and the pins differ per series:
-v6 and v7 both have 14 plugins (v7 pins `redmine_banner` to `master`, not a
+v6 has 14 plugins and v7 has 15 (v7 adds `redmine_cascading_custom_fields`, which v5/v6 do not carry; v7 pins `redmine_banner` to `master`, not a
 tag: its Redmine 7 fixes landed after 0.3.5 and are still untagged), v5 has 12
 (no `redmine_login_audit2`, no `redmine_solid_queue`: neither can run on
 Rails 6.1) and generally older tags. Before changing a pin, check the
@@ -182,7 +182,7 @@ git ls-remote --tags https://github.com/haru/redmine_logs.git | grep -E 'v1\.0\.
 
 # Build the image end-to-end (must pass the plugin clones AND `bundle install`)
 docker compose -f compose.dev.yaml build redmine-web
-#   or: docker build -t localhost/redmine-web:7.0.1 \
+#   or: docker build -t localhost/redmine-web:7.0.2 \
 #         -f containers/redmine-web/Containerfile.v7 containers/redmine-web
 # Other series (sets Containerfile + base image + tag together):
 #   bash scripts/test-stack.sh --series 5   # or 7
@@ -202,7 +202,7 @@ uses), which does not reliably recreate a container just because its image was
 rebuilt under the same tag — you can fix a bug, rebuild, `up -d`, and still be
 looking at the old image's crash. Confirm with
 `<cli> inspect --format '{{.Image}}' redmine-web` vs.
-`<cli> images localhost/redmine-web:7.0.1 --format '{{.ID}}'`; if they
+`<cli> images localhost/redmine-web:7.0.2 --format '{{.ID}}'`; if they
 differ, force it: `<cli> compose -f compose.dev.yaml up -d --force-recreate
 redmine-web`. When troubleshooting a "residue" boot failure, tear all the way
 down first (`<cli> compose -f compose.dev.yaml down -v`, and clear any

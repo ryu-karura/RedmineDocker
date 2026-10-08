@@ -4,7 +4,7 @@
 # 目的は次の 3 点の検証で、手順は docs/Upgrade.md にまとめてあります:
 #   1. 同じプラグイン構成のコンテナが MySQL でも作れるか（gtt など未対応は除外）
 #   2. DB を PostgreSQL 18 + PostGIS へコンバートできるか
-#   3. その後 Redmine 7.0.1 へマイグレーションできるか
+#   3. その後 Redmine 7.0.2 へマイグレーションできるか
 #
 # ★ これは本番構成ではありません。
 #   本番 (compose.dev.yaml + compose.prod.yaml) と通常の開発 (compose.dev.yaml) は

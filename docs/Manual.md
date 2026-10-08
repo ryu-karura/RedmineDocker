@@ -47,7 +47,7 @@ docker compose -f compose.dev.yaml logs --tail 100 redmine-db  # 直近100行だ
 
 ```bash
 docker images                                      # イメージ一覧（サイズ・作成日時を確認）
-docker rmi localhost/redmine-web:7.0.1             # 特定のイメージを削除（DB・添付ファイルには影響しません）
+docker rmi localhost/redmine-web:7.0.2             # 特定のイメージを削除（DB・添付ファイルには影響しません）
 docker compose -f compose.dev.yaml down --rmi all  # このスタックのイメージをまとめて削除（ボリュームは残る）
 docker image prune                                 # どのコンテナからも参照されていないイメージだけ安全に削除
 ```
@@ -70,7 +70,7 @@ docker compose -f compose.dev.yaml down -v   # 名前付きボリューム (pgda
 
 ```bash
 sudo docker images
-sudo docker rmi localhost/redmine-web:7.0.1   # サービスを停止していないと失敗します（先に sudo systemctl stop redmine）
+sudo docker rmi localhost/redmine-web:7.0.2   # サービスを停止していないと失敗します（先に sudo systemctl stop redmine）
 sudo docker image prune                        # 未使用イメージだけ安全に削除
 ```
 
@@ -216,7 +216,7 @@ sudo systemctl restart redmine
 ### ケース B-2: 別 DB 製品からの移行 / Redmine メジャーバージョンのアップグレード
 
 対象: 既存の **Redmine 5.1.1 + MySQL 8.0 CE** をこの構成（PostgreSQL 18 + PostGIS 3.6）へ
-移し、さらに Redmine 7.0.1 へ上げる場合。
+移し、さらに Redmine 7.0.2 へ上げる場合。
 
 手順は独立したドキュメントにまとめています → **[docs/Upgrade.md](Upgrade.md)**
 
