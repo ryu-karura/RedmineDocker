@@ -1,0 +1,86 @@
+name: E2E (Redmine 7, Playwright)
+
+# redmine-web イメージ (既定の Redmine 7 系) をビルドし、隔離した Docker Compose
+# スタックに対して tests/e2e の Playwright シナリオを実行する。
+# puma / passenger の両アプリサーバーモードを matrix で確認する。
+
+on:
+  pull_request:
+    paths:
+      - "containers/redmine-web/**"
+      - "containers/redmine-db/**"
+      - "compose.dev.yaml"
+      - "tests/e2e/**"
+      - ".github/workflows/e2e.yml"
+  workflow_dispatch: {}
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        web_server: [puma, passenger]
+    env:
+      COMPOSE_PROJECT_NAME: redmine-e2e-${{ matrix.web_server }}
+      REDMINE_NETWORK: redmine-e2e-${{ matrix.web_server }}-net
+      REDMINE_DB_CONTAINER: redmine-e2e-${{ matrix.web_server }}-db
+      REDMINE_WEB_CONTAINER: redmine-e2e-${{ matrix.web_server }}-web
+      REDMINE_DB_VOLUME: redmine_e2e_${{ matrix.web_server }}_pgdata
+      REDMINE_FILES_VOLUME: redmine_e2e_${{ matrix.web_server }}_files
+      REDMINE_WEB_HOST_PORT: 18080
+      REDMINE_WEB_SERVER: ${{ matrix.web_server }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: シークレット生成
+        run: bash scripts/generate-secrets.sh
+
+      - name: "イメージをビルド（redmine-db / redmine-web、既定: Redmine 7 系）"
+        run: docker compose -f compose.dev.yaml build
+
+      - name: 隔離スタックを起動 (${{ matrix.web_server }} モード)
+        run: docker compose -f compose.dev.yaml up -d --no-build
+
+      - name: ログイン画面が応答するまで待機
+        run: |
+          for _ in $(seq 1 60); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 http://127.0.0.1:18080/redmine/login || true)
+            if [ "$code" = "200" ]; then
+              echo "login reachable (HTTP 200)"
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "::error::redmine-web did not become ready in time"
+          docker logs "${REDMINE_WEB_CONTAINER}" || true
+          exit 1
+
+      - name: Playwright E2E 実行
+        working-directory: tests/e2e
+        run: |
+          docker run --rm --network host --ipc host \
+            -u "$(id -u)":"$(id -g)" -e HOME=/tmp \
+            -v "$PWD":/work -w /work \
+            mcr.microsoft.com/playwright:v1.62.1-noble \
+            sh -c "npm install --no-audit --no-fund --silent && node run.js"
+
+      - name: スタックのログを保存（失敗時の調査用）
+        if: failure()
+        run: |
+          mkdir -p tests/e2e/out
+          docker logs "${REDMINE_WEB_CONTAINER}" > tests/e2e/out/redmine-web.log 2>&1 || true
+          docker logs "${REDMINE_DB_CONTAINER}" > tests/e2e/out/redmine-db.log 2>&1 || true
+
+      - name: スクリーンショット・ログを artifact 保存
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-${{ matrix.web_server }}-${{ github.run_id }}
+          path: tests/e2e/out/
+          retention-days: 14
+          if-no-files-found: ignore
+
+      - name: 隔離スタックを撤去
+        if: always()
+        run: docker compose -f compose.dev.yaml down -v || true

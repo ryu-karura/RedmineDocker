@@ -1,0 +1,6 @@
+node_modules/
+package-lock.json
+
+# 実行結果（スクリーンショット・results.json）はコミットしない。
+# 結果は PR の説明に記載する運用とする。
+out/
