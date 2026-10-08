@@ -8,7 +8,7 @@ PEM 形式で拡張子 `.crt` にして、このディレクトリへ置いて�
 containers/redmine-web/ca-certificates/corp-proxy.crt
 ```
 
-`Containerfile.v5` / `.v6` / `.v7` / `.v5-mysql` はこのディレクトリをイメージの
+`Containerfile.v5` / `.v6` / `.v7` はこのディレクトリをイメージの
 `/usr/local/share/ca-certificates/` へコピーし、`update-ca-certificates` を実行します。
 ファイルを置かなければ何も起きません（このディレクトリは既定で空です）。
 

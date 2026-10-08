@@ -67,23 +67,19 @@ each other by name on the `redmine-net` bridge network. Public URL:
 ```
 RedmineDocker/
 ├── README.md                    # overview (Japanese)
-├── docs/                        # Design.md / Setup.md / Manual.md / Upgrade.md / Plugins.md (Japanese)
+├── docs/                        # Design.md / Setup.md / Manual.md / Plugins.md (Japanese)
 ├── .github/copilot-instructions.md # pointer to this file, no duplicated content
 ├── containers/
 │   ├── redmine-db/                # Containerfile + init-redmine.sh (PostGIS ext)
-│   ├── redmine-db-mysql/          # MySQL 8.0 CE — migration-source rehearsal only
-│   └── redmine-web/           # Containerfile.v5/.v6/.v7/.v5-mysql, entrypoint.sh, healthcheck.sh, *.tmpl (db/config/httpd)
+│   └── redmine-web/           # Containerfile.v5/.v6/.v7, entrypoint.sh, healthcheck.sh, *.tmpl (db/config/httpd)
 ├── systemd/                     # production systemd unit (redmine.service — drives docker compose)
 ├── host-apache/                 # host-side TLS reverse proxy vhost
-├── scripts/                     # generate-secrets, backup, restore, migrate-mysql-to-postgres, test-*, pgloader/
+├── scripts/                     # generate-secrets, backup, restore, test-*
 ├── logrotate/                   # /etc/logrotate.d config
 ├── compose.dev.yaml             # Docker Compose definition (dev AND prod base)
 ├── compose.prod.yaml            # production overlay: bind mounts + 127.0.0.1:80
-├── compose.legacy.yaml          # migration-source stack (Redmine 5.1.1 + MySQL 8.0)
-├── compose.legacy-on-postgres.yaml # override: run the migration-source version/plugins permanently on PostgreSQL
 ├── .devcontainer/               # Codespaces / VS Code dev container
 ├── .env.example                 # non-secret config for compose.dev.yaml (see docs/Design.md)
-├── .env.legacy.example          # non-secret config for compose.legacy.yaml — never mix with .env
 └── .gitignore
 ```
 
@@ -115,13 +111,6 @@ plugin/theme versions that actually work differ per series:
 | 5 | `Containerfile.v5` | `redmine:5.1.12` | 3.2 / 6.1.7.10 | 12 |
 | 6 | `Containerfile.v6` | `redmine:6.1.4` | 3.4 / 7.2.3.2 | 14 |
 | 7 (default) | `Containerfile.v7` | `redmine:7.0.2` | 4.0 / 8.1.4 | 15 |
-
-A fourth Containerfile, `Containerfile.v5-mysql` (Redmine 5.1.1 + MySQL 8.0 CE,
-16 plugins — the 11 of `Containerfile.v5` other than `redmine_gtt`, plus 5
-more pinned to match a real legacy production plugin set), exists **only to
-rehearse the upgrade** from a legacy MySQL install
-— see "Upgrade rehearsal path" below and `docs/Upgrade.md`. It is not part of
-the normal dev/prod stack and is never started by the production unit.
 
 `entrypoint.sh`, `healthcheck.sh`, `config.ru`, the `*.tmpl` files and
 `redmine-db` are shared by all three — keep it that way; series differences
@@ -348,42 +337,17 @@ compose.prod.yaml …`, not systemd.
   is the regression test for the `config.ru` sub-URI mount, so keep it). Docker
   has no `podman healthcheck run` equivalent, so run it by hand with
   `docker exec redmine-web /usr/local/bin/redmine-healthcheck.sh`.
-- **`REDMINE_DB_ADAPTER` picks the DB template at runtime; the default (`postgis`)
-  is the only one `Containerfile.v5`/`.v6`/`.v7` ever use.** `entrypoint.sh` renders
-  `config/database.${REDMINE_DB_ADAPTER}.yml.tmpl` when that file exists in the
-  image and falls back to `config/database.yml.tmpl` (postgis) otherwise — so
-  which adapters an image supports is decided by *which templates its
-  Containerfile COPYs*, and the entrypoint keeps no per-series branching. Only
-  `Containerfile.v5-mysql` ships the `mysql2`/`postgresql` templates (no
-  `postgis` — it carries no `redmine_gtt`, the only plugin that needs actual
-  PostGIS geometry types, so `postgresql` against the `redmine-db` PostGIS
-  container is functionally sufficient). `compose.dev.yaml` hardcodes
-  `REDMINE_DB_ADAPTER: postgis` (not overridable via `.env`) — that stack is
-  strictly the normal 5/6/7 series. The `postgresql` adapter only ever applies
-  on the `compose.legacy.yaml` side: either the one-shot schema-creation step
-  inside `scripts/migrate-mysql-to-postgres.sh`, or `redmine-legacy-web` run
-  indefinitely against `redmine-db` via the `compose.legacy-on-postgres.yaml`
-  override — the supported way to keep the source Redmine version and plugin
-  set unchanged while retiring MySQL, without upgrading to the 6/7 series
-  (`docs/Upgrade.md` §4.1).
-  `REDMINE_MIGRATE_ONLY` (non-empty, `!= 0`) makes the entrypoint stop right
-  after migrations instead of starting a web server — used by the conversion's
-  schema step, and useful for migrating before exposing the app on an upgrade.
-- **Redmine's `Gemfile` derives the DB gem set from `config/database.yml`.** It
-  scans every `adapter:` line and declares `mysql2` + `with_advisory_lock` /
-  `pg` accordingly (`postgis` matches no branch — that's why the normal stack
-  gets `pg` from `redmine_gtt`'s Gemfile instead). Consequence: **the adapter
-  set visible at build time must equal the set visible at runtime**, or bundler
-  re-resolves `Gemfile.lock` at boot and fails without network access.
-  `Containerfile.v5-mysql` therefore writes a dummy two-adapter `database.yml`
-  before `bundle install` (and asserts the three gems landed), and both of its
-  runtime templates carry a `gem_pin_*` stanza for the other adapter. Don't
-  delete those stanzas.
+- **`REDMINE_MIGRATE_ONLY` (non-empty, `!= 0`) makes the entrypoint stop right
+  after migrations instead of starting a web server** — useful for migrating
+  before exposing the app on a Redmine upgrade (`docker compose ... run --rm -e
+  REDMINE_MIGRATE_ONLY=1 redmine-web`; never put it in `.env`, `restart: always`
+  would loop it).
 - **The database adapter is `postgis`, not `postgresql`.** Required by the
   `redmine_gtt` plugin; using `postgresql` breaks startup. This is why
-  `entrypoint.sh` renders `config/database.yml` from
+  `entrypoint.sh` always renders `config/database.yml` from
   `database.yml.tmpl` (adapter `postgis`, `schema_search_path: public,topology`)
-  instead of relying on the official image's env-driven config.
+  instead of relying on the official image's env-driven config; there is no
+  adapter switch.
 - **The `postgis` adapter needs native gem build deps in the image.** It pulls in
   `activerecord-postgis-adapter` → `rgeo` (needs `libgeos-dev`, `libproj-dev`) and
   the `pg` gem (needs `libpq-dev`, which provides `/usr/bin/pg_config` **on PATH**).
@@ -455,7 +419,7 @@ compose.prod.yaml …`, not systemd.
   locally too because the entrypoint exports `PGPASSWORD` before running any
   setup SQL.
 - **Proxy support is wired through build args plus a CA drop-in directory.**
-  `compose.dev.yaml`/`compose.legacy.yaml` pass `HTTP_PROXY`/`HTTPS_PROXY`/`NO_PROXY`
+  `compose.dev.yaml` passes `HTTP_PROXY`/`HTTPS_PROXY`/`NO_PROXY`
   (from `.env` or the caller's shell) as build args to every build. These are
   docker's *predefined* build args, so no `ARG` line is needed in a Containerfile
   and an unset value is dropped entirely — verified both ways: with values, all
@@ -468,10 +432,10 @@ compose.prod.yaml …`, not systemd.
   healthcheck's curl goes through the proxy and the container never turns
   healthy. For TLS-intercepting proxies, `containers/redmine-web/ca-certificates/`
   is copied into `/usr/local/share/ca-certificates/` and `update-ca-certificates`
-  runs in all four web Containerfiles; the directory ships with only a README
+  runs in all three web Containerfiles; the directory ships with only a README
   (measured: `0 added, 0 removed`, i.e. inert) and site `*.crt`/`*.pem` are
   git-ignored. Full procedure: `docs/Setup.md`, "プロキシ環境で使う場合".
-- **`compose.dev.yaml` and `compose.legacy.yaml` carry `x-podman: {in_pod: false}`
+- **`compose.dev.yaml` carries `x-podman: {in_pod: false}`
   so podman-compose does not wrap the stack in a pod** (issue #44). podman-compose
   defaults to creating `pod_<project name>`; on rootless + systemd hosts the pod's
   cgroup can fail to be created, and the whole `up` dies with `unable to create pod
@@ -481,8 +445,8 @@ compose.prod.yaml …`, not systemd.
   (`in_pod` supported since 1.5.0; `--in-pod false` / `PODMAN_COMPOSE_IN_POD=false`
   are the CLI/env equivalents), and the Compose spec tells Docker Compose to ignore
   unknown top-level `x-` keys, so the docker path is unaffected — verified by
-  resolving `PodmanCompose.resolve_pod_name()` on 1.5.0 (returns `None` for both
-  files, and for every overlay combination) and by `docker compose config`.
+  resolving `PodmanCompose.resolve_pod_name()` on 1.5.0 (returns `None` for
+  every overlay combination) and by `docker compose config`.
   Keep the key in any new compose file meant to run under podman.
 - **`compose.dev.yaml`'s project name comes from `COMPOSE_PROJECT_NAME` in `.env`, not a
   `name:` field with variable substitution.** `podman-compose` 1.5.0 resolves the top-level
@@ -534,26 +498,6 @@ compose.prod.yaml …`, not systemd.
   idempotently — that is the intended upgrade path; set `REDMINE_NO_DB_MIGRATE=1`
   to boot without migrating (e.g. to inspect a DB before an upgrade).
 
-## Upgrade rehearsal path (legacy MySQL → PostgreSQL → Redmine 7)
-
-Exceptional, one-off tooling for migrating an existing **Redmine 5.1.1 + MySQL
-8.0 CE** installation onto this stack — not part of the normal dev/prod path, and
-not summarized here. It has its own env file, deliberately kept out of the normal
-stack's: `.env` + `compose.dev.yaml` is Redmine 5/6/7 + PostgreSQL/PostGIS;
-`.env.legacy` + `compose.legacy.yaml` (+ `compose.legacy-on-postgres.yaml` as an
-override, for the optional permanent-PostgreSQL end state) is the legacy 5.1.1 +
-MySQL side — never mix variables from one into the other's file. Read
-`docs/Upgrade.md` (procedure) and `docs/Design.md` §10 (design rationale —
-schema-by-Rails/data-by-pgloader, the `REDMINE_DB_ADAPTER` selection rules, the
-`Gemfile`/`database.yml` gem-pinning mechanism, the plugin-set-must-match
-requirement and its `--exclude-tables` escape hatch) before touching
-`compose.legacy.yaml`, `compose.legacy-on-postgres.yaml`, `.env.legacy.example`,
-`Containerfile.v5-mysql`, `scripts/migrate-mysql-to-postgres.sh` (reads both `.env`
-and `.env.legacy` — it's the one script that bridges both stacks),
-`scripts/test-upgrade.sh`, `scripts/pgloader/`, or `database.mysql2.yml.tmpl` /
-`database.postgresql.yml.tmpl` — those two docs hold the pitfalls this file used
-to duplicate.
-
 ## Shell script conventions
 
 - Every script is bash with `set -euo pipefail` and a header comment block
@@ -577,7 +521,7 @@ to duplicate.
 
 - **File-header comments and this CLAUDE.md are in English.**
 - **User-facing docs are in Japanese**: `README.md`, everything in `docs/`
-  (`Design.md`, `Setup.md`, `Manual.md`, `Upgrade.md`, `Plugins.md`), and the comment blocks inside
+  (`Design.md`, `Setup.md`, `Manual.md`, `Plugins.md`), and the comment blocks inside
   `compose.dev.yaml` / `compose.prod.yaml` / `systemd/redmine.service`. When editing
   those, keep them in Japanese and consistent with the existing tone.
 - **`.github/copilot-instructions.md` is a pointer, not a second source of
@@ -586,36 +530,25 @@ to duplicate.
   guidance changes, edit this file — never fork content into that one.
 - When you change architecture, versions, ports, plugin lists, or workflows,
   update the affected docs in the same change: `docs/Design.md` (architecture),
-  `docs/Setup.md` (install), `docs/Manual.md` (operations), `docs/Upgrade.md`
-  (migration from Redmine 5.1.1 + MySQL), `docs/Plugins.md` (per-plugin Japanese
+  `docs/Setup.md` (install), `docs/Manual.md` (operations), `docs/Plugins.md` (per-plugin Japanese
   guide with screenshots under `docs/images/plugins/` — update it when a plugin is
   added, removed or re-pinned), `README.md` (overview), and this file.
 
-## Verification (one CI workflow: E2E; plus three manual integration test scripts)
+## Verification (one CI workflow: E2E; plus two manual integration test scripts)
 
 `.github/workflows/e2e.yml` runs the Playwright suite in `tests/e2e` on pull
 requests that touch `containers/redmine-web/**`, `containers/redmine-db/**`,
 `compose.dev.yaml` or `tests/e2e/**` (plus `workflow_dispatch`), once with
-`REDMINE_WEB_SERVER=puma` and once with `passenger`. The three scripts below are
+`REDMINE_WEB_SERVER=puma` and once with `passenger`. The two scripts below are
 not wired into CI and are run by hand:
 `scripts/test-stack.sh` for the normal dev (Compose) path,
-`scripts/test-upgrade.sh` for the legacy-MySQL upgrade path (builds the 5.1.1 +
-MySQL stack, seeds Japanese/boolean test data, runs
-`scripts/migrate-mysql-to-postgres.sh`, boots 5.1.1 on the converted PostgreSQL,
-uninstalls `redmine_theme_changer` (the one plugin with migrations that v7 does
-not ship), then upgrades to 7.0.2 and re-checks the data —
-run it after touching `compose.legacy.yaml`, `Containerfile.v5-mysql`, the
-`database.*.yml.tmpl` files, or the migration script; it uses its own project,
-DB name, volumes and ports (8081/8082/8083), so it never touches a real stack),
 and `scripts/test-webflow.sh`, which drives a **running** Redmine over HTTP the
 way a browser would: log in, create a project, create an issue, and assert each
-one actually renders. `test-upgrade.sh` calls it twice — `--tag before` on the
-legacy stack and `--tag after --expect-tag before` on the upgraded one — so the
-suite covers "the pre-upgrade data still displays after the upgrade", which the
-`rails runner` (model-level) checks cannot show. It works against any series
-(5/6/7) and can be pointed at any instance standalone.
+one actually renders — the model-level `rails runner` checks cannot show that.
+It works against any series (5/6/7) and can be pointed at any instance
+standalone (`--url ... --tag <name>`; `--tag` names the project/issue it creates).
 
-Four things that script had to get right, all easy to reintroduce:
+Three things that script had to get right, all easy to reintroduce:
 - **Never pass `-X POST` to curl together with `-L`.** `-X` forces the method on
   every hop of the redirect chain, so curl re-sends `POST` to the 302 target;
   Redmine answers `422` on the CSRF check and **resets the session**, leaving you
@@ -633,9 +566,10 @@ Four things that script had to get right, all easy to reintroduce:
   looked like success and the fallback password was never tried. `attempt_login`
   also requires a logout link.
 - **Issue creation needs Redmine's default data** (trackers/statuses/priorities).
-  Without it `GET /projects/<id>/issues/new` returns a bare `500`. That is why
-  `compose.legacy.yaml` sets `REDMINE_LOAD_DEFAULT_DATA=1` — it is load-bearing,
-  not decoration.
+  Without it `GET /projects/<id>/issues/new` returns a bare `500`. A fresh
+  `compose.dev.yaml` stack gets it from `entrypoint.sh`
+  (`REDMINE_LOAD_DEFAULT_DATA`, default on) — don't disable it on a stack you
+  point this script at.
 
 `scripts/test-stack.sh` is a self-contained
 integration test for the dev (Compose) path — run it after any change to

@@ -79,9 +79,6 @@ redmine_xlsx_format_issue_exporter、redmine_cascading_custom_fields（7 系の�
 > `REDMINE_WEB_CONTAINERFILE=Containerfile.v6` を明示してください（手順は
 > [docs/Manual.md](docs/Manual.md)「Redmine のメジャーバージョン系列切り替え」）。
 
-既存の Redmine 5.1.1 + MySQL からの移行（例外的な作業）は
-**[アップグレード手順](docs/Upgrade.md)** を参照してください。
-
 ---
 
 ## リポジトリ構成
@@ -92,32 +89,24 @@ RedmineDocker/
 ├── docs/                         # 設計 / セットアップ / 運用手順
 ├── containers/
 │   ├── redmine-db/                 # PostgreSQL 18 + PostGIS 3.6
-│   ├── redmine-db-mysql/           # MySQL 8.0 CE（移行元の再現専用）
 │   └── redmine-web/            # Redmine + plugin/theme スタック + Apache フロントエンド
 │       ├── ca-certificates/        #   社内プロキシ (MITM) の CA 置き場（既定は空）
 │       ├── Containerfile.v5        #   Redmine 5.1.12 用
 │       ├── Containerfile.v6        #   Redmine 6.1.4 用
-│       ├── Containerfile.v7        #   Redmine 7.0.2 用（既定）
-│       └── Containerfile.v5-mysql  #   Redmine 5.1.1 + MySQL（移行元の再現専用）
+│       └── Containerfile.v7        #   Redmine 7.0.2 用（既定）
 ├── systemd/                      # 本番用 systemd ユニット
 │   └── redmine.service             #   docker compose で 2 コンテナを起動/停止
 ├── host-apache/                  # ホスト Apache のリバースプロキシ (TLS)
 ├── scripts/                      # generate-secrets, backup, restore
 │   ├── test-stack.sh                 # 通常スタック (5/6/7 系) のビルド・起動検証
-│   ├── test-webflow.sh               # 稼働中 Redmine のログイン/プロジェクト/チケット操作検証
-│   ├── migrate-mysql-to-postgres.sh  # MySQL → PostgreSQL 18 コンバート
-│   ├── test-upgrade.sh               # 5.1.1+MySQL → PG18 → 7.0.2 の通し検証
-│   └── pgloader/                     # pgloader コマンドファイル + シーケンス再設定 SQL
+│   └── test-webflow.sh               # 稼働中 Redmine のログイン/プロジェクト/チケット操作検証
 ├── logrotate/                    # ログローテーション
 ├── Makefile / menu.sh            # 対話メニュー（`make` で起動）
 ├── compose.dev.yaml              # Docker Compose 本体（開発・本番共通）
 ├── compose.prod.yaml             # 本番オーバーレイ（bind mount + 127.0.0.1:80）
 ├── compose.codespaces.yaml       # Codespaces 用オーバーライド（ポート 80 公開）
-├── compose.legacy.yaml           # 移行元 (Redmine 5.1.1 + MySQL 8.0) 再現用
-├── compose.legacy-on-postgres.yaml # 移行元を PostgreSQL で恒久運用する場合の override
 ├── .devcontainer/                # GitHub Codespaces / VS Code dev container
 ├── .env.example                  # 非シークレット設定のテンプレート（コンテナ名・ポート・SMTP / TZ など）
-├── .env.legacy.example           # 移行元スタック用（.env とは混在させない）
 └── .gitignore
 ```
 
@@ -184,7 +173,6 @@ sudo systemctl daemon-reload && sudo systemctl enable --now redmine
 - **[設計書](docs/Design.md)** — アーキテクチャ、ネットワーク、データ配置、シークレット。
 - **[セットアップ手順](docs/Setup.md)** — 本番 / 開発環境の導入手順。
 - **[運用手順](docs/Manual.md)** — バックアップ、復旧、ログ管理。
-- **[アップグレード手順](docs/Upgrade.md)** — Redmine 5.1.1 + MySQL 8.0 からの移行（DB コンバートと Redmine 7 へのアップグレード）。
 - **[E2E テスト](tests/e2e/README.md)** — Playwright による画面操作の確認（48 ステップ、puma / passenger 両モードを CI で実行）。
 - **[同梱プラグイン解説](docs/Plugins.md)** — 同梱プラグイン 15 個とテーマの機能・版・対応 Redmine バージョン（スクリーンショット付き）。
 

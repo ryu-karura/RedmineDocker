@@ -25,7 +25,7 @@ RHEL の実機がまだ用意できない場合は、本番と同じ Docker + sy
   ```
   変更後は Windows 側で `wsl --shutdown` を実行し、ディストリビューションを再起動してください。
 - コンテナランタイムが導入済みであること。**本番と同じ Docker Engine（`docker-ce` + `docker-compose-plugin`）を推奨**します。rootless Podman で `docker` / `docker compose` をエイリアスとしてエミュレートする構成（`docker compose` が内部で `podman-compose` を呼ぶ）でも `compose.dev.yaml` は動きます。ただし本番オーバーレイ `compose.prod.yaml` は Compose 仕様の `!override` / `!reset` タグを使うため **Docker Compose v2.24 以上が必須**です。podman-compose (1.5.0) はこのタグでエラーにはならず、**変数展開されないまま読み飛ばす**ため、`127.0.0.1:80` ではなく `${REDMINE_PROD_HOST_PORT:-80}` という文字列がそのまま公開ポート指定になる、といった壊れた設定になります。本番相当のリハーサルをする場合は必ず Docker Engine を入れてください。
-- **podman で動かす場合の pod について**: podman-compose は既定でプロジェクト名の pod を作りますが、rootless + systemd 環境では pod 用 cgroup の作成に失敗することがあります（issue #44）。このスタックは pod を必要としないため、`compose.dev.yaml` / `compose.legacy.yaml` に `x-podman: {in_pod: false}` を入れて pod を作らせないようにしています（Docker Compose は `x-` キーを無視するので docker 側の挙動は変わりません）。
+- **podman で動かす場合の pod について**: podman-compose は既定でプロジェクト名の pod を作りますが、rootless + systemd 環境では pod 用 cgroup の作成に失敗することがあります（issue #44）。このスタックは pod を必要としないため、`compose.dev.yaml` に `x-podman: {in_pod: false}` を入れて pod を作らせないようにしています（Docker Compose は `x-` キーを無視するので docker 側の挙動は変わりません）。
 
 ```bash
 # 0. 非シークレット設定 (.env) を作成 (初回のみ)
@@ -122,7 +122,7 @@ rootless Docker の場合は `~/.config/systemd/user/docker.service.d/http-proxy
 
 ### 2. ビルド中のコマンド（apt-get / git clone / bundle install）
 
-`.env` に設定すれば、`compose.dev.yaml` / `compose.legacy.yaml` の build args 経由で
+`.env` に設定すれば、`compose.dev.yaml` の build args 経由で
 ビルドコンテナへ渡ります（設定済みです。Containerfile 側の `ARG` 宣言は不要です —
 `HTTP_PROXY` / `HTTPS_PROXY` / `NO_PROXY` は docker の predefined build args です）。
 
@@ -154,7 +154,7 @@ docker build --build-arg HTTPS_PROXY="${HTTPS_PROXY}" --build-arg HTTP_PROXY="${
 cp /etc/pki/ca-trust/source/anchors/corp-proxy.crt containers/redmine-web/ca-certificates/
 ```
 
-`Containerfile.v5` / `.v6` / `.v7` / `.v5-mysql` がこのディレクトリを
+`Containerfile.v5` / `.v6` / `.v7` がこのディレクトリを
 `/usr/local/share/ca-certificates/` へコピーし、`update-ca-certificates` を実行します。
 置かなければ何も追加されません（`0 added, 0 removed` になるだけ）。詳細と注意点は
 `containers/redmine-web/ca-certificates/README.md` を参照してください。証明書はホストごとに

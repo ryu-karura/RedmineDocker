@@ -8,9 +8,9 @@
 #
 # 処理順序:
 #   1. シークレット解決（Docker/Podman の *_FILE 参照に対応）
-#   2. config/database.yml（REDMINE_DB_ADAPTER 既定 postgis）と
+#   2. config/database.yml（postgis アダプタ）と
 #      config/configuration.yml を描画
-#   3. データベース接続待機（PostgreSQL: pg_isready / MySQL: mysql クライアント）
+#   3. データベース接続待機（pg_isready）
 #   4. コア/プラグインの DB マイグレーション実行
 #      （公式イメージ同様 REDMINE_NO_DB_MIGRATE / REDMINE_PLUGINS_MIGRATE で制御）
 #   4.5. 初回起動時のみ既定データ（日本語）を投入
@@ -37,19 +37,9 @@ export REDMINE_HOME RAILS_ENV RAILS_RELATIVE_URL_ROOT
 REDMINE_DB_HOST="${REDMINE_DB_HOST:-redmine-db}"
 REDMINE_DB_NAME="${REDMINE_DB_NAME:-redmine}"
 REDMINE_DB_USER="${REDMINE_DB_USER:-redmine}"
-# データベースアダプタ。既定は postgis で、これがこのスタックの通常構成です
-# （redmine_gtt が必須とするため。CLAUDE.md / docs/Design.md 参照）。
-# mysql2 / postgresql を使うのは移行検証用の Containerfile.v5-mysql
-# （Redmine 5.1.1）だけです（docs/Upgrade.md）。
-#   postgis     6 系 / 7 系の通常構成（config/database.yml.tmpl を描画）
-#   postgresql  コンバート途中の 5.1.1（config/database.postgresql.yml.tmpl）
-#   mysql2      移行元の 5.1.1 + MySQL 8.0（config/database.mysql2.yml.tmpl）
-REDMINE_DB_ADAPTER="${REDMINE_DB_ADAPTER:-postgis}"
-case "${REDMINE_DB_ADAPTER}" in
-    postgis|postgresql) REDMINE_DB_PORT="${REDMINE_DB_PORT:-5432}" ;;
-    mysql2)             REDMINE_DB_PORT="${REDMINE_DB_PORT:-3306}" ;;
-    *) echo "ERROR: REDMINE_DB_ADAPTER must be 'postgis', 'postgresql' or 'mysql2' (got '${REDMINE_DB_ADAPTER}')." >&2; exit 1 ;;
-esac
+# データベースアダプタは postgis 固定です（redmine_gtt が必須とするため。
+# CLAUDE.md / docs/Design.md 参照）。
+REDMINE_DB_PORT="${REDMINE_DB_PORT:-5432}"
 REDMINE_PUMA_PORT="${REDMINE_PUMA_PORT:-3000}"
 # アプリサーバーの選択。イメージにはどちらも同梱してあるため、
 # .env / Environment= の変更とコンテナ再起動だけで切り替わります
@@ -58,7 +48,6 @@ REDMINE_PUMA_PORT="${REDMINE_PUMA_PORT:-3000}"
 #   puma      Apache -> ProxyPass -> Puma(:${REDMINE_PUMA_PORT})
 # 既定値は各 Containerfile の ENV REDMINE_WEB_SERVER が決めます
 # （7 系 = passenger、5 系 / 6 系 = puma）。ここでのフォールバックは、
-# その ENV を持たないイメージ（mod_passenger 非同梱の Containerfile.v5-mysql）や
 # 値を明示せずに起動したときのための保険なので puma のままにします。
 REDMINE_WEB_SERVER="${REDMINE_WEB_SERVER:-puma}"
 SMTP_HOST="${SMTP_HOST:-localhost}"
@@ -81,8 +70,7 @@ REDMINE_LOAD_DEFAULT_DATA="${REDMINE_LOAD_DEFAULT_DATA:-1}"
 REDMINE_DEFAULT_DATA_LANG="${REDMINE_DEFAULT_DATA_LANG:-ja}"
 # 値あり（非空かつ != 0）なら、設定描画とマイグレーションまで実行して
 # Web サーバーを起動せずに終了します。アップグレード作業でアプリを公開せずに
-# マイグレーションだけ流したいとき、および MySQL → PostgreSQL コンバートで
-# 空 DB に Rails スキーマだけ作るときに使います（docs/Upgrade.md）。
+# マイグレーションだけ流したいときに使います。
 REDMINE_MIGRATE_ONLY="${REDMINE_MIGRATE_ONLY:-}"
 
 log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] [redmine-web] $*"; }
@@ -125,23 +113,17 @@ fi
     || die "REDMINE_SECRET_KEY_BASE(_FILE) or REDMINE_SECRET_TOKEN(_FILE) is not set."
 
 export REDMINE_DB_HOST REDMINE_DB_NAME REDMINE_DB_USER REDMINE_DB_PASSWORD REDMINE_DB_PORT
-export REDMINE_DB_ADAPTER
 export SMTP_HOST SMTP_PORT SMTP_USER SMTP_PASSWORD
 export SECRET_KEY_BASE REDMINE_PUMA_PORT
 
 cd "${REDMINE_HOME}"
 
 # ── 2. テンプレートから設定描画 ───────────────────────────────────────────────
-# アダプタ別テンプレートがあればそれを、無ければ既定（postgis 用の
-# config/database.yml.tmpl）を描画します。どのテンプレートをイメージに含めるかは
-# 各 Containerfile 側の責務で、entrypoint.sh には系列ごとの分岐を置きません。
+# postgis 用の config/database.yml.tmpl を描画します。
 DB_TEMPLATE="config/database.yml.tmpl"
-if [[ -r "config/database.${REDMINE_DB_ADAPTER}.yml.tmpl" ]]; then
-    DB_TEMPLATE="config/database.${REDMINE_DB_ADAPTER}.yml.tmpl"
-fi
 [[ -r "${DB_TEMPLATE}" ]] || die "Database template ${DB_TEMPLATE} is missing from the image."
 
-log "Rendering config/database.yml (${REDMINE_DB_ADAPTER} adapter, from ${DB_TEMPLATE}) ..."
+log "Rendering config/database.yml (postgis adapter) ..."
 # shellcheck disable=SC2016
 envsubst '${REDMINE_DB_HOST} ${REDMINE_DB_PORT} ${REDMINE_DB_NAME} ${REDMINE_DB_USER} ${REDMINE_DB_PASSWORD}' \
     < "${DB_TEMPLATE}" > config/database.yml
@@ -176,8 +158,8 @@ done
 # ever reads it.
 # Both configs render a *:80 VirtualHost, so exactly one of them may be enabled.
 if [[ "${REDMINE_WEB_SERVER}" == "passenger" ]]; then
-    # 移行検証用の 5.1.1 イメージ (Containerfile.v5-mysql) は mod_passenger を
-    # 同梱していません。a2enmod の分かりにくい失敗ではなく理由を出して止めます。
+    # テンプレートが無い（mod_passenger を同梱しない）イメージでは、a2enmod の
+    # 分かりにくい失敗ではなく理由を出して止めます。
     [[ -r /etc/apache2/conf-available/redmine-passenger.conf.tmpl ]] \
         || die "REDMINE_WEB_SERVER=passenger is not supported by this image (mod_passenger not installed)."
     log "Rendering Apache + mod_passenger config ..."
@@ -196,8 +178,7 @@ else
     envsubst '${RAILS_RELATIVE_URL_ROOT} ${REDMINE_PUMA_PORT}' \
         < /etc/apache2/conf-available/redmine-proxy.conf.tmpl \
         > /etc/apache2/conf-available/redmine-proxy.conf
-    # mod_passenger を同梱しないイメージ（Containerfile.v5-mysql）では
-    # a2dismod がモジュール不在で非 0 終了するため握りつぶします。
+    # モジュールが有効でない場合は a2dismod が非 0 終了するため握りつぶします。
     a2dismod -f passenger >/dev/null 2>&1 || true
     # a2disconf は conf-available に該当ファイルが無いと非 0 で終了するため、
     # 反対モードの conf が未描画のケースを握りつぶします。
@@ -206,24 +187,15 @@ else
 fi
 
 # ── 3. データベース待機 ───────────────────────────────────────────────────────
-# PostgreSQL は pg_isready、MySQL は mysql クライアントで実接続を試します
-# （mysqladmin ping はサーバーが生きていれば認証失敗でも通ることがあるため、
-#   対象 DB へ SELECT 1 できるところまで確認します）。
+# pg_isready で、対象 DB に実接続できるところまで確認します。
 export PGPASSWORD="${REDMINE_DB_PASSWORD}"
-export MYSQL_PWD="${REDMINE_DB_PASSWORD}"
 
 db_ready() {
-    if [[ "${REDMINE_DB_ADAPTER}" == "mysql2" ]]; then
-        mysql --protocol=TCP -h "${REDMINE_DB_HOST}" -P "${REDMINE_DB_PORT}" \
-            -u "${REDMINE_DB_USER}" -D "${REDMINE_DB_NAME}" \
-            -e 'SELECT 1' >/dev/null 2>&1
-    else
-        pg_isready -h "${REDMINE_DB_HOST}" -p "${REDMINE_DB_PORT}" -U "${REDMINE_DB_USER}" \
-            -d "${REDMINE_DB_NAME}" -q 2>/dev/null
-    fi
+    pg_isready -h "${REDMINE_DB_HOST}" -p "${REDMINE_DB_PORT}" -U "${REDMINE_DB_USER}" \
+        -d "${REDMINE_DB_NAME}" -q 2>/dev/null
 }
 
-log "Waiting for the database (${REDMINE_DB_ADAPTER}) at ${REDMINE_DB_HOST}:${REDMINE_DB_PORT} ..."
+log "Waiting for the database at ${REDMINE_DB_HOST}:${REDMINE_DB_PORT} ..."
 MAX_WAIT=120
 WAITED=0
 until db_ready; do
@@ -256,14 +228,8 @@ fi
 # 実行前から "Non member"/"Anonymous" の 2 件を常に作成済みのため、
 # roles の有無では初回判定ができません。
 count_trackers() {
-    if [[ "${REDMINE_DB_ADAPTER}" == "mysql2" ]]; then
-        mysql --protocol=TCP -h "${REDMINE_DB_HOST}" -P "${REDMINE_DB_PORT}" \
-            -u "${REDMINE_DB_USER}" -D "${REDMINE_DB_NAME}" \
-            -N -B -e 'SELECT count(*) FROM trackers;' 2>/dev/null || echo ""
-    else
-        psql -h "${REDMINE_DB_HOST}" -p "${REDMINE_DB_PORT}" -U "${REDMINE_DB_USER}" \
-            -d "${REDMINE_DB_NAME}" -tAc 'SELECT count(*) FROM trackers;' 2>/dev/null || echo ""
-    fi
+    psql -h "${REDMINE_DB_HOST}" -p "${REDMINE_DB_PORT}" -U "${REDMINE_DB_USER}" \
+        -d "${REDMINE_DB_NAME}" -tAc 'SELECT count(*) FROM trackers;' 2>/dev/null || echo ""
 }
 
 if [[ -n "${REDMINE_LOAD_DEFAULT_DATA}" && "${REDMINE_LOAD_DEFAULT_DATA}" != "0" ]]; then
@@ -281,8 +247,7 @@ fi
 # ── 4.9 マイグレーション専用モード ───────────────────────────────────────────
 # REDMINE_MIGRATE_ONLY が設定されていれば、ここで正常終了します。
 # Apache も Puma も起動しないため、アプリを公開せずにマイグレーションだけを
-# 適用できます（アップグレード前の片道処理、および MySQL → PostgreSQL
-# コンバートで空 DB に Rails スキーマだけを作る用途。docs/Upgrade.md 参照）。
+# 適用できます（Redmine のバージョンアップ前の片道処理など）。
 if [[ -n "${REDMINE_MIGRATE_ONLY}" && "${REDMINE_MIGRATE_ONLY}" != "0" ]]; then
     log "REDMINE_MIGRATE_ONLY set — migrations finished, exiting without starting a web server."
     exit 0
