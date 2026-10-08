@@ -58,7 +58,7 @@ RedmineDocker は 2 つのコンテナが連携して Redmine 7.0.2 を動作さ
 
 ### redmine-web (`containers/redmine-web/`)
 - ベースイメージは `redmine:7.0.2`（公式、Ruby / Bundler / Puma / gem も含む）です。Redmine のメジャーバージョン系列ごとに Containerfile を分けており、既定は 7 系（`Containerfile.v7`）です。5 系 / 6 系については「9. Redmine シリーズの切り替え」を参照してください。
-- 日本語 CJK フォント（PDF / Gantt 用）、14 プラグイン + `farend_fancy` テーマを追加します。プラグイン gem は `bundle install` でイメージに焼き込みます。`redmine_gtt` は 7.x でフロントエンドが webpack+yarn から Vite+pnpm へ移行したため、ビルド済み資産を同梱する公式リリース tarball を展開しています（6 系 / 7 系。Node ツールチェーンは不要）。5 系だけは webpack 時代の 6.0.3 を使うため yarn + webpack のビルドが残ります。
+- 日本語 CJK フォント（PDF / Gantt 用）、14 プラグイン（7 系は 15 個）+ `farend_fancy` テーマを追加します。プラグイン gem は `bundle install` でイメージに焼き込みます。`redmine_gtt` は 7.x でフロントエンドが webpack+yarn から Vite+pnpm へ移行したため、ビルド済み資産を同梱する公式リリース tarball を展開しています（6 系 / 7 系。Node ツールチェーンは不要）。5 系だけは webpack 時代の 6.0.3 を使うため yarn + webpack のビルドが残ります。
 - Apache フロントエンドを組み込み、`127.0.0.1:80` で `/redmine` リクエストを受けます。その先の処理は `REDMINE_WEB_SERVER` で切り替わります（下記「アプリサーバーの切り替え」）。
 - `entrypoint.sh` はシークレット解決（`*_FILE` 対応）、`config/database.yml` の描画（**`postgis`** アダプタ使用、redmine_gtt 必須）、`config/configuration.yml`（SMTP）の描画、Apache 設定の描画、DB 待機、コア / プラグインのマイグレーション実行、アプリサーバーの起動を行います。マイグレーションの実行可否は公式イメージと同じ環境変数で制御します（`REDMINE_NO_DB_MIGRATE` に値を設定するとコアの `db:migrate` をスキップ、`REDMINE_PLUGINS_MIGRATE` が非空なら `redmine:plugins:migrate` を実行。本スタックは 14 プラグインを内蔵するため既定で `REDMINE_PLUGINS_MIGRATE=1`）。
 
@@ -218,7 +218,7 @@ Redmine・PostgreSQL・プラグインのバージョン変更は、`git ls-remo
 |------|---------------|----------------|--------------|--------------|
 | Redmine 5 | `Containerfile.v5` | `redmine:5.1.12` | Ruby 3.2 / Rails 6.1.7.10 | 12 |
 | Redmine 6 | `Containerfile.v6` | `redmine:6.1.4` | Ruby 3.4 / Rails 7.2.3.2 | 14 |
-| Redmine 7（既定） | `Containerfile.v7` | `redmine:7.0.2` | Ruby 4.0 / Rails 8.1.4 | 14 |
+| Redmine 7（既定） | `Containerfile.v7` | `redmine:7.0.2` | Ruby 4.0 / Rails 8.1.4 | 15 |
 
 `entrypoint.sh` / `healthcheck.sh` / `config.ru` / 各 `*.tmpl` / `redmine-db` は 3 系列で共通です。
 系列間の差分は「ベースイメージ」「プラグインのピン」「テーマの配置先」だけに閉じています。
@@ -289,6 +289,7 @@ sudo systemctl restart redmine
 | redmine_login_audit2 | **非同梱**（全版が 6.0.0 以上を要求） | v1.0.0 | 1.0.2（"Redmine 7.0 support" コミット） |
 | redmine_solid_queue | **非同梱**（solid_queue gem が Rails 7 以上を要求。最古の 0.1.1 でも rails >= 7.0.3.1 のため古い版へ落としても不可） | v1.0.0 | v1.0.0（宣言なし・CI なし） |
 | redmine_xlsx_format_issue_exporter | 0.2.1（宣言 4.2+、CI なし） | 0.2.1（同左） | 0.2.1（同左） |
+| redmine_cascading_custom_fields | **非同梱** | **非同梱**（README の確認対象は 6.1.4 まで。導入していない） | v0.2.0（宣言 4.2+、README の確認対象は 4.2〜6.1。7.0 の CI なし。`redmine:7.0.2` の実機で E2E と挙動確認） |
 | テーマ farend_fancy | tag `redmine5.1`（`public/themes/` 配下） | master | master（Redmine trunk 追従コミットあり） |
 
 宣言だけで CI 実績がないもの（上表の「宣言 …+」と書いたもの）は本番投入前に動作確認してください。

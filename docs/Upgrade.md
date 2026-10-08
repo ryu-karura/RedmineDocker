@@ -498,7 +498,7 @@ docker compose -f compose.dev.yaml logs -f redmine-web
 
 - [ ] `docker compose -f compose.dev.yaml ps` で `redmine-web` が `healthy`
 - [ ] `http://localhost:8080/redmine/` にログインできる
-- [ ] 管理 → 情報 で Redmine 7.0.2、プラグイン 14 個が表示される
+- [ ] 管理 → 情報 で Redmine 7.0.2、プラグイン 15 個が表示される
 - [ ] チケット・Wiki・添付ファイル・ユーザーが移行前と同じ件数
 - [ ] 新規チケットを作成できる
 - [ ] `docker compose -f compose.dev.yaml logs redmine-web | grep -iE "LoadError|No route matches"` が空

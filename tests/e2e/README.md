@@ -11,8 +11,8 @@ CI（`.github/workflows/e2e.yml`）では puma / passenger の両モードで同
 
 - **データが空の新規スタック** に対して実行することを想定しています。プロジェクト識別子・ユーザー名が
   固定のため、既存データがあると重複エラーになります。本番や既存の開発スタックに対しては実行しないでください。
-- 既定値（`.env.example` 相当）は Redmine 7.0.2 / `REDMINE_WEB_SERVER=passenger` / 14 プラグインです。
-  テストは 14 プラグインの管理画面が一覧に出ることも確認します。
+- 既定値（`.env.example` 相当）は Redmine 7.0.2 / `REDMINE_WEB_SERVER=passenger` / 15 プラグインです。
+  テストは 15 プラグインが管理画面の一覧に出ることも確認します。
 
 ## 実行手順
 
@@ -69,7 +69,7 @@ CI（`.github/workflows/e2e.yml`）では puma / passenger の両モードで同
 
 ## シナリオ構成
 
-`run.js` 内で A〜I のシナリオに分けています（現在 47 ステップ）。
+`run.js` 内で A〜I のシナリオに分けています（現在 48 ステップ）。
 
 - A. ログイン（初期 admin のパスワード変更強制、ログイン確認）
 - B. 管理画面・設定（sudo モード、プラグイン一覧 14 件、REST API 有効化、テーマ変更）
@@ -78,7 +78,7 @@ CI（`.github/workflows/e2e.yml`）では puma / passenger の両モードで同
 - E. Wiki（mermaid マクロ、全文検索）
 - F. ユーザ管理（ユーザ追加、プロジェクトメンバー追加）
 - G. 一般ユーザ（誤パスワード、ログイン、権限確認、403、ログアウト）
-- H. プラグイン（login_audit2, view_customize, issue_templates, logs, xlsx 出力, banner, gtt, ip_filter, message_customize）
+- H. プラグイン（login_audit2, view_customize, issue_templates, logs, xlsx 出力, banner, gtt, ip_filter, message_customize, cascading_custom_fields）
 - I. REST API（Basic 認証での issues.json / projects.json 取得）
 
 新しい確認項目を足す場合は `step()` 呼び出しを追加します。スクリーンショットと `results.json` に自動で反映されます。

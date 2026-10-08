@@ -32,7 +32,7 @@ All plugins and the `farend_fancy` theme are `git clone`d **at build time** so
 the code is baked into the image (the one exception is `redmine_gtt` in the
 v6/v7 images — see section 3). Each plugin is pinned with
 `git clone --depth 1 --branch <TAG> <url>`, and the pins differ per series:
-v6 and v7 both have 14 plugins (v7 pins `redmine_banner` to `master`, not a
+v6 has 14 plugins and v7 has 15 (v7 adds `redmine_cascading_custom_fields`, which v5/v6 do not carry; v7 pins `redmine_banner` to `master`, not a
 tag: its Redmine 7 fixes landed after 0.3.5 and are still untagged), v5 has 12
 (no `redmine_login_audit2`, no `redmine_solid_queue`: neither can run on
 Rails 6.1) and generally older tags. Before changing a pin, check the

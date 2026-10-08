@@ -4,7 +4,7 @@
 
 このリポジトリでは、2 コンテナ構成の Redmine 基盤を構築・展開・運用します。開発も本番も同じ Docker Compose 定義 (`compose.dev.yaml`) を使い、本番はそこへ `compose.prod.yaml` を重ねて systemd ユニット (`systemd/redmine.service`) から起動します。設計は [redmine.jp の Docker ガイド](https://blog.redmine.jp/articles/6_1/redmine-6_1-docker/) を踏襲し、公式 Redmine イメージとファイルベースのシークレットを用いた 2 層構成へ拡張したものです。
 
-[![E2E (Redmine 7.0.2, puma / passenger)](https://img.shields.io/badge/E2E%20Redmine%207.0.2-47%2F47%20PASS-brightgreen)](tests/e2e/README.md)
+[![E2E (Redmine 7.0.2, puma / passenger)](https://img.shields.io/badge/E2E%20Redmine%207.0.2-48%2F48%20PASS-brightgreen)](tests/e2e/README.md)
 
 ---
 
@@ -51,11 +51,11 @@
 | Passenger | `REDMINE_WEB_SERVER=passenger`（7 系の既定）用。3 系列とも Debian trixie の `libapache2-mod-passenger` (6.0.26) |
 | Node.js / Yarn | Debian `nodejs` + Yarn 1.22.22（5 系のみ。redmine_gtt 6.0.3 の webpack ビルド用） |
 
-`redmine-web` に焼き込まれているプラグイン (既定の 7 系は 14 個): redmine_wiki_lists, redmine_banner,
+`redmine-web` に焼き込まれているプラグイン (既定の 7 系は 15 個): redmine_wiki_lists, redmine_banner,
 redmine_issues_panel, redmica_ui_extension, redmine_ip_filter,
 redmine_message_customize, redmine_issue_templates, view_customize, redmine_logs,
 redmine_login_audit2, redmine_wiki_extensions, redmine_solid_queue, redmine_gtt,
-redmine_xlsx_format_issue_exporter。
+redmine_xlsx_format_issue_exporter、redmine_cascading_custom_fields（7 系のみ）。
 テーマ: farend_fancy。`redmine_gtt` には PostGIS と `postgis` アダプタが必要です（`containers/redmine-web/database.yml.tmpl` で設定）。
 
 ### Redmine のメジャーバージョン系列
@@ -70,7 +70,7 @@ redmine_xlsx_format_issue_exporter。
 |------|---------------|----------------|-----------|------|
 | Redmine 5 | `Containerfile.v5` | `redmine:5.1.12` | 12 個 | 公式イメージは 5.1.12 で打ち切り（Ruby 3.2 EOL）。login_audit2 / solid_queue は 5.1 で導入不可 |
 | Redmine 6 | `Containerfile.v6` | `redmine:6.1.4` | 14 個 | `.env` で切り替え |
-| Redmine 7 | `Containerfile.v7` | `redmine:7.0.2` | 14 個 | **既定**。banner は 7.0 対応が master にのみ入っているため master を pin |
+| Redmine 7 | `Containerfile.v7` | `redmine:7.0.2` | 15 個 | **既定**。banner は 7.0 対応が master にのみ入っているため master を pin |
 
 > ⚠ **既定は Redmine 7 系です。** 6 系で運用中のスタックに対して `.env` を置かずに
 > `docker compose -f compose.dev.yaml up --build -d` を実行すると、7 系イメージが
@@ -185,8 +185,8 @@ sudo systemctl daemon-reload && sudo systemctl enable --now redmine
 - **[セットアップ手順](docs/Setup.md)** — 本番 / 開発環境の導入手順。
 - **[運用手順](docs/Manual.md)** — バックアップ、復旧、ログ管理。
 - **[アップグレード手順](docs/Upgrade.md)** — Redmine 5.1.1 + MySQL 8.0 からの移行（DB コンバートと Redmine 7 へのアップグレード）。
-- **[E2E テスト](tests/e2e/README.md)** — Playwright による画面操作の確認（47 ステップ、puma / passenger 両モードを CI で実行）。
-- **[同梱プラグイン解説](docs/Plugins.md)** — 同梱プラグイン 14 個とテーマの機能・版・対応 Redmine バージョン（スクリーンショット付き）。
+- **[E2E テスト](tests/e2e/README.md)** — Playwright による画面操作の確認（48 ステップ、puma / passenger 両モードを CI で実行）。
+- **[同梱プラグイン解説](docs/Plugins.md)** — 同梱プラグイン 15 個とテーマの機能・版・対応 Redmine バージョン（スクリーンショット付き）。
 
 ## ライセンス
 

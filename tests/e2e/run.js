@@ -152,7 +152,7 @@ async function login(page, user, pw) {
   await step('B. 管理画面', 'プラグイン一覧', page, async () => {
     await go(page, `${BASE}/admin/plugins`);
     const rows = await page.locator('table.plugins tr[id^="plugin-"]').count();
-    if (rows !== 14) throw new Error(`plugin rows=${rows} (expected 14)`);
+    if (rows !== 15) throw new Error(`plugin rows=${rows} (expected 15)`);
     return `${rows} プラグイン`;
   });
   await step('B. 設定', '設定（全般）', page, async () => {
@@ -433,6 +433,14 @@ async function login(page, user, pw) {
     if (buf.length < 1000) throw new Error(`xlsx too small: ${buf.length}`);
     return `${ct.split(';')[0]}, ${buf.length} bytes`;
   }, { shot: false });
+  await step('H. プラグイン', 'カスケードリスト形式のカスタムフィールド（redmine_cascading_custom_fields）', page, async () => {
+    await go(page, `${BASE}/custom_fields/new?type=IssueCustomField`);
+    const values = await page.$$eval('#custom_field_field_format option', os => os.map(o => o.value));
+    if (!values.includes('cascading_list')) throw new Error(`cascading_list format missing: ${values.join(',')}`);
+    await page.selectOption('#custom_field_field_format', 'cascading_list');
+    await page.locator('#custom_field_cascade_parent_id').waitFor({ timeout: 10000 });
+    return '形式 cascading_list を選択、親フィールド選択欄が表示';
+  });
   await step('H. プラグイン', 'グローバルバナー表示（redmine_banner）', page, async () => {
     await go(page, `${BASE}/global_banner`);
     await noErrorPage(page);
