@@ -11,7 +11,7 @@ CI（`.github/workflows/e2e.yml`）では puma / passenger の両モードで同
 
 - **データが空の新規スタック** に対して実行することを想定しています。プロジェクト識別子・ユーザー名が
   固定のため、既存データがあると重複エラーになります。本番や既存の開発スタックに対しては実行しないでください。
-- 既定値（`.env.example` 相当）は Redmine 7.0.1 / `REDMINE_WEB_SERVER=passenger` / 14 プラグインです。
+- 既定値（`.env.example` 相当）は Redmine 7.0.2 / `REDMINE_WEB_SERVER=passenger` / 14 プラグインです。
   テストは 14 プラグインの管理画面が一覧に出ることも確認します。
 
 ## 実行手順

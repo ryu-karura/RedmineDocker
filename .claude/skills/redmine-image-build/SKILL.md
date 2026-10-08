@@ -20,7 +20,7 @@ The `redmine-web` image layers a plugin/theme stack and native-gem build
 tooling onto an official `redmine` base image. There is **one Containerfile per
 Redmine major series** — `Containerfile.v5` (`redmine:5.1.12`),
 `Containerfile.v6` (`redmine:6.1.4`) and `Containerfile.v7`
-(`redmine:7.0.1`, the default) — because the plugin versions that actually work differ per
+(`redmine:7.0.2`, the default) — because the plugin versions that actually work differ per
 series. Everything else (`entrypoint.sh`, `healthcheck.sh`, `config.ru`, the
 `*.tmpl` files) is shared. Pick the file matching the series you are building;
 when a change is generic, apply it to all three. Two classes of mistake break
@@ -182,7 +182,7 @@ git ls-remote --tags https://github.com/haru/redmine_logs.git | grep -E 'v1\.0\.
 
 # Build the image end-to-end (must pass the plugin clones AND `bundle install`)
 docker compose -f compose.dev.yaml build redmine-web
-#   or: docker build -t localhost/redmine-web:7.0.1 \
+#   or: docker build -t localhost/redmine-web:7.0.2 \
 #         -f containers/redmine-web/Containerfile.v7 containers/redmine-web
 # Other series (sets Containerfile + base image + tag together):
 #   bash scripts/test-stack.sh --series 5   # or 7
@@ -202,7 +202,7 @@ uses), which does not reliably recreate a container just because its image was
 rebuilt under the same tag — you can fix a bug, rebuild, `up -d`, and still be
 looking at the old image's crash. Confirm with
 `<cli> inspect --format '{{.Image}}' redmine-web` vs.
-`<cli> images localhost/redmine-web:7.0.1 --format '{{.ID}}'`; if they
+`<cli> images localhost/redmine-web:7.0.2 --format '{{.ID}}'`; if they
 differ, force it: `<cli> compose -f compose.dev.yaml up -d --force-recreate
 redmine-web`. When troubleshooting a "residue" boot failure, tear all the way
 down first (`<cli> compose -f compose.dev.yaml down -v`, and clear any

@@ -4,14 +4,14 @@
 
 このリポジトリでは、2 コンテナ構成の Redmine 基盤を構築・展開・運用します。開発も本番も同じ Docker Compose 定義 (`compose.dev.yaml`) を使い、本番はそこへ `compose.prod.yaml` を重ねて systemd ユニット (`systemd/redmine.service`) から起動します。設計は [redmine.jp の Docker ガイド](https://blog.redmine.jp/articles/6_1/redmine-6_1-docker/) を踏襲し、公式 Redmine イメージとファイルベースのシークレットを用いた 2 層構成へ拡張したものです。
 
-[![E2E (Redmine 7.0.1, puma / passenger)](https://img.shields.io/badge/E2E%20Redmine%207.0.1-47%2F47%20PASS-brightgreen)](tests/e2e/README.md)
+[![E2E (Redmine 7.0.2, puma / passenger)](https://img.shields.io/badge/E2E%20Redmine%207.0.2-47%2F47%20PASS-brightgreen)](tests/e2e/README.md)
 
 ---
 
 ## アーキテクチャ
 
 ```
-  client ──443──► Host Apache ──/redmine──► redmine-web (Apache 2.4 + Redmine 7.0.1)
+  client ──443──► Host Apache ──/redmine──► redmine-web (Apache 2.4 + Redmine 7.0.2)
                   (TLS, HSTS)   127.0.0.1:80   │  REDMINE_WEB_SERVER で分岐
                                                   │
                                passenger (既定) ──┴── puma
@@ -28,7 +28,7 @@
 | コンテナ | ビルドコンテキスト | イメージ | 役割 | 公開先 |
 |----------|-------------------|----------|------|--------|
 | `redmine-db` | `containers/redmine-db/` | `postgis/postgis:18-3.6` | PostgreSQL 18 + PostGIS 3.6 | なし（内部 5432） |
-| `redmine-web` | `containers/redmine-web/` | `docker.io/library/redmine:7.0.1` + plugin stack + Apache 2.4 | Redmine アプリ、Apache フロントエンド、Passenger / Puma | `127.0.0.1:80` |
+| `redmine-web` | `containers/redmine-web/` | `docker.io/library/redmine:7.0.2` + plugin stack + Apache 2.4 | Redmine アプリ、Apache フロントエンド、Passenger / Puma | `127.0.0.1:80` |
 
 `redmine-web` だけがループバックに公開されます。ホスト側 Apache が 443 で TLS を終端し、`/redmine` をその先へ転送します。PostgreSQL (5432) と Puma (3000) はホストからは到達できません。
 
@@ -44,7 +44,7 @@
 | コンポーネント | 値 |
 |---------------|----|
 | OS | 本番: RHEL9.5+ / 開発 A: WSL上のAlmaLinux9.5+ / 開発 B: Codespaces |
-| Redmine | 7.0.1 (`docker.io/library/redmine:7.0.1`)、5 系 / 6 系にも切り替え可 |
+| Redmine | 7.0.2 (`docker.io/library/redmine:7.0.2`)、5 系 / 6 系にも切り替え可 |
 | PostgreSQL | 18 + PostGIS 3.6 (`postgis/postgis:18-3.6`) |
 | Web 層 | Apache httpd 2.4 (redmine-web 内蔵) |
 | Ruby / Puma | 公式 Redmine イメージに同梱 |
@@ -70,7 +70,7 @@ redmine_xlsx_format_issue_exporter。
 |------|---------------|----------------|-----------|------|
 | Redmine 5 | `Containerfile.v5` | `redmine:5.1.12` | 12 個 | 公式イメージは 5.1.12 で打ち切り（Ruby 3.2 EOL）。login_audit2 / solid_queue は 5.1 で導入不可 |
 | Redmine 6 | `Containerfile.v6` | `redmine:6.1.4` | 14 個 | `.env` で切り替え |
-| Redmine 7 | `Containerfile.v7` | `redmine:7.0.1` | 14 個 | **既定**。banner は 7.0 対応が master にのみ入っているため master を pin |
+| Redmine 7 | `Containerfile.v7` | `redmine:7.0.2` | 14 個 | **既定**。banner は 7.0 対応が master にのみ入っているため master を pin |
 
 > ⚠ **既定は Redmine 7 系です。** 6 系で運用中のスタックに対して `.env` を置かずに
 > `docker compose -f compose.dev.yaml up --build -d` を実行すると、7 系イメージが
@@ -97,7 +97,7 @@ RedmineDocker/
 │       ├── ca-certificates/        #   社内プロキシ (MITM) の CA 置き場（既定は空）
 │       ├── Containerfile.v5        #   Redmine 5.1.12 用
 │       ├── Containerfile.v6        #   Redmine 6.1.4 用
-│       ├── Containerfile.v7        #   Redmine 7.0.1 用（既定）
+│       ├── Containerfile.v7        #   Redmine 7.0.2 用（既定）
 │       └── Containerfile.v5-mysql  #   Redmine 5.1.1 + MySQL（移行元の再現専用）
 ├── systemd/                      # 本番用 systemd ユニット
 │   └── redmine.service             #   docker compose で 2 コンテナを起動/停止
@@ -106,7 +106,7 @@ RedmineDocker/
 │   ├── test-stack.sh                 # 通常スタック (5/6/7 系) のビルド・起動検証
 │   ├── test-webflow.sh               # 稼働中 Redmine のログイン/プロジェクト/チケット操作検証
 │   ├── migrate-mysql-to-postgres.sh  # MySQL → PostgreSQL 18 コンバート
-│   ├── test-upgrade.sh               # 5.1.1+MySQL → PG18 → 7.0.1 の通し検証
+│   ├── test-upgrade.sh               # 5.1.1+MySQL → PG18 → 7.0.2 の通し検証
 │   └── pgloader/                     # pgloader コマンドファイル + シーケンス再設定 SQL
 ├── logrotate/                    # ログローテーション
 ├── Makefile / menu.sh            # 対話メニュー（`make` で起動）

@@ -1,13 +1,13 @@
-# redmine-web (Redmine 7 系): Redmine 7.0.1（公式イメージ）+ プラグイン/テーマ一式
+# redmine-web (Redmine 7 系): Redmine 7.0.2（公式イメージ）+ プラグイン/テーマ一式
 #
 # シリーズ別 Containerfile のうち Redmine 7 用です（既定）。
 # 5 系は Containerfile.v5、6 系は Containerfile.v6 を参照してください。
 # 切り替えは .env の REDMINE_WEB_CONTAINERFILE / REDMINE_VERSION で行います
 # （docs/Design.md「Redmine シリーズの切り替え」参照）。
 #
-# ベースイメージ: docker.io/library/redmine:7.0.1
-#   ruby:4.0-slim-trixie ベース / Rails 8.1.3.1
-#   （Redmine 7.0.1 の Gemfile は ruby '>= 3.2.0', '< 4.1.0'、公式イメージは Ruby 4.0）
+# ベースイメージ: docker.io/library/redmine:7.0.2
+#   ruby:4.0-slim-trixie ベース / Rails 8.1.4
+#   （Redmine 7.0.2 の Gemfile は ruby '>= 3.2.0', '< 4.1.0'、公式イメージは Ruby 4.0）
 #
 # 公式イメージに対して次を追加します:
 #   - 日本語 CJK フォント（fonts-noto-cjk）
@@ -26,10 +26,10 @@
 #     - 6.1.1 の該当コミット (#2620) は文字列リテラルが凍結された環境向けの
 #       修正（`s = ''; s << x` → `String.new`）で、Ruby 4 固有の API 変更対応
 #       ではありません。
-#     - このイメージの Ruby 4.0.6 はリテラルを凍結しません
+#     - このイメージの Ruby 4.0.7 はリテラルを凍結しません
 #       （`"".frozen?` は false）。つまり 6.0.26 が壊れる前提が成立しません。
 #     - Debian trixie と同じ upstream 版である Passenger 6.0.26 で、
-#       Ruby 4.0.6 の Redmine 7.0.1 を実際に配信できることを確認済みです
+#       Ruby 4.0.7 の Redmine 7.0.2 を実際に配信できることを確認済みです
 #       （ログイン → プロジェクト作成 → チケット作成まで通過。
 #       public/ の静的配信とアプリの redmine ユーザー実行も確認）。
 #   将来 Ruby がリテラル凍結を既定にした場合は 6.1.1 以上が必要になります。
@@ -62,7 +62,7 @@
 #
 # テーマ: farend_fancy（farend、既定ブランチ master）
 
-ARG WEB_BASE_IMAGE=docker.io/library/redmine:7.0.1
+ARG WEB_BASE_IMAGE=docker.io/library/redmine:7.0.2
 FROM ${WEB_BASE_IMAGE}
 
 ARG REDMINE_HOME=/usr/src/redmine

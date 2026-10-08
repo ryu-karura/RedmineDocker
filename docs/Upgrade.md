@@ -1,7 +1,7 @@
-# アップグレード検証手順 — Redmine 5.1.1 + MySQL 8.0 → PostgreSQL 18 → Redmine 7.0.1
+# アップグレード検証手順 — Redmine 5.1.1 + MySQL 8.0 → PostgreSQL 18 → Redmine 7.0.2
 
 このドキュメントは、**既存の Redmine 5.1.1 (MySQL 8.0 CE) を、このリポジトリの標準構成
-である Redmine 7.0.1 + PostgreSQL 18 + PostGIS 3.6 へ移行する**ための手順書です。
+である Redmine 7.0.2 + PostgreSQL 18 + PostGIS 3.6 へ移行する**ための手順書です。
 
 移行を 3 段階に分け、各段階を単独で検証・切り戻しできるようにしています。
 
@@ -9,7 +9,7 @@
 |------|------|----------|
 | 1 | 移行元 (as-is) をコンテナで再現する | `.env.legacy` + `compose.legacy.yaml` + `containers/redmine-web/Containerfile.v5-mysql` + `containers/redmine-db-mysql/` |
 | 2 | DB を MySQL 8.0 → PostgreSQL 18 + PostGIS へコンバートする | `scripts/migrate-mysql-to-postgres.sh`（`.env` + `.env.legacy` の両方を読む）+ `scripts/pgloader/` |
-| 3 | Redmine 5.1.1 → 7.0.1 へアップグレードする | `.env` + `compose.dev.yaml`（`Containerfile.v7`） |
+| 3 | Redmine 5.1.1 → 7.0.2 へアップグレードする | `.env` + `compose.dev.yaml`（`Containerfile.v7`） |
 
 **ファイルの役割は 2 系統に分かれています。混在させないでください:**
 
@@ -35,7 +35,7 @@
 ```
 【段階 1】移行元の再現                    【段階 2】DB コンバート          【段階 3】アップグレード
 
- redmine-legacy-web (5.1.1)                                              redmine-web (7.0.1)
+ redmine-legacy-web (5.1.1)                                              redmine-web (7.0.2)
    plugins x16                                                            plugins x14
         │ mysql2                                                               │ postgis
         ▼                                                                      ▼
@@ -44,7 +44,7 @@
                             │                              │
                      ① 空 DB に 5.1.1 のまま          ② 5.1.1 のまま起動して確認
                        rake db:migrate でスキーマ作成    → そのまま本運用も可能（4.1）
-                                                          → 7 系に無いプラグインを外して 7.0.1 へ
+                                                          → 7 系に無いプラグインを外して 7.0.2 へ
                                                             （起動時に 5.1→7.0 の
                                                               マイグレーションが走る）
 ```
@@ -376,7 +376,7 @@ DB は既に PostgreSQL へ移行済みなので、通常スタック側（`.env
 
 ---
 
-## 5. 段階 3 — Redmine 7.0.1 へのアップグレード
+## 5. 段階 3 — Redmine 7.0.2 へのアップグレード
 
 ### 5.1 事前: Redmine 7 に無いプラグインをアンインストールする
 
@@ -443,7 +443,7 @@ docker exec -e PGPASSWORD="$(cat secrets/db_password.txt)" redmine-db \
 （`docs/Design.md`「Redmine シリーズの切り替え」参照）。
 
 ```ini
-REDMINE_VERSION=7.0.1
+REDMINE_VERSION=7.0.2
 REDMINE_WEB_CONTAINERFILE=Containerfile.v7
 ```
 
@@ -498,7 +498,7 @@ docker compose -f compose.dev.yaml logs -f redmine-web
 
 - [ ] `docker compose -f compose.dev.yaml ps` で `redmine-web` が `healthy`
 - [ ] `http://localhost:8080/redmine/` にログインできる
-- [ ] 管理 → 情報 で Redmine 7.0.1、プラグイン 14 個が表示される
+- [ ] 管理 → 情報 で Redmine 7.0.2、プラグイン 14 個が表示される
 - [ ] チケット・Wiki・添付ファイル・ユーザーが移行前と同じ件数
 - [ ] 新規チケットを作成できる
 - [ ] `docker compose -f compose.dev.yaml logs redmine-web | grep -iE "LoadError|No route matches"` が空
@@ -538,7 +538,7 @@ bash scripts/test-upgrade.sh --skip-build # 既存イメージを再利用
 4. コンバートが成功し、件数・シーケンス・boolean 型が一致する
 5. コンバート後の DB で 5.1.1 が起動し、データが見え、新規チケットを作成できる
 6. `redmine_theme_changer`（7 系に無いプラグイン）をアンインストールできる
-7. Redmine 7.0.1 が起動し、マイグレーションが完了し、データが保持されている
+7. Redmine 7.0.2 が起動し、マイグレーションが完了し、データが保持されている
 8. **アップグレード後**も Web UI からログインでき、アップグレード前に画面から作った
    プロジェクト/チケットがそのまま表示され、さらに新規作成もできる
    （`scripts/test-webflow.sh --tag after --expect-tag before`）

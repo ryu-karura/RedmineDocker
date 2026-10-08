@@ -2,7 +2,7 @@
 
 ## 1. 概要
 
-RedmineDocker は 2 つのコンテナが連携して Redmine 7.0.1 を動作させます。設計は [redmine.jp の Docker ガイド](https://blog.redmine.jp/articles/6_1/redmine-6_1-docker/) を踏襲しており、**公式** の `redmine` イメージを使い、認証情報は **ファイルベースのシークレット** で管理し、開発・本番とも **同じ Docker Compose 定義**（`compose.dev.yaml`、本番はこれに `compose.prod.yaml` を重ねる）から運用します。本番の起動・停止は systemd ユニット `redmine.service` が担当します。Apache フロントエンドを `redmine-web` に統合し、この環境で求められる設定値に合わせています。
+RedmineDocker は 2 つのコンテナが連携して Redmine 7.0.2 を動作させます。設計は [redmine.jp の Docker ガイド](https://blog.redmine.jp/articles/6_1/redmine-6_1-docker/) を踏襲しており、**公式** の `redmine` イメージを使い、認証情報は **ファイルベースのシークレット** で管理し、開発・本番とも **同じ Docker Compose 定義**（`compose.dev.yaml`、本番はこれに `compose.prod.yaml` を重ねる）から運用します。本番の起動・停止は systemd ユニット `redmine.service` が担当します。Apache フロントエンドを `redmine-web` に統合し、この環境で求められる設定値に合わせています。
 
 | 項目 | 値 |
 |------|----|
@@ -13,7 +13,7 @@ RedmineDocker は 2 つのコンテナが連携して Redmine 7.0.1 を動作さ
 | 本番の起動方式 | systemd ユニット `redmine.service`（`docker compose ... up -d --wait`） |
 | Linux ルートディレクトリ | `/opt/redmine` |
 | コンテナネットワーク | `redmine-net`（bridge） |
-| Redmine イメージ | `docker.io/library/redmine:7.0.1` |
+| Redmine イメージ | `docker.io/library/redmine:7.0.2` |
 | PostgreSQL / PostGIS | `docker.io/postgis/postgis:18-3.6` |
 | Apache フロントエンド | `httpd` 2.4（`redmine-web` に内蔵） |
 | DB 名 / 所有者 | `redmine` / `redmine` |
@@ -57,7 +57,7 @@ RedmineDocker は 2 つのコンテナが連携して Redmine 7.0.1 を動作さ
 - 1 つの `redmine` ロールが `redmine` データベースを所有する（ブログの単一ユーザーモデル）構成です。`init-redmine.sh` は `postgis` / `postgis_topology` 拡張機能が存在することを確認します（冪等で、ベースイメージ側で初回初期化時に有効化済みです）。
 
 ### redmine-web (`containers/redmine-web/`)
-- ベースイメージは `redmine:7.0.1`（公式、Ruby / Bundler / Puma / gem も含む）です。Redmine のメジャーバージョン系列ごとに Containerfile を分けており、既定は 7 系（`Containerfile.v7`）です。5 系 / 6 系については「9. Redmine シリーズの切り替え」を参照してください。
+- ベースイメージは `redmine:7.0.2`（公式、Ruby / Bundler / Puma / gem も含む）です。Redmine のメジャーバージョン系列ごとに Containerfile を分けており、既定は 7 系（`Containerfile.v7`）です。5 系 / 6 系については「9. Redmine シリーズの切り替え」を参照してください。
 - 日本語 CJK フォント（PDF / Gantt 用）、14 プラグイン + `farend_fancy` テーマを追加します。プラグイン gem は `bundle install` でイメージに焼き込みます。`redmine_gtt` は 7.x でフロントエンドが webpack+yarn から Vite+pnpm へ移行したため、ビルド済み資産を同梱する公式リリース tarball を展開しています（6 系 / 7 系。Node ツールチェーンは不要）。5 系だけは webpack 時代の 6.0.3 を使うため yarn + webpack のビルドが残ります。
 - Apache フロントエンドを組み込み、`127.0.0.1:80` で `/redmine` リクエストを受けます。その先の処理は `REDMINE_WEB_SERVER` で切り替わります（下記「アプリサーバーの切り替え」）。
 - `entrypoint.sh` はシークレット解決（`*_FILE` 対応）、`config/database.yml` の描画（**`postgis`** アダプタ使用、redmine_gtt 必須）、`config/configuration.yml`（SMTP）の描画、Apache 設定の描画、DB 待機、コア / プラグインのマイグレーション実行、アプリサーバーの起動を行います。マイグレーションの実行可否は公式イメージと同じ環境変数で制御します（`REDMINE_NO_DB_MIGRATE` に値を設定するとコアの `db:migrate` をスキップ、`REDMINE_PLUGINS_MIGRATE` が非空なら `redmine:plugins:migrate` を実行。本スタックは 14 プラグインを内蔵するため既定で `REDMINE_PLUGINS_MIGRATE=1`）。
@@ -137,7 +137,7 @@ docker の bind mount は UID を変換しません（rootless Podman のよう�
 
 | 用途 | 変数 | 既定値 |
 |------|------|--------|
-| Redmine バージョン | `REDMINE_VERSION` | `7.0.1` |
+| Redmine バージョン | `REDMINE_VERSION` | `7.0.2` |
 | Web の Containerfile | `REDMINE_WEB_CONTAINERFILE` | `Containerfile.v7` |
 | PostgreSQL メジャー | `REDMINE_DB_PG_MAJOR` | `18` |
 | PostGIS バージョン | `REDMINE_DB_POSTGIS_VERSION` | `3.6` |
@@ -218,7 +218,7 @@ Redmine・PostgreSQL・プラグインのバージョン変更は、`git ls-remo
 |------|---------------|----------------|--------------|--------------|
 | Redmine 5 | `Containerfile.v5` | `redmine:5.1.12` | Ruby 3.2 / Rails 6.1.7.10 | 12 |
 | Redmine 6 | `Containerfile.v6` | `redmine:6.1.4` | Ruby 3.4 / Rails 7.2.3.2 | 14 |
-| Redmine 7（既定） | `Containerfile.v7` | `redmine:7.0.1` | Ruby 4.0 / Rails 8.1.3.1 | 14 |
+| Redmine 7（既定） | `Containerfile.v7` | `redmine:7.0.2` | Ruby 4.0 / Rails 8.1.4 | 14 |
 
 `entrypoint.sh` / `healthcheck.sh` / `config.ru` / 各 `*.tmpl` / `redmine-db` は 3 系列で共通です。
 系列間の差分は「ベースイメージ」「プラグインのピン」「テーマの配置先」だけに閉じています。
@@ -240,7 +240,7 @@ REDMINE_WEB_CONTAINERFILE=Containerfile.v5
 REDMINE_VERSION=6.1.4
 REDMINE_WEB_CONTAINERFILE=Containerfile.v6
 # 7 系（既定。.env で指定しなければこれになります）
-REDMINE_VERSION=7.0.1
+REDMINE_VERSION=7.0.2
 REDMINE_WEB_CONTAINERFILE=Containerfile.v7
 ```
 
@@ -319,7 +319,7 @@ upstream の `init.rb` は `version '0.3.4'` のままなので、管理画面�
 ### 系列固有の注意点
 
 - **テーマの置き場が 5 系だけ違います。** Redmine 6.0 でテーマが `public/themes/` から
-  `themes/` へ移動しました（5.1.13 のツリーには `public/themes`、6.1.4 / 7.0.1 には `themes`）。
+  `themes/` へ移動しました（5.1.13 のツリーには `public/themes`、6.1.4 / 7.0.2 には `themes`）。
   `Containerfile.v5` だけ `public/themes/farend_fancy` へ clone し、`chown` 対象も
   `public/` 配下で完結させています。
 - **5 系の geo gem スタックは固定が必要です。** `redmine_gtt` 6.0.3 の Gemfile は既定で
@@ -328,9 +328,10 @@ upstream の `init.rb` は `version '0.3.4'` のままなので、管理画面�
   （`GEM_RGEO_ACTIVERECORD_VERSION=7.0.1` / `GEM_ACTIVERECORD_POSTGIS_ADAPTER_VERSION=7.1.1`）を
   `ENV` で設定します。ARG ではなく ENV なのは、Redmine の Gemfile が `plugins/*/Gemfile` を
   bundler 実行のたびに評価するため、実行時にも同じ値が必要だからです。
-- **ベースイメージは Redmine のパッチリリースに追従します。** 現在の pin は 7.0.1 と 6.1.4
-  （どちらも公式イメージは 2026-08-30 公開）で、Redmine 本体の修正に加えて Rails を
-  8.1.3 → 8.1.3.1 / 7.2.3.1 → 7.2.3.2 へ上げるパッチリリースです。追従するときは
+- **ベースイメージは Redmine のパッチリリースに追従します。** 現在の pin は 7.0.2 と 6.1.4
+  です。6.1.4 は Rails を 7.2.3.1 → 7.2.3.2 へ上げるパッチリリース（公式イメージは
+  2026-08-30 公開）、7.0.2 は 7.0.1 から Rails 8.1.3.1 → 8.1.4、Ruby 4.0.6 → 4.0.7 に
+  なります（7.0.2 イメージで実測）。追従するときは
   `.env`（`REDMINE_VERSION`）、各 `Containerfile.v*` の `ARG WEB_BASE_IMAGE`、
   `compose.dev.yaml` の既定値、`scripts/test-stack.sh` の系列表を**同時に**変更してください（1 か所でも取り残すと、
   ビルドしたイメージと起動するイメージのタグがずれます）。
@@ -347,7 +348,7 @@ upstream の `init.rb` は `version '0.3.4'` のままなので、管理画面�
      `Deal with frozen string literals (#2620)` で、`buffer = ''` → `String.new`、
      `result << ...` → `result += ...` といった置き換えです（`thread_handler.rb`、
      `loader_shared_helpers.rb` ほか）。Ruby 4 固有の C API 変更への追従ではありません。
-  2. **Ruby 4.0.6 は文字列リテラルを凍結しません。** 公式イメージ `redmine:7.0.1` の
+  2. **Ruby 4.0.7 は文字列リテラルを凍結しません。** 公式イメージ `redmine:7.0.2` の
      Ruby で `"".frozen?` は `false`、`s = ""; s << "x"` も通ります。つまり 6.0.26 が
      壊れる前提（リテラル凍結）が現時点では成立しません。
   3. **実際に配信できることを確認しました。** Debian trixie と同一 upstream 版の
@@ -357,6 +358,9 @@ upstream の `init.rb` は `version '0.3.4'` のままなので、管理画面�
      `scripts/test-webflow.sh`（ログイン → プロジェクト作成 → チケット作成・表示）が
      全項目通過しました。`public/` の静的配信、アプリが `redmine` ユーザーで動くこと、
      Passenger 側の警告が出ないことも確認しています。
+  4. **7.0.2 でも再確認しました（2026-10）。** `redmine:7.0.2`（Ruby 4.0.7 / Rails 8.1.4）に
+     Debian trixie の Passenger 6.0.26 をそのまま載せたビルド済みイメージで、
+     `tests/e2e`（Playwright 47 ステップ）が passenger / puma の両モードで全件通過しました。
 
   この結果、7 系は 5 / 6 系と同じ `apt-get install libapache2-mod-passenger` だけになり、
   APT pin・preferences・バージョン assert（約 40 行）が不要になりました。
@@ -374,8 +378,8 @@ upstream の `init.rb` は `version '0.3.4'` のままなので、管理画面�
   しましたが、採りませんでした。Redmine 7 の公式イメージは全バリアント（trixie /
   bookworm / alpine）が Ruby 4.0 のみで、Ruby 3.4 にするには公式イメージをやめて Redmine 
   本体のビルド（tarball の SHA256 追跡、gosu、`cargo`/`rustc` の **trixie-backports** pin、
-  gem の全ビルド）を自前で抱えることになります。Redmine 7.0.1 自体は Ruby 3.4 でも動きます
-  （Gemfile は `ruby '>= 3.2.0', '< 4.1.0'`、Rails 8.1.3.1 は ruby >= 3.2 要求、
+  gem の全ビルド）を自前で抱えることになります。Redmine 7.0.2 自体は Ruby 3.4 でも動きます
+  （Gemfile は `ruby '>= 3.2.0', '< 4.1.0'`、Rails 8.1.4 は ruby >= 3.2 要求、
   Ruby 4 以上を要求する gem もありません）が、pin を 1 つ消すために別の pin と
   ビルド一式を抱える取引になるため、上記の実測により不要と結論しました。
 - **7 系の `redmine_gtt` は導入手順が変わりました。** gtt 7.0 でフロントエンドが

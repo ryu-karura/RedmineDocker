@@ -1,4 +1,4 @@
-// Redmine 7.0.1 (passenger mode) E2E walkthrough with screenshots.
+// Redmine 7.0.2 (passenger mode) E2E walkthrough with screenshots.
 const { chromium } = require('playwright');
 const fs = require('fs');
 const path = require('path');
@@ -146,7 +146,7 @@ async function login(page, user, pw) {
     const ver = (txt.match(/Redmine version\s+([^\n]+)/) || [])[1];
     const ruby = (txt.match(/Ruby version\s+([^\n]+)/) || [])[1];
     const rails = (txt.match(/Rails version\s+([^\n]+)/) || [])[1];
-    if (!ver || !ver.includes('7.0.1')) throw new Error(`Redmine version: ${ver}`);
+    if (!ver || !ver.includes('7.0.2')) throw new Error(`Redmine version: ${ver}`);
     return `Redmine ${ver.trim()} / Ruby ${ruby && ruby.trim()} / Rails ${rails && rails.trim()}`;
   });
   await step('B. 管理画面', 'プラグイン一覧', page, async () => {
@@ -230,7 +230,7 @@ async function login(page, user, pw) {
     await page.selectOption('#issue_status_id', { label: '進行中' });
     await page.fill('#issue_notes', 'E2E: 添付ファイルをアップロードして進行中に変更。');
     const f = path.join(OUT, 'e2e-attachment.txt');
-    fs.writeFileSync(f, 'Redmine 7.0.1 passenger E2E attachment\n');
+    fs.writeFileSync(f, 'Redmine 7.0.2 passenger E2E attachment\n');
     await page.setInputFiles('input[type="file"].file_selector', f);
     await page.waitForSelector('.attachments_fields input.filename', { timeout: 30000 });
     await page.waitForFunction(() => !document.querySelector('.attachments_fields .ajax-loading'));
@@ -404,7 +404,7 @@ async function login(page, user, pw) {
     await go(page, `${BASE}/view_customizes/new`);
     await page.fill('#view_customize_path_pattern', '.*');
     await page.selectOption('#view_customize_customize_type', 'css');
-    await page.fill('#view_customize_code', '#header h1::after { content: "  [E2E 7.0.1 passenger]"; color: #ffeb3b; }');
+    await page.fill('#view_customize_code', '#header h1::after { content: "  [E2E 7.0.2 passenger]"; color: #ffeb3b; }');
     await page.fill('#view_customize_comments', 'E2E 確認用');
     await submit(page, page.locator(SUBMIT).first());
     await flash(page);
