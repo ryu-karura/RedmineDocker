@@ -142,12 +142,19 @@ http_200() { [ "$(curl -sS -o /dev/null -w '%{http_code}' "$1")" = "200" ]; }
 # rails runner をコンテナ内で実行し、標準出力をそのまま返します。
 runner() {
     local container="$1" ruby="$2"
-    cli exec -i "${container}" bundle exec rails runner -e production - <<<"${ruby}"
+    # docker exec は entrypoint が export した SECRET_KEY_BASE を継承しないため、
+    # *_FILE 方式のコンテナではシークレットファイルから読み直して渡す。
+    cli exec -i "${container}" sh -c 'if [ -n "${REDMINE_SECRET_KEY_BASE_FILE:-}" ] && [ -r "${REDMINE_SECRET_KEY_BASE_FILE}" ]; then SECRET_KEY_BASE="$(cat "${REDMINE_SECRET_KEY_BASE_FILE}")"; export SECRET_KEY_BASE; fi; exec bundle exec rails runner -e production -' <<<"${ruby}"
+}
+
+# 本番ログは stdout に出るため、結果の後ろに Rails のログ行（"I, [..."）が混ざる。除外してから最終行を取る。
+runner_value() {
+    runner "$1" "$2" | tr -d '\r' | grep -Ev '^[DIWEF], \[' | tail -n1 | tr -d '[:space:]'
 }
 
 runner_equals() {
     local container="$1" ruby="$2" expected="$3" actual
-    actual="$(runner "${container}" "${ruby}" | tr -d '\r' | tail -n1 | tr -d '[:space:]')"
+    actual="$(runner_value "${container}" "${ruby}")"
     if [ "${actual}" = "${expected}" ]; then
         return 0
     fi
@@ -181,7 +188,7 @@ check "legacy Redmine becomes healthy" wait_healthy "${REDMINE_LEGACY_WEB_CONTAI
 check "legacy login page is served (:${REDMINE_LEGACY_WEB_HOST_PORT})" \
     http_200 "http://localhost:${REDMINE_LEGACY_WEB_HOST_PORT}/redmine/login"
 check "legacy Redmine reports version 5.1.1" \
-    runner_equals "${REDMINE_LEGACY_WEB_CONTAINER}" 'puts Redmine::VERSION.to_s' "5.1.1"
+    runner_equals "${REDMINE_LEGACY_WEB_CONTAINER}" 'puts Redmine::VERSION.to_a.first(3).join(".")' "5.1.1"
 check "legacy Redmine loaded 16 plugins" \
     runner_equals "${REDMINE_LEGACY_WEB_CONTAINER}" 'puts Redmine::Plugin.all.size' "16"
 check "legacy Redmine is on the mysql2 adapter" \
@@ -237,6 +244,11 @@ check "legacy: login / project creation / issue creation via the web UI" \
         --url "http://localhost:${REDMINE_LEGACY_WEB_HOST_PORT}/redmine" \
         --label "legacy 5.1.1" --tag before
 
+# test-webflow.sh が課題を 1 件作るため、以降の件数の期待値は実測で決める
+# （seed の 2 件固定にすると、画面操作ぶんだけ毎回ずれる）。
+LEGACY_ISSUES="$(runner_value "${REDMINE_LEGACY_WEB_CONTAINER}" 'puts Issue.count')"
+log "Issue count on the legacy stack before conversion: ${LEGACY_ISSUES}"
+
 # ── 3. 移行先 DB（PostgreSQL 18 + PostGIS 3.6）を起動 ──────────────────────────
 if [ "${SKIP_BUILD}" -eq 0 ]; then
     log "Building the target PostgreSQL image ..."
@@ -272,6 +284,8 @@ cli run -d --name "${ON_PG_CONTAINER}" \
     -e REDMINE_DB_PASSWORD_FILE=/run/secrets/db_password.txt \
     -e REDMINE_SECRET_KEY_BASE_FILE=/run/secrets/secret_key_base.txt \
     -e REDMINE_LOAD_DEFAULT_DATA=0 \
+    --health-cmd /usr/local/bin/redmine-healthcheck.sh \
+    --health-interval 10s --health-timeout 10s --health-retries 10 --health-start-period 60s \
     "${LEGACY_WEB_IMAGE}" >/dev/null \
     || die "Could not start Redmine 5.1.1 against PostgreSQL."
 
@@ -281,8 +295,8 @@ check "5.1.1-on-PostgreSQL serves the login page" \
 check "5.1.1-on-PostgreSQL is on the postgresql adapter" \
     runner_equals "${ON_PG_CONTAINER}" \
         'puts ActiveRecord::Base.connection.adapter_name.downcase' "postgresql"
-check "migrated data is visible (2 issues)" \
-    runner_equals "${ON_PG_CONTAINER}" 'puts Issue.count' "2"
+check "migrated data is visible (${LEGACY_ISSUES} issues)" \
+    runner_equals "${ON_PG_CONTAINER}" 'puts Issue.count' "${LEGACY_ISSUES}"
 check "boolean survived the conversion (1 private issue)" \
     runner_equals "${ON_PG_CONTAINER}" 'puts Issue.where(is_private: true).count' "1"
 check "multibyte text survived the conversion" \
@@ -291,7 +305,7 @@ check "multibyte text survived the conversion" \
 check "sequences work (a new issue can be created)" \
     runner_equals "${ON_PG_CONTAINER}" \
         'i = Issue.new(project: Project.find_by(identifier: "upgrade-rehearsal"), tracker: Tracker.first, author: User.first, subject: "シーケンス検証", status: IssueStatus.first, priority: IssuePriority.default || IssuePriority.first); i.save!; puts Issue.count' \
-        "3"
+        "$((LEGACY_ISSUES + 1))"
 
 # ── 6. Redmine 7 に無いプラグインのアンインストール ───────────────────────────
 # 移行元 (Containerfile.v5-mysql) にあって Redmine 7 イメージに無いプラグインの
@@ -323,7 +337,7 @@ check "Redmine 7 becomes healthy" wait_healthy "${REDMINE_WEB_CONTAINER}" 900
 check "Redmine 7 serves the login page (:${REDMINE_WEB_HOST_PORT})" \
     http_200 "http://localhost:${REDMINE_WEB_HOST_PORT}/redmine/login"
 check "Redmine reports version 7.0.2" \
-    runner_equals "${REDMINE_WEB_CONTAINER}" 'puts Redmine::VERSION.to_s' "7.0.2"
+    runner_equals "${REDMINE_WEB_CONTAINER}" 'puts Redmine::VERSION.to_a.first(3).join(".")' "7.0.2"
 check "Redmine 7 is on the postgis adapter" \
     runner_equals "${REDMINE_WEB_CONTAINER}" \
         'puts ActiveRecord::Base.connection.adapter_name.downcase' "postgis"
@@ -331,8 +345,8 @@ check "all core migrations are applied" \
     runner_equals "${REDMINE_WEB_CONTAINER}" \
         'ctx = ActiveRecord::Base.connection_pool.respond_to?(:migration_context) ? ActiveRecord::Base.connection_pool.migration_context : ActiveRecord::Base.connection.migration_context; puts ctx.needs_migration? ? "pending" : "none"' \
         "none"
-check "data survived the upgrade (3 issues)" \
-    runner_equals "${REDMINE_WEB_CONTAINER}" 'puts Issue.count' "3"
+check "data survived the upgrade ($((LEGACY_ISSUES + 1)) issues)" \
+    runner_equals "${REDMINE_WEB_CONTAINER}" 'puts Issue.count' "$((LEGACY_ISSUES + 1))"
 check "private issue flag survived the upgrade" \
     runner_equals "${REDMINE_WEB_CONTAINER}" 'puts Issue.where(is_private: true).count' "1"
 check "wiki page survived the upgrade" \

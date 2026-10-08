@@ -615,12 +615,23 @@ suite covers "the pre-upgrade data still displays after the upgrade", which the
 `rails runner` (model-level) checks cannot show. It works against any series
 (5/6/7) and can be pointed at any instance standalone.
 
-Two things that script had to get right, both easy to reintroduce:
+Four things that script had to get right, all easy to reintroduce:
 - **Never pass `-X POST` to curl together with `-L`.** `-X` forces the method on
   every hop of the redirect chain, so curl re-sends `POST` to the 302 target;
   Redmine answers `422` on the CSRF check and **resets the session**, leaving you
   silently anonymous even though the login itself succeeded. Supplying
   `--data-urlencode` alone makes curl POST and then correctly switch to `GET`.
+- **Send `Accept: text/html`, as a browser does.** curl's default `*/*` makes
+  `respond_to` pick the first declared format, and with `redmine_gtt` in the
+  image `GET /projects/<id>` then comes back as GeoJSON (body `null`,
+  `content-disposition: attachment; filename="<id>.geojson"`) instead of the
+  overview page. Browsers are unaffected; only non-browser clients that omit
+  `Accept` see it.
+- **Don't treat "the login name appears on `/my/account`" as proof of a session.**
+  The anonymous login page that `/my/account` redirects to also contains it
+  (`view_customize` embeds `"admin":false` in a JS context), so a wrong password
+  looked like success and the fallback password was never tried. `attempt_login`
+  also requires a logout link.
 - **Issue creation needs Redmine's default data** (trackers/statuses/priorities).
   Without it `GET /projects/<id>/issues/new` returns a bare `500`. That is why
   `compose.legacy.yaml` sets `REDMINE_LOAD_DEFAULT_DATA=1` — it is load-bearing,
